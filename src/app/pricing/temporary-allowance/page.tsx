@@ -15,6 +15,7 @@ import { SearchInput } from "@dejesumensaje/converge-ds-experimental";
 
 export default function TempAllowancePage() {
   const { tempAllowanceItems, overrides } = usePricingStore();
+  const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const [search, setSearch] = useState("");
   const [activeSegment, setActiveSegment] = useState<StatusSegmentKey | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -93,7 +94,9 @@ export default function TempAllowancePage() {
   return (
     <PricingShell pendingCount={pendingCount}>
       <div className="flex items-center justify-between gap-4 mb-3">
-        <ChangeTypeNav active="temporary_allowance" />
+        <div className="min-w-0 flex-1 overflow-x-auto">
+          <ChangeTypeNav active="temporary_allowance" />
+        </div>
         <div className="flex items-center gap-2 shrink-0">
           <SearchInput value={search} onValueChange={setSearch} aria-label="Search items" className="w-56" />
           <ColumnsMenu
@@ -129,6 +132,14 @@ export default function TempAllowancePage() {
         onClose={() => setActiveItemId(null)}
         onPrev={prevId ? () => setActiveItemId(prevId) : undefined}
         onNext={nextId ? () => setActiveItemId(nextId) : undefined}
+        onAccept={
+          activeItem
+            ? () => {
+                acceptNoChange("tempAllowanceItems", activeItem.id);
+                setActiveItemId(nextId ?? null);
+              }
+            : undefined
+        }
       />
     </PricingShell>
   );

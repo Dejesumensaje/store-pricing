@@ -12,7 +12,12 @@ export function fmtUnitPrice(qty: number, price: number) {
   return `${fmt(price / qty)}/unit`;
 }
 
-/** "2026-05-23" → "May 23". */
+/** "2026-05-23" (date-only) → "May 23". */
 export function fmtDateShort(iso: string) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Full ISO datetime ("2026-06-10T09:00:00Z") → "Jun 10". */
+export function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

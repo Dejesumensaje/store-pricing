@@ -7,36 +7,51 @@ import { buildBaseColumns } from "@/components/pricing-table/columns/baseColumns
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
 import { ChangeTypeNav } from "@/components/pricing-table/ChangeTypeNav";
 import { StatusSegments, StatusSegmentKey, SEGMENT_ICONS } from "@/components/pricing-table/StatusSegments";
-import { usePricingStore } from "@/store/pricing-store";
+import { usePricingStore, CatalogKey } from "@/store/pricing-store";
 import { needsDecision } from "@/lib/pricing-meta";
 import { PricingItem } from "@/types/pricing";
 import { SearchInput, Button } from "@dejesumensaje/converge-ds-experimental";
 import { Columns3, SlidersHorizontal } from "lucide-react";
 
-export default function BasePricePage() {
-  const { baseItems, overrides } = usePricingStore();
+type Props = {
+  /** Active change-type pill (PricingCategory value). */
+  active: string;
+  /** Which store catalog this queue reads from / accepts into. */
+  catalog: CatalogKey;
+  /** Label for the "new from HQ" segment (varies per change type). */
+  newFromHqLabel: string;
+  newFromHqCount: number;
+};
+
+// Generic base-style review queue shared by the simpler change types
+// (EDLP, no change, new/discontinued). Base & temp allowance keep bespoke pages.
+export function PricingQueuePage({ active, catalog, newFromHqLabel, newFromHqCount }: Props) {
+  const items0 = usePricingStore((s) => s[catalog]);
+  const overrides = usePricingStore((s) => s.overrides);
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
+
   const [search, setSearch] = useState("");
   const [activeSegment, setActiveSegment] = useState<StatusSegmentKey | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
   const pendingCount = overrides.filter((o) => o.status === "pending").length;
-  const overrideCount = baseItems.filter((i) => i.hasOverride).length;
+  const overrideCount = items0.filter((i) => i.hasOverride).length;
+  const alertCount = items0.filter((i) => i.hasAlert).length;
   const pendingSendCount = overrides.filter((o) => o.status !== "submitted").length;
 
   const segments = useMemo(
     () => [
-      { key: "new_from_hq" as StatusSegmentKey, label: "new base prices from HQ", count: 40, icon: SEGMENT_ICONS.new_from_hq },
-      { key: "overrides" as StatusSegmentKey, label: "base price overrides", count: overrideCount, icon: SEGMENT_ICONS.overrides },
-      { key: "alerts" as StatusSegmentKey, label: "alerts", count: 15, icon: SEGMENT_ICONS.alerts },
+      { key: "new_from_hq" as StatusSegmentKey, label: newFromHqLabel, count: newFromHqCount, icon: SEGMENT_ICONS.new_from_hq },
+      { key: "overrides" as StatusSegmentKey, label: "price overrides", count: overrideCount, icon: SEGMENT_ICONS.overrides },
+      { key: "alerts" as StatusSegmentKey, label: "alerts", count: alertCount, icon: SEGMENT_ICONS.alerts },
       { key: "pending_send" as StatusSegmentKey, label: "pending send", count: pendingSendCount, icon: SEGMENT_ICONS.pending_send },
     ],
-    [overrideCount, pendingSendCount]
+    [newFromHqLabel, newFromHqCount, overrideCount, alertCount, pendingSendCount]
   );
 
   const items = useMemo(() => {
-    let list = baseItems;
+    let list = items0;
     if (activeSegment === "overrides") list = list.filter((i) => i.hasOverride);
     if (activeSegment === "alerts") list = list.filter((i) => i.hasAlert);
     if (search.trim()) {
@@ -44,7 +59,7 @@ export default function BasePricePage() {
       list = list.filter((i) => i.name.toLowerCase().includes(q) || i.id.toLowerCase().includes(q));
     }
     return list;
-  }, [baseItems, activeSegment, search]);
+  }, [items0, activeSegment, search]);
 
   const toggle = useCallback((row: PricingItem) => {
     setSelected((prev) => {
@@ -68,14 +83,11 @@ export default function BasePricePage() {
     [selected, items, toggle, toggleAll]
   );
 
-  // Edit queue — Prev/Next step through items that still need a decision,
-  // in the table's current order.
   const queue = useMemo(() => items.filter((i) => needsDecision(i, "base")), [items]);
   const activeItem = items.find((i) => i.id === activeItemId) ?? null;
   const step = useCallback(
     (dir: 1 | -1) => {
-      const order = items.map((i) => i.id);
-      const from = activeItemId ? order.indexOf(activeItemId) : -1;
+      const from = activeItemId ? items.findIndex((i) => i.id === activeItemId) : -1;
       for (let i = from + dir; i >= 0 && i < items.length; i += dir) {
         if (needsDecision(items[i], "base")) return items[i].id;
       }
@@ -90,7 +102,7 @@ export default function BasePricePage() {
     <PricingShell pendingCount={pendingCount}>
       <div className="flex items-center justify-between gap-4 mb-3">
         <div className="min-w-0 flex-1 overflow-x-auto">
-          <ChangeTypeNav active="base" />
+          <ChangeTypeNav active={active} />
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <SearchInput value={search} onValueChange={setSearch} aria-label="Search items" className="w-56" />
@@ -125,7 +137,7 @@ export default function BasePricePage() {
         onAccept={
           activeItem
             ? () => {
-                acceptNoChange("baseItems", activeItem.id);
+                acceptNoChange(catalog, activeItem.id);
                 setActiveItemId(nextId ?? null);
               }
             : undefined

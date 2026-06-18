@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Tabs, Badge } from "@dejesumensaje/converge-ds-experimental";
+import { AppShell } from "@/components/layout/AppShell";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { SummaryCard } from "@/components/dashboard/SummaryCard";
 import { CategoryCard } from "@/components/dashboard/CategoryCard";
@@ -20,7 +21,8 @@ export default function DashboardPage() {
   const totalAlerts = mockCategories.reduce((s, c) => s + c.alerts, 0);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <AppShell>
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-gray-50">
       <AppHeader alertCount={totalAlerts} />
 
       <main className="flex-1 px-8 py-6 max-w-[1400px] mx-auto w-full">
@@ -33,7 +35,7 @@ export default function DashboardPage() {
 
         <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">February 2026</h1>
+            <h1 className="text-2xl font-bold text-gray-900">February 2026</h1>
             <p className="text-sm text-gray-500 mt-1">902 S. Locust St, Glenwood, IA 51534</p>
           </div>
           <div className="flex items-center gap-2 text-sm text-gray-600 mt-1 flex-wrap">
@@ -64,6 +66,7 @@ export default function DashboardPage() {
           Copyright © Deloitte Development LLC 2026. All Rights Reserved.
         </p>
       </footer>
-    </div>
+      </div>
+    </AppShell>
   );
 }

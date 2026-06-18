@@ -1,5 +1,6 @@
 "use client";
 
+import { AppShell } from "./AppShell";
 import { AppHeader } from "./AppHeader";
 import { PageHeaderBar } from "./PageHeaderBar";
 import { SummaryBar } from "./SummaryBar";
@@ -14,7 +15,7 @@ type Props = {
 
 export function PricingShell({ pendingCount, hideSummary, children }: Props) {
   return (
-    <div className="h-screen bg-gray-50 flex flex-col overflow-hidden">
+    <AppShell>
       <AppHeader alertCount={pendingCount} />
 
       <div className="shrink-0">
@@ -34,6 +35,6 @@ export function PricingShell({ pendingCount, hideSummary, children }: Props) {
           {" | "}Copyright © Deloitte Development LLC 2026. All Rights Reserved.
         </p>
       </footer>
-    </div>
+    </AppShell>
   );
 }

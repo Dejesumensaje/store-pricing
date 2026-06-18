@@ -1,16 +1,22 @@
 @import "tailwindcss";
 @import "@dejesumensaje/converge-ds-experimental/styles.css";
 
-body {
-  font-family: "Open Sans", sans-serif;
+/*
+ * Project theme tokens registered with Tailwind v4 so they are usable both as
+ * `var(--token)` and as utilities (bg-brand, text-brand, bg-group-pricing-bg…).
+ * The DS ships its own semantic tokens in :root (--primary is green #26890d);
+ * the Hy-Vee brand teal is distinct, so we keep --color-brand separate.
+ */
+@theme {
+  --font-sans: var(--font-open-sans), "Open Sans", ui-sans-serif, sans-serif;
+
+  --color-brand: #003a5d;
+  --color-group-pricing-bg: #fdf1ef;
+  --color-group-pricing-header: #fbe6e2;
+  --color-group-impact-bg: #eef5f9;
+  --color-group-impact-header: #e3eef6;
 }
 
-@layer base {
-  :root {
-    --color-brand: #003A5D;
-    --color-group-pricing-bg: #fdf1ef;
-    --color-group-pricing-header: #fbe6e2;
-    --color-group-impact-bg: #eef5f9;
-    --color-group-impact-header: #e3eef6;
-  }
+body {
+  font-family: var(--font-sans);
 }

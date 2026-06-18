@@ -219,7 +219,7 @@ export function DataTable<T>({
                     key={seg.key}
                     colSpan={seg.cols.length}
                     className={`${GROUP_HEADER_BG[seg.group]} sticky top-0 z-20 border-b border-gray-200 text-xs font-semibold uppercase tracking-wide px-3 py-2 ${
-                      seg.group === "impact" ? "text-[#003A5D]" : "text-gray-600"
+                      seg.group === "impact" ? "text-brand" : "text-gray-600"
                     } ${i > 0 ? "border-l border-gray-200" : ""}`}
                     style={{ width: seg.width, minWidth: seg.width }}
                   >
@@ -314,7 +314,9 @@ export function DataTable<T>({
 
   return (
     <div className="h-full overflow-auto border border-gray-200 rounded-xl bg-white">
-      <Table density="compact" className="border-separate border-spacing-0 w-max">
+      {/* w-full fills the container on wide screens; min-w-max preserves the
+          intrinsic column widths (and horizontal scroll) when they overflow. */}
+      <Table density="compact" className="border-separate border-spacing-0 w-full min-w-max">
         <TableHeader>
           {/* Group header row — only when pricing/impact groups exist */}
           {hasGroups && (
@@ -330,7 +332,7 @@ export function DataTable<T>({
                   className={`${GROUP_HEADER_BG[seg.group]} ${
                     i === 0 ? firstPinnedShadow : "border-l border-gray-200"
                   } sticky top-0 z-30 border-b border-gray-200 text-xs font-semibold uppercase tracking-wide px-3 py-2 ${
-                    seg.group === "impact" ? "text-[#003A5D]" : "text-gray-600"
+                    seg.group === "impact" ? "text-brand" : "text-gray-600"
                   }`}
                   style={{ position: "sticky", right: segmentOffsets[i] }}
                 >

@@ -51,7 +51,7 @@ export function PriceInputCell({ recommended, value, state, onCommit, onViewAler
         />
       </div>
       {state === "sent" && (
-        <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-medium pl-1">
+        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
           <Check className="size-3" /> Sent
         </span>
       )}

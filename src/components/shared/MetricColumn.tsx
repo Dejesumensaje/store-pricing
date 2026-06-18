@@ -34,7 +34,7 @@ export function MetricColumn({ label, info, current, next, impact, showImpact = 
           <span className="text-emerald-300 text-sm font-semibold leading-none ml-1">{impact}</span>
         )}
       </div>
-      <div className="flex gap-2 text-[10px] text-white/50">
+      <div className="flex gap-2 text-xs text-white/50">
         <span className="min-w-[3.5rem]">Current</span>
         <span className="min-w-[3.5rem]">New</span>
         {showImpact && <span>Impact</span>}

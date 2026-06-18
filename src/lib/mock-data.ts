@@ -1,4 +1,38 @@
-import { PricingItem, Override, Batch, SummaryMetrics, CategorySummary } from "@/types/pricing";
+import { PricingItem, Override, Batch, SummaryMetrics, CategorySummary, CompetitorPrice } from "@/types/pricing";
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Items that share a line-price group (priced together as a line).
+const LINE_PRICE_GROUPS: Record<string, string> = {
+  "RBCS5-1": "fl-tortilla",
+  "RBCS5-5": "fl-tortilla",
+  "RBCS5-7": "fl-tortilla",
+};
+
+// A few hand-picked "frequently priced together" relationships.
+const RELATED_ITEMS: Record<string, string[]> = {
+  "W7BESS": ["RBCS5-1", "RBCS5-2", "RBCS5-8"],
+  "RBCS5-1": ["RBCS5-5", "RBCS5-7", "W7BESS"],
+  "RBCS5-2": ["RBCS5-3", "RBCS5-6", "W7BESS"],
+  "RBCS5-5": ["RBCS5-1", "RBCS5-7"],
+  "RBCS5-7": ["RBCS5-1", "RBCS5-5"],
+};
+
+// Synthesize believable competitor shelf prices around the current base price.
+function enrichItemContext(item: PricingItem): PricingItem {
+  const base = item.currentBasePrice;
+  const competitors: CompetitorPrice[] = [
+    { name: "Walmart", price: round2(base * 0.96), distanceMi: 2.1 },
+    { name: "Target", price: round2(base * 1.04), distanceMi: 3.4 },
+    { name: "Aldi", price: round2(base * 0.89), distanceMi: 5.2 },
+  ];
+  return {
+    ...item,
+    competitors,
+    relatedItemIds: RELATED_ITEMS[item.id],
+    linePriceGroup: LINE_PRICE_GROUPS[item.id],
+  };
+}
 
 export const mockSummaryMetrics: SummaryMetrics = {
   salesCurrent: 220,
@@ -86,7 +120,7 @@ const baseItem = {
   category_type: "base" as const,
 };
 
-export const mockItems: PricingItem[] = [
+const baseMockItems: PricingItem[] = [
   {
     ...baseItem,
     id: "W7BESS",
@@ -200,6 +234,10 @@ export const mockItems: PricingItem[] = [
     recommendedBasePrice: 4.39,
   },
 ];
+
+// Every base item carries competitor / related / line-price context so the
+// item drawer has something real to motivate a store-level override.
+export const mockItems: PricingItem[] = baseMockItems.map(enrichItemContext);
 
 // TA items mirror the base catalog (same ids — base price is shared), adding
 // the retail/allowance side. Retail overrides only exist in this list.

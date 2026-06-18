@@ -3,6 +3,8 @@ import { PricingCategory, PricingItem } from "@/types/pricing";
 // An item still "needs a decision" until the relevant price(s) are committed.
 // Mirrors the hasDecision predicate used by buildImpactColumn (columns/shared).
 export function needsDecision(item: PricingItem, variant: "base" | "temp"): boolean {
+  // Accepting an item as-is resolves it without a price override.
+  if (item.reviewed) return false;
   if (variant === "temp") return item.newBasePrice == null && item.newRetailPrice == null;
   return item.newBasePrice == null;
 }

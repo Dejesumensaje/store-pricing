@@ -12,6 +12,15 @@ import {
   mockBatches,
 } from "@/lib/mock-data";
 
+// Catalog arrays that hold reviewable items. Base and TA share item ids, so
+// "accept (no changes)" is scoped to one catalog to avoid cross-queue bleed.
+export type CatalogKey =
+  | "baseItems"
+  | "tempAllowanceItems"
+  | "edlpItems"
+  | "noChangeItems"
+  | "newDiscontinuedItems";
+
 type PricingStore = {
   baseItems: PricingItem[];
   tempAllowanceItems: PricingItem[];
@@ -27,12 +36,16 @@ type PricingStore = {
   updateBasePrice: (itemId: string, newPrice: number | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
+  // Accept an item as-is (no price change) within one catalog/queue.
+  acceptNoChange: (catalog: CatalogKey, itemId: string) => void;
   // Pending list / batches
   removeFromLooseTray: (overrideId: string) => void;
   removeFromBatch: (overrideId: string) => void;
   addToBatch: (batchId: string, overrideIds: string[]) => void;
+  moveOverrideToBatch: (overrideId: string, targetBatchId: string) => void;
   createBatch: (name: string, overrideIds: string[]) => void;
   submitBatch: (batchId: string) => void;
+  confirmBatch: (batchId: string) => void;
   submitAll: () => void;
 };
 
@@ -181,6 +194,13 @@ export const usePricingStore = create<PricingStore>((set) => ({
       ),
     })),
 
+  acceptNoChange: (catalog, itemId) =>
+    set((state) => ({
+      [catalog]: state[catalog].map((item) =>
+        item.id === itemId ? { ...item, reviewed: true } : item
+      ),
+    }) as Partial<PricingStore>),
+
   // Discarding a pending change also clears the edit from the table cell.
   removeFromLooseTray: (overrideId) =>
     set((state) => {
@@ -241,6 +261,23 @@ export const usePricingStore = create<PricingStore>((set) => ({
       };
     }),
 
+  // Move an override from its current batch to another draft batch (stays in_batch).
+  moveOverrideToBatch: (overrideId, targetBatchId) =>
+    set((state) => ({
+      overrides: state.overrides.map((o) =>
+        o.id === overrideId ? { ...o, status: "in_batch", batchId: targetBatchId } : o
+      ),
+      batches: state.batches.map((b) => {
+        if (b.id === targetBatchId) {
+          return { ...b, overrideIds: [...new Set([...b.overrideIds, overrideId])] };
+        }
+        if (b.overrideIds.includes(overrideId)) {
+          return { ...b, overrideIds: b.overrideIds.filter((id) => id !== overrideId) };
+        }
+        return b;
+      }),
+    })),
+
   createBatch: (name, overrideIds) =>
     set((state) => {
       const newBatch: Batch = {
@@ -266,13 +303,35 @@ export const usePricingStore = create<PricingStore>((set) => ({
     set((state) => {
       const affected = state.overrides.filter((o) => o.batchId === batchId);
       return {
-        batches: state.batches.map((b) => (b.id === batchId ? { ...b, status: "submitted" } : b)),
+        batches: state.batches.map((b) =>
+          b.id === batchId ? { ...b, status: "submitted", submittedAt: new Date().toISOString() } : b
+        ),
         overrides: state.overrides.map((o) =>
           o.batchId === batchId ? { ...o, status: "submitted" } : o
         ),
         baseItems: applyStatusToItems(state.baseItems, affected, "submitted"),
         edlpItems: applyStatusToItems(state.edlpItems, affected, "submitted"),
         tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "submitted"),
+      };
+    }),
+
+  // Post-SAP acknowledgment: a submitted batch is confirmed back by SAP.
+  confirmBatch: (batchId) =>
+    set((state) => {
+      const affected = state.overrides.filter((o) => o.batchId === batchId);
+      const sapReference = `SAP-${batchId.replace(/^batch-/, "").slice(-6).toUpperCase()}`;
+      return {
+        batches: state.batches.map((b) =>
+          b.id === batchId
+            ? { ...b, status: "confirmed", confirmedAt: new Date().toISOString(), sapReference }
+            : b
+        ),
+        overrides: state.overrides.map((o) =>
+          o.batchId === batchId ? { ...o, status: "confirmed" } : o
+        ),
+        baseItems: applyStatusToItems(state.baseItems, affected, "confirmed"),
+        edlpItems: applyStatusToItems(state.edlpItems, affected, "confirmed"),
+        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "confirmed"),
       };
     }),
 

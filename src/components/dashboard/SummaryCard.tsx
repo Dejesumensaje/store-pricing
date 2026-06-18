@@ -13,7 +13,7 @@ export function SummaryCard({ metrics }: Props) {
   const [costAdjusted, setCostAdjusted] = useState(true);
 
   return (
-    <div className="rounded-xl px-6 py-4 bg-gradient-to-r from-[#003A5D] via-[#0a4d6e] to-[#11607f]">
+    <div className="rounded-xl px-6 py-4 bg-gradient-to-r from-brand via-[#0a4d6e] to-[#11607f]">
       <div className="flex items-center justify-between mb-3">
         <span className="text-white font-semibold text-base">Summary</span>
         <div className="flex items-center gap-5">

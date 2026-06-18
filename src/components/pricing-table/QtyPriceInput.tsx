@@ -67,7 +67,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, onCommit, o
           }}
           className="w-8 py-1.5 text-sm text-center bg-transparent focus:outline-none placeholder:text-gray-400"
         />
-        <span className="text-[11px] text-gray-400 select-none shrink-0 border-l border-gray-200 pl-1.5">
+        <span className="text-xs text-gray-400 select-none shrink-0 border-l border-gray-200 pl-1.5">
           for
         </span>
         <span className="text-sm text-gray-500 pl-1 select-none">$</span>
@@ -85,7 +85,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, onCommit, o
       </div>
 
       {state === "sent" ? (
-        <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-medium pl-1">
+        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
           <Check className="size-3" /> Sent{isDeal ? ` · ${fmtUnitPrice(liveQty, livePrice)}` : ""}
         </span>
       ) : state === "alert" ? (
@@ -93,7 +93,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, onCommit, o
           View alerts
         </Button>
       ) : isDeal ? (
-        <span className="text-[11px] text-gray-500 pl-1">
+        <span className="text-xs text-gray-500 pl-1">
           {fmtQtyPrice(liveQty, livePrice)} · {fmtUnitPrice(liveQty, livePrice)}
         </span>
       ) : null}

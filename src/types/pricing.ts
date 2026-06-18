@@ -6,6 +6,14 @@ export type PricingCategory =
   | "new_discontinued";
 
 export type ItemRole = "Traffic driver" | "Margin driver" | "Destination" | "Convenience";
+
+/** A competitor's shelf price for the same (or equivalent) item. */
+export type CompetitorPrice = {
+  name: string;
+  price: number;
+  /** Distance to the competitor store, in miles. */
+  distanceMi?: number;
+};
 export type NationalVsStore = "National" | "Store";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
@@ -43,6 +51,15 @@ export type PricingItem = {
   allowanceEndDate?: string | null;
   // New / discontinued
   itemStatus?: "new" | "discontinued";
+  // Context that motivates a store-level price override (shown in the drawer)
+  competitors?: CompetitorPrice[];
+  /** Ids of items frequently bought/priced together (cross-sell context). */
+  relatedItemIds?: string[];
+  /**
+   * Line-price group key. Items sharing a key are priced as a line — editing
+   * one suggests propagating the same price across the group.
+   */
+  linePriceGroup?: string;
   // Impact (computed/received from HQ)
   impactSalesValue: number;
   impactSalesPct: number;
@@ -57,6 +74,8 @@ export type PricingItem = {
   baseOverrideStatus?: OverrideStatus;
   retailOverrideStatus?: OverrideStatus;
   hasAlert?: boolean;
+  /** Accepted as-is (no changes) — removes the item from the review queue. */
+  reviewed?: boolean;
   category_type: PricingCategory;
 };
 
@@ -85,6 +104,11 @@ export type Batch = {
   status: BatchStatus;
   overrideIds: string[];
   createdAt: string;
+  /** Set when the batch is sent to SAP. */
+  submittedAt?: string;
+  /** SAP reference returned on confirmation (post-submit acknowledgment). */
+  sapReference?: string;
+  confirmedAt?: string;
 };
 
 export type SummaryMetrics = {

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
+import { AppShell } from "@/components/layout/AppShell";
 import { AppHeader } from "@/components/layout/AppHeader";
 import {
   Button,
@@ -16,7 +18,7 @@ import { usePricingStore } from "@/store/pricing-store";
 import { Override } from "@/types/pricing";
 import { fmt } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
-import { Package, Send, Plus, Trash2, ChevronDown, ChevronRight, ArrowLeft, Inbox } from "lucide-react";
+import { Package, Send, Plus, Trash2, Layers } from "lucide-react";
 
 function toggleSetItem(prev: Set<string>, id: string, checked: boolean | "indeterminate"): Set<string> {
   const next = new Set(prev);
@@ -40,13 +42,11 @@ function OverrideRow({
   selected,
   onSelect,
   onRemove,
-  action,
 }: {
   override: Override;
   selected: boolean;
   onSelect: (checked: boolean | "indeterminate") => void;
   onRemove: () => void;
-  action?: React.ReactNode;
 }) {
   const diff = override.newPrice - override.currentPrice;
   return (
@@ -58,21 +58,20 @@ function OverrideRow({
       </div>
       <div className="flex items-center gap-5 shrink-0 text-sm">
         <div className="text-center w-16">
-          <p className="text-[10px] text-gray-400 uppercase">Current</p>
+          <p className="text-xs text-gray-400 uppercase">Current</p>
           <p className="font-medium text-gray-600">{fmt(override.currentPrice)}</p>
         </div>
         <div className="text-center w-16">
-          <p className="text-[10px] text-gray-400 uppercase">New</p>
+          <p className="text-xs text-gray-400 uppercase">New</p>
           <p className="font-semibold text-gray-900">{fmt(override.newPrice)}</p>
         </div>
         <div className="text-center w-20">
-          <p className="text-[10px] text-gray-400 uppercase">Change</p>
+          <p className="text-xs text-gray-400 uppercase">Change</p>
           <p className={`font-medium ${diff >= 0 ? "text-emerald-600" : "text-red-600"}`}>
             {diff >= 0 ? "+" : ""}{fmt(diff)}
           </p>
         </div>
       </div>
-      {action}
       <Button variant="tertiary" size="sm" iconLeft={Trash2} onClick={onRemove} aria-label="Remove" />
     </div>
   );
@@ -81,7 +80,7 @@ function OverrideRow({
 // ─── Column header row ────────────────────────────────────────────────────────
 function TableHeader() {
   return (
-    <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-b border-gray-200 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+    <div className="flex items-center gap-4 px-4 py-2 bg-gray-50 border-b border-gray-200 text-xs font-semibold text-gray-400 uppercase tracking-wide">
       <div className="size-4 shrink-0" />
       <div className="flex-1">Item / Type</div>
       <div className="flex items-center gap-5 shrink-0">
@@ -89,115 +88,7 @@ function TableHeader() {
         <span className="w-16 text-center">New</span>
         <span className="w-20 text-center">Change</span>
       </div>
-      <div className="w-24 shrink-0" />
       <div className="size-4 shrink-0" />
-    </div>
-  );
-}
-
-// ─── Batch section ────────────────────────────────────────────────────────────
-function BatchSection({ batchId, selectedIds, onSelect }: {
-  batchId: string;
-  selectedIds: Set<string>;
-  onSelect: (id: string, checked: boolean | "indeterminate") => void;
-}) {
-  const { batches, overrides, submitBatch, removeFromBatch, removeFromLooseTray } = usePricingStore();
-  const batch = batches.find((b) => b.id === batchId);
-  const [expanded, setExpanded] = useState(true);
-  const [submitOpen, setSubmitOpen] = useState(false);
-
-  if (!batch) return null;
-
-  const batchOverrides = overrides.filter((o) => o.batchId === batchId);
-
-  return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden mb-3 bg-white">
-      <div className="flex items-center">
-        <div
-          className="flex items-center gap-3 px-4 py-3 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors select-none flex-1"
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? <ChevronDown className="size-4 text-gray-400 shrink-0" /> : <ChevronRight className="size-4 text-gray-400 shrink-0" />}
-          <span className="font-semibold text-gray-800 text-sm flex-1">{batch.name}</span>
-          <Badge tone={batch.status === "submitted" ? "success" : "neutral"} size="sm">
-            {batch.status === "submitted" ? "Submitted" : "Draft"}
-          </Badge>
-          <span className="text-xs text-gray-400">{batchOverrides.length} item{batchOverrides.length !== 1 ? "s" : ""}</span>
-        </div>
-        <div className="px-3 bg-gray-50 border-l border-gray-200 flex items-center self-stretch">
-          <Button size="sm" variant="secondary" iconLeft={Send} onClick={() => setSubmitOpen(true)}
-            disabled={batch.status === "submitted"}>
-            Submit batch
-          </Button>
-        </div>
-      </div>
-
-      {expanded && (
-        <>
-          {batchOverrides.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-gray-400">
-              <Inbox className="size-6 stroke-1" />
-              <p className="text-sm">No items yet</p>
-            </div>
-          ) : (
-            <>
-              <TableHeader />
-              {batchOverrides.map((ov) => (
-                <OverrideRow
-                  key={ov.id}
-                  override={ov}
-                  selected={selectedIds.has(ov.id)}
-                  onSelect={(c) => onSelect(ov.id, c)}
-                  onRemove={() => removeFromLooseTray(ov.id)}
-                  action={
-                    <Button
-                      variant="tertiary"
-                      size="sm"
-                      iconLeft={ArrowLeft}
-                      onClick={() => removeFromBatch(ov.id)}
-                    >
-                      Move to pending
-                    </Button>
-                  }
-                />
-              ))}
-            </>
-          )}
-        </>
-      )}
-
-      <Modal
-        open={submitOpen}
-        onOpenChange={setSubmitOpen}
-        title={`Submit: ${batch.name}`}
-        size="md"
-        footer={
-          <ModalFooter onCancel={() => setSubmitOpen(false)}>
-            <Button variant="primary" iconLeft={Send} onClick={() => { submitBatch(batchId); setSubmitOpen(false); }}>
-              Submit to SAP
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <p className="text-sm text-gray-600 mb-4">
-          You are about to send <strong>{batchOverrides.length} price change{batchOverrides.length !== 1 ? "s" : ""}</strong> from batch <strong>{batch.name}</strong> to SAP.
-        </p>
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
-          {batchOverrides.map((ov) => (
-            <div key={ov.id} className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 last:border-0">
-              <div>
-                <p className="text-sm font-medium text-gray-800">{ov.itemName}</p>
-                <p className="text-xs text-gray-400">{CATEGORY_LABELS[ov.changeType]}</p>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
-                <span className="text-gray-300">→</span>
-                <span className="font-semibold text-gray-900">{fmt(ov.newPrice)}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -276,7 +167,8 @@ export default function LooseTrayPage() {
   const batchedCount = overrides.filter((o) => o.status === "in_batch").length;
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <AppShell>
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-gray-50">
       <AppHeader alertCount={pendingOverrides.length} />
 
       <div className="px-6 pt-4 pb-2 shrink-0">
@@ -289,7 +181,10 @@ export default function LooseTrayPage() {
       <main className="flex-1 px-6 pb-8 max-w-[1100px] mx-auto w-full">
         {/* Page header */}
         <div className="flex items-center justify-between mb-5">
-          <h1 className="text-xl font-bold text-gray-900">Loose Tray</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Loose Tray</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Ungrouped price changes, ready to batch or send.</p>
+          </div>
           <div className="flex items-center gap-2">
             {selectedIds.size > 0 && draftBatches.length > 0 && (
               <Button variant="secondary" size="sm" iconLeft={Plus} onClick={() => setAddToBatchOpen(true)}>
@@ -308,8 +203,29 @@ export default function LooseTrayPage() {
           </div>
         </div>
 
+        {/* Batches live on their own page now — surface a pointer + count. */}
+        {batches.length > 0 && (
+          <Link
+            href="/batches"
+            className="mb-6 flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 transition-colors hover:bg-gray-50"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-group-impact-bg text-brand">
+                <Layers className="size-4.5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">Manage batches</p>
+                <p className="text-xs text-gray-400">
+                  {batches.length} batch{batches.length !== 1 ? "es" : ""} · {batchedCount} item{batchedCount !== 1 ? "s" : ""} grouped
+                </p>
+              </div>
+            </div>
+            <span className="text-sm text-brand">Open →</span>
+          </Link>
+        )}
+
         {/* ── Pending changes ─────────────────────────────────────────────── */}
-        <section className="mb-8">
+        <section>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">Pending changes</h2>
@@ -347,26 +263,6 @@ export default function LooseTrayPage() {
                 ))
               )}
             </div>
-          )}
-        </section>
-
-        {/* ── Batches ──────────────────────────────────────────────────────── */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <h2 className="font-semibold text-gray-700 text-sm uppercase tracking-wide">Batches</h2>
-            {batches.length > 0 && <Badge tone="neutral" size="sm">{batches.length}</Badge>}
-          </div>
-
-          {batches.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 py-14 flex flex-col items-center gap-3 text-gray-400">
-              <Package className="size-10 stroke-1" />
-              <p className="text-sm font-medium">No pending batches</p>
-              <p className="text-xs text-center max-w-xs">Create a batch to group price changes for bulk submission.</p>
-            </div>
-          ) : (
-            batches.map((b) => (
-              <BatchSection key={b.id} batchId={b.id} selectedIds={selectedIds} onSelect={toggleSelect} />
-            ))
           )}
         </section>
       </main>
@@ -503,6 +399,7 @@ export default function LooseTrayPage() {
           ))}
         </div>
       </Modal>
-    </div>
+      </div>
+    </AppShell>
   );
 }
