@@ -50,9 +50,13 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {isActive && (
+          {isActive ? (
             <Badge tone="in-progress" size="sm" icon={Target}>Active</Badge>
-          )}
+          ) : isOpen && onSetActive ? (
+            <Button variant="tertiary" size="sm" iconLeft={Target} onClick={onSetActive}>
+              Set active
+            </Button>
+          ) : null}
           <Badge tone={status.tone} size="sm">{status.label}</Badge>
         </div>
       </div>
@@ -79,11 +83,6 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
         <Button variant="secondary" size="sm" iconLeft={Settings2} onClick={onManage}>
           Manage
         </Button>
-        {isOpen && onSetActive && !isActive && (
-          <Button variant="tertiary" size="sm" iconLeft={Target} onClick={onSetActive}>
-            Set active
-          </Button>
-        )}
         <div className="flex-1" />
         {(batch.status === "draft" || batch.status === "scheduled") && (
           <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={onSchedule}>

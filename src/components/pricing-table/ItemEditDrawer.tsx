@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Checkbox, DatePicker } from "@dejesumensaje/converge-ds-experimental";
 import { usePricingStore } from "@/store/pricing-store";
@@ -94,6 +94,8 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
   const isTemp = item?.category_type === "temporary_allowance";
 
   const [showFuelSaver, setShowFuelSaver] = useState(false);
+  // Reset the "add fuel saver" reveal when navigating to another item.
+  useEffect(() => setShowFuelSaver(false), [itemId]);
 
   const advance = () => (onNext ? onNext() : onClose());
 
@@ -209,16 +211,14 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
             </div>
           </div>
 
-          {/* Price type */}
-          <Field label="Price type">
-            <Select
-              options={PRICE_TYPE_OPTIONS}
-              value={item.category_type}
-              onChange={(v) => updatePriceType(item.id, v as PricingCategory)}
-              label="Price type"
-              size="sm"
-            />
-          </Field>
+          {/* Price type — the Select renders its own label, so no extra title. */}
+          <Select
+            options={PRICE_TYPE_OPTIONS}
+            value={item.category_type}
+            onChange={(v) => updatePriceType(item.id, v as PricingCategory)}
+            label="Price type"
+            size="sm"
+          />
 
           {/* Reference values */}
           <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">

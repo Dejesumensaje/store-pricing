@@ -6,9 +6,9 @@ import Link from "next/link";
 
 // Link is still used by the logo (returns to the single store screen).
 
-type Props = { alertCount?: number };
+type Props = { alertCount?: number; onBellClick?: () => void };
 
-export function AppHeader({ alertCount = 0 }: Props) {
+export function AppHeader({ alertCount = 0, onBellClick }: Props) {
   return (
     <header className="bg-white border-b border-gray-200 px-6 h-14 flex items-center justify-between sticky top-0 z-30">
       <div className="flex items-center gap-3">
@@ -23,7 +23,7 @@ export function AppHeader({ alertCount = 0 }: Props) {
 
       <div className="flex items-center gap-4">
         <div className="relative inline-flex">
-          <Button variant="tertiary" iconLeft={Bell} aria-label="Notifications" />
+          <Button variant="tertiary" iconLeft={Bell} aria-label="Notifications" onClick={onBellClick} />
           {alertCount > 0 && (
             <span className="absolute -top-1 -right-1 pointer-events-none">
               <CountBadge count={alertCount} tone="warning" />

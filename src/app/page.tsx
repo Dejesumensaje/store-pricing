@@ -187,7 +187,7 @@ export default function StorePricingPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      <AppHeader alertCount={trayCount} />
+      <AppHeader alertCount={trayCount} onBellClick={() => setActiveTab("batch")} />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-6">
         <StorePricingHeader />
