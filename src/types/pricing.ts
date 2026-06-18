@@ -1,0 +1,114 @@
+export type PricingCategory =
+  | "base"
+  | "temporary_allowance"
+  | "everyday_low_price"
+  | "no_change"
+  | "new_discontinued";
+
+export type ItemRole = "Traffic driver" | "Margin driver" | "Destination" | "Convenience";
+export type NationalVsStore = "National" | "Store";
+export type Sensitivity = "H" | "M" | "L";
+export type ImpactLevel = "High" | "Medium" | "Low";
+export type OverrideStatus = "pending" | "in_batch" | "submitted" | "confirmed";
+export type BatchStatus = "draft" | "submitted" | "confirmed";
+
+export type PricingItem = {
+  id: string;
+  image?: string;
+  name: string;
+  aisle: string;
+  category: string;
+  subcategory: string;
+  brand: string;
+  packSize: string;
+  keyAttributes: string[];
+  nationalVsStore: NationalVsStore;
+  itemRole: ItemRole;
+  sensitivity: Sensitivity;
+  // Base price fields
+  currentBasePrice: number;
+  cost: number;
+  recommendedBasePrice: number;
+  newBasePrice: number | null; // null = using recommended
+  // Temp allowance fields (only for temporary_allowance category)
+  currentRetailPrice?: number;
+  /** Net cost during the allowance period (vendor-funded discount applied). */
+  allowanceCost?: number;
+  recommendedRetailPrice?: number;
+  /** Total price for `newRetailQty` units. qty 1 (or null) = single-unit price. */
+  newRetailPrice?: number | null;
+  newRetailQty?: number | null;
+  fuelSaver?: number | null;
+  allowanceStartDate?: string | null;
+  allowanceEndDate?: string | null;
+  // New / discontinued
+  itemStatus?: "new" | "discontinued";
+  // Impact (computed/received from HQ)
+  impactSalesValue: number;
+  impactSalesPct: number;
+  impactUnitsValue: number;
+  impactUnitsPct: number;
+  impactMarginValue: number;
+  impactMarginPct: number;
+  impactConfidence: ImpactLevel;
+  impactGmPct: number;
+  // Override tracking (one status per editable price field)
+  hasOverride: boolean;
+  baseOverrideStatus?: OverrideStatus;
+  retailOverrideStatus?: OverrideStatus;
+  hasAlert?: boolean;
+  category_type: PricingCategory;
+};
+
+export type PriceField = "base" | "retail";
+
+// Override id is deterministic: `${itemId}:${priceField}` — an item can carry
+// at most one base and one retail override, and edits upsert in place.
+export type Override = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  changeType: PricingCategory;
+  priceField: PriceField;
+  currentPrice: number;
+  /** Total price for `qty` units when qty > 1 (multi-unit deal). */
+  newPrice: number;
+  qty?: number;
+  sequence?: string;
+  status: OverrideStatus;
+  batchId?: string;
+};
+
+export type Batch = {
+  id: string;
+  name: string;
+  status: BatchStatus;
+  overrideIds: string[];
+  createdAt: string;
+};
+
+export type SummaryMetrics = {
+  salesCurrent: number;
+  salesNew: number;
+  salesImpactPct: number;
+  unitsCurrent: number;
+  unitsNew: number;
+  unitsImpactPct: number;
+  marginCurrent: number;
+  marginNew: number;
+  marginImpactPct: number;
+  transactionsCurrent: number;
+  transactionsNew: number;
+  transactionsImpactPct: number;
+  ciVsCompCurrent: number;
+  ciVsCompNew: number;
+};
+
+export type CategorySummary = {
+  type: PricingCategory;
+  label: string;
+  description: string;
+  newPricesFromHQ: number;
+  priceOverrides: number;
+  alerts: number;
+};
