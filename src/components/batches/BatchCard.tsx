@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
-import { Send, CheckCircle2, Settings2, Layers, CalendarClock } from "lucide-react";
+import { Send, CheckCircle2, Settings2, Layers, CalendarClock, Target } from "lucide-react";
 import { Batch } from "@/types/pricing";
 import { BatchImpact } from "@/lib/batch-utils";
 import { fmtDate } from "@/lib/format";
@@ -26,10 +26,14 @@ type Props = {
   onSchedule: () => void;
   onSubmit: () => void;
   onConfirm: () => void;
+  /** When provided, shows the active-batch indicator / "Set active" affordance. */
+  isActive?: boolean;
+  onSetActive?: () => void;
 };
 
-export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onConfirm }: Props) {
+export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onConfirm, isActive, onSetActive }: Props) {
   const status = STATUS_META[batch.status];
+  const isOpen = batch.status === "draft" || batch.status === "scheduled";
 
   return (
     <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 transition-shadow hover:shadow-sm">
@@ -45,7 +49,12 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
             </p>
           </div>
         </div>
-        <Badge tone={status.tone} size="sm">{status.label}</Badge>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {isActive && (
+            <Badge tone="in-progress" size="sm" icon={Target}>Active</Badge>
+          )}
+          <Badge tone={status.tone} size="sm">{status.label}</Badge>
+        </div>
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-gray-50 px-4 py-3">
@@ -70,6 +79,11 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
         <Button variant="secondary" size="sm" iconLeft={Settings2} onClick={onManage}>
           Manage
         </Button>
+        {isOpen && onSetActive && !isActive && (
+          <Button variant="tertiary" size="sm" iconLeft={Target} onClick={onSetActive}>
+            Set active
+          </Button>
+        )}
         <div className="flex-1" />
         {(batch.status === "draft" || batch.status === "scheduled") && (
           <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={onSchedule}>

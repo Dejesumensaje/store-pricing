@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Button,
@@ -10,12 +10,13 @@ import {
   ActionBarActions,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
-import { Plus, Tag } from "lucide-react";
+import { Tag } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { MainTabs, MainTab } from "@/components/store/MainTabs";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
 import { BatchTrayView } from "@/components/store/BatchTrayView";
+import { BatchSplitButton } from "@/components/store/BatchSplitButton";
 import { DataTable } from "@/components/pricing-table/DataTable";
 import { buildStoreColumns, STORE_OPTIONAL_COLUMNS } from "@/components/store/buildStoreColumns";
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
@@ -56,9 +57,24 @@ export default function StorePricingPage() {
   const [drawerItemId, setDrawerItemId] = useState<string | null>(null);
   const [newBatch, setNewBatch] = useState<{ open: boolean; seedIds: string[] }>({ open: false, seedIds: [] });
   const [applyType, setApplyType] = useState<PricingCategory | "">("");
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
   const trayCount = overrides.filter((o) => o.status === "pending" || o.status === "in_batch").length;
   const hqCount = useMemo(() => items.filter(hqSuggests).length, [items]);
+
+  // Batches the user can still build into (one-click "active batch" target).
+  const openBatches = useMemo(
+    () => batches.filter((b) => b.status === "draft" || b.status === "scheduled"),
+    [batches]
+  );
+  const activeBatch = openBatches.find((b) => b.id === activeBatchId) ?? null;
+
+  // Keep an active batch selected: fall back to the most recent open batch when
+  // the current one is gone (sent) or none is set.
+  useEffect(() => {
+    if (activeBatchId && openBatches.some((b) => b.id === activeBatchId)) return;
+    setActiveBatchId(openBatches.length ? openBatches[openBatches.length - 1].id : null);
+  }, [openBatches, activeBatchId]);
 
   // ── Faceted filtering (All items / HQ tabs) ──────────────────────────────
   const facets: FilterFacet[] = useMemo(
@@ -169,8 +185,6 @@ export default function StorePricingPage() {
     setApplyType("");
   };
 
-  const draftBatches = batches.filter((b) => b.status === "draft" || b.status === "scheduled");
-
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
       <AppHeader alertCount={trayCount} />
@@ -202,7 +216,7 @@ export default function StorePricingPage() {
 
         <div className="mt-4">
           {activeTab === "batch" ? (
-            <BatchTrayView onNewBatch={openNewBatch} />
+            <BatchTrayView onNewBatch={openNewBatch} activeBatchId={activeBatchId} onSetActiveBatch={setActiveBatchId} />
           ) : (
             <DataTable
               columns={columns}
@@ -224,6 +238,9 @@ export default function StorePricingPage() {
         onClose={() => setDrawerItemId(null)}
         onPrev={onPrev}
         onNext={onNext}
+        position={drawerIdx >= 0 ? { index: drawerIdx, total: rowIds.length } : undefined}
+        activeBatchId={activeBatchId}
+        onSetActiveBatch={setActiveBatchId}
         onNewBatch={openNewBatch}
       />
 
@@ -234,6 +251,9 @@ export default function StorePricingPage() {
         initialSelectedIds={newBatch.seedIds}
         onCreate={(name, ids) => {
           createBatch(name, ids);
+          // The new batch is appended last; make it the active one.
+          const all = usePricingStore.getState().batches;
+          setActiveBatchId(all[all.length - 1]?.id ?? null);
           toast.success(`Batch "${name}" created`, {
             description: `${ids.length} price change${ids.length !== 1 ? "s" : ""} grouped`,
           });
@@ -267,26 +287,18 @@ export default function StorePricingPage() {
             <Button variant="secondary" size="sm" iconLeft={Tag} disabled={!applyType} onClick={handleApplyType}>
               Apply
             </Button>
-            <div className="w-44">
-              <Select
-                label="Add to batch"
-                size="sm"
-                options={draftBatches.map((b) => ({ label: b.name, value: b.id }))}
-                value=""
-                onChange={(v) => handleBulkAddToBatch(v as string)}
-                placeholder="Add to batch…"
-                disabled={selectedPendingIds.length === 0 || draftBatches.length === 0}
-              />
-            </div>
-            <Button
-              variant="primary"
+            <BatchSplitButton
               size="sm"
-              iconLeft={Plus}
-              onClick={() => openNewBatch(selectedPendingIds)}
+              activeBatch={activeBatch}
+              openBatches={openBatches}
+              onAddToActive={() => activeBatch && handleBulkAddToBatch(activeBatch.id)}
+              onAddToBatch={(id) => {
+                setActiveBatchId(id);
+                handleBulkAddToBatch(id);
+              }}
+              onNewBatch={() => openNewBatch(selectedPendingIds)}
               disabled={selectedPendingIds.length === 0}
-            >
-              New batch
-            </Button>
+            />
           </ActionBarActions>
         </ActionBar>
       )}

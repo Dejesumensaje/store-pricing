@@ -9,12 +9,13 @@ import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { QtyPriceInput } from "./QtyPriceInput";
 import { FUEL_SAVER_OPTIONS } from "./columns/tempColumns";
 import { ImpactBreakdown } from "./columns/shared";
+import { BatchSplitButton } from "../store/BatchSplitButton";
 import { PRICE_TYPE_META } from "@/lib/pricing-meta";
 import { deriveItemStatus } from "@/lib/item-status";
 import { fmt } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { ChevronLeft, ChevronRight, Trash2, Check, Package, Link2, Layers, Plus, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Check, Package, Link2, ChevronDown } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -22,6 +23,11 @@ type Props = {
   /** Move to the previous / next item in the current list (undefined = none). */
   onPrev?: () => void;
   onNext?: () => void;
+  /** Position of the current item in the list, for the header "X / Y" nav. */
+  position?: { index: number; total: number };
+  /** The batch being built into (one-click add target). */
+  activeBatchId: string | null;
+  onSetActiveBatch: (batchId: string | null) => void;
   /** Open the New batch flow pre-seeded with these override ids. */
   onNewBatch: (overrideIds: string[]) => void;
 };
@@ -71,7 +77,7 @@ const toIso = (d?: Date) => (d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
 
 // Per-item editing drawer. Self-driven: resolves the item from the store and
 // commits edits through the store actions; navigation walks the caller's list.
-export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, onNewBatch }: Props) {
+export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, activeBatchId, onSetActiveBatch, onNewBatch }: Props) {
   const items = usePricingStore((s) => s.items);
   const overrides = usePricingStore((s) => s.overrides);
   const batches = usePricingStore((s) => s.batches);
@@ -89,6 +95,8 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, onNewBatch }: 
 
   const [showFuelSaver, setShowFuelSaver] = useState(false);
 
+  const advance = () => (onNext ? onNext() : onClose());
+
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const relatedItems = (item?.relatedItemIds ?? [])
     .map((id) => itemsById.get(id))
@@ -97,11 +105,25 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, onNewBatch }: 
     ? [...itemsById.values()].filter((i) => i.linePriceGroup === item.linePriceGroup && i.id !== item.id)
     : [];
 
-  const draftBatches = batches.filter((b) => b.status === "draft");
+  const openBatches = batches.filter((b) => b.status === "draft" || b.status === "scheduled");
+  const activeBatch = openBatches.find((b) => b.id === activeBatchId) ?? null;
   const pendingOverrideIds = item
     ? overrides.filter((o) => o.itemId === item.id && o.status === "pending").map((o) => o.id)
     : [];
   const canBatch = pendingOverrideIds.length > 0;
+
+  // Add this item's pending edits to the active batch (one click), then advance.
+  const addToActive = () => {
+    if (!activeBatch) return;
+    addToBatch(activeBatch.id, pendingOverrideIds);
+    advance();
+  };
+  // Add to a specific batch, make it active for subsequent items, then advance.
+  const addToChosen = (batchId: string) => {
+    addToBatch(batchId, pendingOverrideIds);
+    onSetActiveBatch(batchId);
+    advance();
+  };
 
   const discard = () => {
     if (!item) return;
@@ -122,31 +144,46 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, onNewBatch }: 
       }}
       title="Edit prices"
       size="md"
-      headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
+      headerActions={
+        <div className="flex items-center gap-2">
+          {status && <Badge tone={status.tone} size="sm">{status.label}</Badge>}
+          {position && (
+            <div className="flex items-center gap-0.5 text-xs text-gray-500">
+              <Button variant="tertiary" size="sm" iconLeft={ChevronLeft} aria-label="Previous item" disabled={!onPrev} onClick={onPrev} />
+              <span className="tabular-nums whitespace-nowrap">{position.index + 1} / {position.total}</span>
+              <Button variant="tertiary" size="sm" iconLeft={ChevronRight} aria-label="Next item" disabled={!onNext} onClick={onNext} />
+            </div>
+          )}
+        </div>
+      }
       footer={
         <div className="flex items-center gap-2">
-          <Button variant="tertiary" iconLeft={Trash2} disabled={!item?.hasOverride} onClick={discard}>
-            Discard
-          </Button>
-          <Button variant="secondary" iconLeft={ChevronLeft} disabled={!onPrev} onClick={onPrev} aria-label="Previous item" />
-          <Button variant="secondary" iconLeft={ChevronRight} disabled={!onNext} onClick={onNext} aria-label="Next item" />
+          <Button variant="tertiary" iconLeft={Trash2} aria-label="Discard changes" disabled={!item?.hasOverride} onClick={discard} />
           <div className="flex-1" />
-          {showAccept && (
+          {canBatch ? (
+            <>
+              <Button variant="secondary" onClick={advance}>Save for later</Button>
+              <BatchSplitButton
+                activeBatch={activeBatch}
+                openBatches={openBatches}
+                onAddToActive={addToActive}
+                onAddToBatch={addToChosen}
+                onNewBatch={() => onNewBatch(pendingOverrideIds)}
+              />
+            </>
+          ) : showAccept ? (
             <Button
-              variant="secondary"
+              variant="primary"
               iconLeft={Check}
               onClick={() => {
                 acceptNoChange(item!.id);
-                onNext?.();
+                advance();
               }}
             >
               Accept (no changes)
             </Button>
-          )}
-          {onNext ? (
-            <Button variant="primary" onClick={onNext}>Save &amp; next</Button>
           ) : (
-            <Button variant="primary" onClick={onClose}>Done</Button>
+            <Button variant="primary" onClick={advance}>{onNext ? "Next" : "Done"}</Button>
           )}
         </div>
       }
@@ -264,35 +301,6 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, onNewBatch }: 
                   </div>
                 </Field>
               </>
-            )}
-          </div>
-
-          {/* Add to batch */}
-          <div className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <Layers className="size-4 text-brand" />
-              <p className="text-sm font-medium text-gray-700">Add to batch</p>
-            </div>
-            {!canBatch ? (
-              <p className="text-xs text-gray-400">Edit a price first, then add this item to a batch to send it to SAP.</p>
-            ) : (
-              <div className="flex items-center gap-2">
-                {draftBatches.length > 0 && (
-                  <div className="flex-1">
-                    <Select
-                      options={draftBatches.map((b) => ({ label: b.name, value: b.id }))}
-                      value=""
-                      onChange={(v) => addToBatch(v as string, pendingOverrideIds)}
-                      label="Add to batch"
-                      size="sm"
-                      placeholder="Choose a batch…"
-                    />
-                  </div>
-                )}
-                <Button variant="secondary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pendingOverrideIds)}>
-                  New batch
-                </Button>
-              </div>
             )}
           </div>
 

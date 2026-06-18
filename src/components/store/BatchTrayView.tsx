@@ -2,24 +2,39 @@
 
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Button, Badge, Select, Modal, AlertModal, DatePicker, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { Plus, Send, Layers, Trash2, Inbox } from "lucide-react";
+import { Button, Badge, Select, Modal, AlertModal, DatePicker, ToggleGroup, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Plus, Send, Layers, Trash2, Inbox, CalendarClock, CheckCircle2 } from "lucide-react";
 import { BatchCard } from "@/components/batches/BatchCard";
 import { BatchDetailDrawer } from "@/components/batches/BatchDetailDrawer";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildItemsById, aggregateBatchImpact } from "@/lib/batch-utils";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
+import { Batch } from "@/types/pricing";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const toIso = (d?: Date) => (d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T09:00:00` : null);
 
+type Segment = "pending" | "scheduled" | "sent";
+
 type Props = {
   /** Open the New batch flow seeded with these override ids (owned by the page). */
   onNewBatch: (seedIds: string[]) => void;
+  activeBatchId: string | null;
+  onSetActiveBatch: (batchId: string | null) => void;
 };
 
-export function BatchTrayView({ onNewBatch }: Props) {
+function EmptyState({ icon: Icon, title, hint }: { icon: typeof Inbox; title: string; hint?: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-14 text-gray-400">
+      <Icon className="size-9 stroke-1" />
+      <p className="text-sm font-medium">{title}</p>
+      {hint && <p className="max-w-xs text-center text-xs">{hint}</p>}
+    </div>
+  );
+}
+
+export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: Props) {
   const toast = useToast();
   const items = usePricingStore((s) => s.items);
   const batches = usePricingStore((s) => s.batches);
@@ -31,6 +46,7 @@ export function BatchTrayView({ onNewBatch }: Props) {
   const confirmBatch = usePricingStore((s) => s.confirmBatch);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
 
+  const [segment, setSegment] = useState<Segment>("pending");
   const [manageBatchId, setManageBatchId] = useState<string | null>(null);
   const [sendId, setSendId] = useState<string | null>(null);
   const [scheduleId, setScheduleId] = useState<string | null>(null);
@@ -42,106 +58,142 @@ export function BatchTrayView({ onNewBatch }: Props) {
     [batches, overrides, itemsById]
   );
 
-  const draftBatches = batches.filter((b) => b.status === "draft" || b.status === "scheduled");
+  const draftBatches = batches.filter((b) => b.status === "draft");
+  const scheduledBatches = batches.filter((b) => b.status === "scheduled");
+  const sentBatches = batches.filter((b) => b.status === "submitted" || b.status === "confirmed");
+  const openBatches = [...draftBatches, ...scheduledBatches];
   const sendBatch = batches.find((b) => b.id === sendId) ?? null;
 
-  return (
-    <div className="flex flex-col gap-8">
-      {/* Pending edits — not yet grouped into a batch */}
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-gray-900">Pending edits</h2>
-            <Badge tone={pending.length > 0 ? "warning" : "neutral"} size="sm">{pending.length}</Badge>
-          </div>
-          {pending.length > 0 && (
-            <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
-              New batch
-            </Button>
-          )}
-        </div>
+  // Shared card renderer so each segment stays consistent.
+  const renderCard = (b: Batch, opts?: { active?: boolean }) => (
+    <BatchCard
+      key={b.id}
+      batch={b}
+      impact={impacts.get(b.id)!}
+      isActive={opts?.active ? b.id === activeBatchId : undefined}
+      onSetActive={opts?.active ? () => onSetActiveBatch(b.id) : undefined}
+      onManage={() => setManageBatchId(b.id)}
+      onSchedule={() => {
+        setScheduleId(b.id);
+        setScheduleDate(b.scheduledAt ? new Date(b.scheduledAt) : undefined);
+      }}
+      onSubmit={() => setSendId(b.id)}
+      onConfirm={() => {
+        confirmBatch(b.id);
+        toast.success(`Batch "${b.name}" confirmed by SAP`);
+      }}
+    />
+  );
 
-        {pending.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-12 text-gray-400">
-            <Inbox className="size-8 stroke-1" />
-            <p className="text-sm">No pending edits. Changes you make show up here.</p>
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {pending.map((ov) => (
-              <li key={ov.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900">{ov.itemName}</p>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <Badge tone={ov.priceField === "base" ? "in-progress" : "warning"} size="sm">
-                      {ov.priceField === "base" ? "Base" : "Retail"}
-                    </Badge>
-                    <span className="text-xs text-gray-400">{CATEGORY_LABELS[ov.changeType]}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <div className="flex items-center gap-2 text-sm tabular-nums">
-                    <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
-                    <span className="text-gray-300">→</span>
-                    <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
-                  </div>
-                  {draftBatches.length > 0 && (
-                    <div className="w-44">
-                      <Select
-                        label="Add to batch"
+  return (
+    <div className="flex flex-col gap-6">
+      <ToggleGroup
+        aria-label="Batch lifecycle"
+        value={segment}
+        onValueChange={(v) => setSegment(v as Segment)}
+        options={[
+          { value: "pending", label: `Pending (${pending.length + draftBatches.length})` },
+          { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
+          { value: "sent", label: `Sent (${sentBatches.length})` },
+        ]}
+      />
+
+      {/* ── Pending: unbatched edits + draft batches ──────────────────────── */}
+      {segment === "pending" && (
+        <div className="flex flex-col gap-8">
+          <section>
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-semibold text-gray-900">Unbatched edits</h2>
+                <Badge tone={pending.length > 0 ? "warning" : "neutral"} size="sm">{pending.length}</Badge>
+              </div>
+              {pending.length > 0 && (
+                <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
+                  New batch
+                </Button>
+              )}
+            </div>
+            {pending.length === 0 ? (
+              <EmptyState icon={Inbox} title="No unbatched edits" hint="Price changes you make show up here until you add them to a batch." />
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {pending.map((ov) => (
+                  <li key={ov.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-gray-900">{ov.itemName}</p>
+                      <div className="mt-0.5 flex items-center gap-1.5">
+                        <Badge tone={ov.priceField === "base" ? "in-progress" : "warning"} size="sm">
+                          {ov.priceField === "base" ? "Base" : "Retail"}
+                        </Badge>
+                        <span className="text-xs text-gray-400">{CATEGORY_LABELS[ov.changeType]}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="flex items-center gap-2 text-sm tabular-nums">
+                        <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
+                        <span className="text-gray-300">→</span>
+                        <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
+                      </div>
+                      {openBatches.length > 0 && (
+                        <div className="w-44">
+                          <Select
+                            label="Add to batch"
+                            size="sm"
+                            options={openBatches.map((b) => ({ label: b.name, value: b.id }))}
+                            value=""
+                            onChange={(v) => addToBatch(v as string, [ov.id])}
+                            placeholder="Add to batch…"
+                          />
+                        </div>
+                      )}
+                      <Button
+                        variant="tertiary"
                         size="sm"
-                        options={draftBatches.map((b) => ({ label: b.name, value: b.id }))}
-                        value=""
-                        onChange={(v) => addToBatch(v as string, [ov.id])}
-                        placeholder="Add to batch…"
+                        iconLeft={Trash2}
+                        aria-label={`Discard ${ov.itemName}`}
+                        onClick={() => removeFromLooseTray(ov.id)}
                       />
                     </div>
-                  )}
-                  <Button
-                    variant="tertiary"
-                    size="sm"
-                    iconLeft={Trash2}
-                    aria-label={`Discard ${ov.itemName}`}
-                    onClick={() => removeFromLooseTray(ov.id)}
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-      {/* Batches */}
-      <section>
-        <h2 className="mb-3 text-lg font-semibold text-gray-900">Batches</h2>
-        {batches.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-xl border border-gray-200 bg-white py-16 text-gray-400">
-            <Layers className="size-10 stroke-1" />
-            <p className="text-sm font-medium">No batches yet</p>
-            <p className="max-w-xs text-center text-xs">Group pending edits into a batch to schedule or send them to SAP.</p>
-          </div>
+          <section>
+            <h2 className="mb-3 text-base font-semibold text-gray-900">Draft batches</h2>
+            {draftBatches.length === 0 ? (
+              <EmptyState icon={Layers} title="No draft batches" hint="Group edits into a batch to schedule or send them to SAP." />
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {draftBatches.map((b) => renderCard(b, { active: true }))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* ── Scheduled ─────────────────────────────────────────────────────── */}
+      {segment === "scheduled" && (
+        scheduledBatches.length === 0 ? (
+          <EmptyState icon={CalendarClock} title="No scheduled batches" hint="Schedule a draft batch and it will appear here until its send date." />
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {batches.map((b) => (
-              <BatchCard
-                key={b.id}
-                batch={b}
-                impact={impacts.get(b.id)!}
-                onManage={() => setManageBatchId(b.id)}
-                onSchedule={() => {
-                  setScheduleId(b.id);
-                  setScheduleDate(b.scheduledAt ? new Date(b.scheduledAt) : undefined);
-                }}
-                onSubmit={() => setSendId(b.id)}
-                onConfirm={() => {
-                  confirmBatch(b.id);
-                  toast.success(`Batch "${b.name}" confirmed by SAP`);
-                }}
-              />
-            ))}
+            {scheduledBatches.map((b) => renderCard(b, { active: true }))}
           </div>
-        )}
-      </section>
+        )
+      )}
+
+      {/* ── Sent ──────────────────────────────────────────────────────────── */}
+      {segment === "sent" && (
+        sentBatches.length === 0 ? (
+          <EmptyState icon={CheckCircle2} title="No batches sent yet" hint="Batches you send to SAP show up here with their confirmation status." />
+        ) : (
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {sentBatches.map((b) => renderCard(b))}
+          </div>
+        )
+      )}
 
       <BatchDetailDrawer batchId={manageBatchId} onOpenChange={(open) => !open && setManageBatchId(null)} />
 
