@@ -34,7 +34,9 @@ type SelHandlers = {
   allSelected: boolean;
 };
 
-function selectCol(h: SelHandlers): DataColumn<PricingItem> {
+export type { SelHandlers };
+
+export function selectCol(h: SelHandlers): DataColumn<PricingItem> {
   return {
     id: "select",
     group: "item",
@@ -52,7 +54,7 @@ function selectCol(h: SelHandlers): DataColumn<PricingItem> {
   };
 }
 
-function itemCol(): DataColumn<PricingItem> {
+export function itemCol(): DataColumn<PricingItem> {
   return {
     id: "item",
     group: "item",
@@ -71,7 +73,7 @@ function itemCol(): DataColumn<PricingItem> {
   };
 }
 
-const idCol: DataColumn<PricingItem> = { id: "id", group: "item", width: 90, header: "ID", sortable: true, sortAccessor: (r) => r.id, cell: (r) => <span className="text-sm text-gray-700">{r.id}</span> };
+export const idCol: DataColumn<PricingItem> = { id: "id", group: "item", width: 90, header: "ID", sortable: true, sortAccessor: (r) => r.id, cell: (r) => <span className="text-sm text-gray-700">{r.id}</span> };
 const aisleCol: DataColumn<PricingItem> = { id: "aisle", group: "item", width: 120, header: "Aisle", cell: (r) => <span className="text-sm text-gray-700">{r.aisle}</span> };
 
 // Compact item columns for the change-type (pricing) views — keeps the item

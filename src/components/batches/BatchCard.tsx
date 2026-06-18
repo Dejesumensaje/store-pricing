@@ -1,16 +1,17 @@
 "use client";
 
 import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
-import { Send, CheckCircle2, Settings2, Layers } from "lucide-react";
+import { Send, CheckCircle2, Settings2, Layers, CalendarClock } from "lucide-react";
 import { Batch } from "@/types/pricing";
 import { BatchImpact } from "@/lib/batch-utils";
 import { fmtDate } from "@/lib/format";
 
 const STATUS_META: Record<
   Batch["status"],
-  { label: string; tone: "neutral" | "warning" | "success" }
+  { label: string; tone: "neutral" | "warning" | "success" | "in-progress" }
 > = {
   draft: { label: "Draft", tone: "neutral" },
+  scheduled: { label: "Scheduled", tone: "in-progress" },
   submitted: { label: "Submitted to SAP", tone: "warning" },
   confirmed: { label: "Confirmed", tone: "success" },
 };
@@ -22,11 +23,12 @@ type Props = {
   batch: Batch;
   impact: BatchImpact;
   onManage: () => void;
+  onSchedule: () => void;
   onSubmit: () => void;
   onConfirm: () => void;
 };
 
-export function BatchCard({ batch, impact, onManage, onSubmit, onConfirm }: Props) {
+export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onConfirm }: Props) {
   const status = STATUS_META[batch.status];
 
   return (
@@ -52,6 +54,12 @@ export function BatchCard({ batch, impact, onManage, onSubmit, onConfirm }: Prop
         <Metric label="Units" value={signed(impact.unitsValue, "k")} positive={impact.unitsValue >= 0} />
       </div>
 
+      {batch.scheduledAt && (batch.status === "scheduled" || batch.status === "draft") && (
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
+          <CalendarClock className="size-3.5" /> Scheduled for {fmtDate(batch.scheduledAt)}
+        </p>
+      )}
+
       {batch.sapReference && (
         <p className="mt-3 text-xs text-gray-400">
           SAP ref <span className="font-medium text-gray-600">{batch.sapReference}</span>
@@ -63,9 +71,14 @@ export function BatchCard({ batch, impact, onManage, onSubmit, onConfirm }: Prop
           Manage
         </Button>
         <div className="flex-1" />
-        {batch.status === "draft" && (
+        {(batch.status === "draft" || batch.status === "scheduled") && (
+          <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={onSchedule}>
+            {batch.status === "scheduled" ? "Reschedule" : "Schedule"}
+          </Button>
+        )}
+        {(batch.status === "draft" || batch.status === "scheduled") && (
           <Button variant="primary" size="sm" iconLeft={Send} onClick={onSubmit}>
-            Send to SAP
+            Send now
           </Button>
         )}
         {batch.status === "submitted" && (

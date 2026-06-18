@@ -18,7 +18,7 @@ export type NationalVsStore = "National" | "Store";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
 export type OverrideStatus = "pending" | "in_batch" | "submitted" | "confirmed";
-export type BatchStatus = "draft" | "submitted" | "confirmed";
+export type BatchStatus = "draft" | "scheduled" | "submitted" | "confirmed";
 
 export type PricingItem = {
   id: string;
@@ -104,6 +104,8 @@ export type Batch = {
   status: BatchStatus;
   overrideIds: string[];
   createdAt: string;
+  /** Future send date/time (ISO). Set when the batch is scheduled instead of sent now. */
+  scheduledAt?: string;
   /** Set when the batch is sent to SAP. */
   submittedAt?: string;
   /** SAP reference returned on confirmation (post-submit acknowledgment). */

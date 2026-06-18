@@ -1,32 +1,35 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select } from "@dejesumensaje/converge-ds-experimental";
+import { Drawer, Button, Badge, Select, Checkbox, DatePicker } from "@dejesumensaje/converge-ds-experimental";
 import { usePricingStore } from "@/store/pricing-store";
-import { PricingItem } from "@/types/pricing";
+import { PricingItem, PricingCategory } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { QtyPriceInput } from "./QtyPriceInput";
 import { FUEL_SAVER_OPTIONS } from "./columns/tempColumns";
 import { ImpactBreakdown } from "./columns/shared";
-import { fmt, fmtDateShort } from "@/lib/format";
+import { PRICE_TYPE_META } from "@/lib/pricing-meta";
+import { deriveItemStatus } from "@/lib/item-status";
+import { fmt } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { ChevronLeft, Trash2, Check, Package, Link2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, Check, Package, Link2, Layers, Plus, ChevronDown } from "lucide-react";
 
 type Props = {
-  item: PricingItem | null;
-  variant: "base" | "temp";
+  itemId: string | null;
   onClose: () => void;
-  /** Move to the previous item still needing a decision (undefined = none). */
+  /** Move to the previous / next item in the current list (undefined = none). */
   onPrev?: () => void;
-  /** Move to the next item still needing a decision (undefined = none → finishes the queue). */
   onNext?: () => void;
-  /** Accept the item as-is (no price change) and advance the queue. */
-  onAccept?: () => void;
-  /** How many items still need a decision. */
-  remaining: number;
+  /** Open the New batch flow pre-seeded with these override ids. */
+  onNewBatch: (overrideIds: string[]) => void;
 };
+
+const PRICE_TYPE_OPTIONS = (Object.keys(PRICE_TYPE_META) as PricingCategory[]).map((key) => ({
+  label: PRICE_TYPE_META[key].label,
+  value: key,
+}));
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -46,7 +49,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-// Live gross-margin readout: current → projected, with the percentage-point delta.
 function MarginRow({ label, current, next }: { label: string; current: number; next: number }) {
   const delta = next - current;
   const tone = delta > 0.05 ? "text-emerald-600" : delta < -0.05 ? "text-red-600" : "text-gray-500";
@@ -63,27 +65,31 @@ function MarginRow({ label, current, next }: { label: string; current: number; n
   );
 }
 
-// Per-item editing queue. Price edits commit on blur via the same store actions
-// the tables used to call; navigation walks the "still needs a decision" queue.
-export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccept, remaining }: Props) {
+const pad = (n: number) => String(n).padStart(2, "0");
+const toDate = (s?: string | null) => (s ? new Date(`${s}T00:00:00`) : undefined);
+const toIso = (d?: Date) => (d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : null);
+
+// Per-item editing drawer. Self-driven: resolves the item from the store and
+// commits edits through the store actions; navigation walks the caller's list.
+export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, onNewBatch }: Props) {
+  const items = usePricingStore((s) => s.items);
+  const overrides = usePricingStore((s) => s.overrides);
+  const batches = usePricingStore((s) => s.batches);
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
   const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const updateFuelSaver = usePricingStore((s) => s.updateFuelSaver);
+  const updatePriceType = usePricingStore((s) => s.updatePriceType);
+  const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
+  const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
+  const addToBatch = usePricingStore((s) => s.addToBatch);
 
-  // Catalogs used to resolve related / line-price items by id.
-  const baseItems = usePricingStore((s) => s.baseItems);
-  const tempAllowanceItems = usePricingStore((s) => s.tempAllowanceItems);
-  const edlpItems = usePricingStore((s) => s.edlpItems);
-  const noChangeItems = usePricingStore((s) => s.noChangeItems);
-  const newDiscontinuedItems = usePricingStore((s) => s.newDiscontinuedItems);
-  const itemsById = useMemo(
-    () => buildItemsById([baseItems, tempAllowanceItems, edlpItems, noChangeItems, newDiscontinuedItems]),
-    [baseItems, tempAllowanceItems, edlpItems, noChangeItems, newDiscontinuedItems]
-  );
+  const item = items.find((i) => i.id === itemId) ?? null;
+  const isTemp = item?.category_type === "temporary_allowance";
 
-  const isTemp = variant === "temp";
+  const [showFuelSaver, setShowFuelSaver] = useState(false);
 
+  const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const relatedItems = (item?.relatedItemIds ?? [])
     .map((id) => itemsById.get(id))
     .filter((i): i is PricingItem => i != null);
@@ -91,11 +97,22 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
     ? [...itemsById.values()].filter((i) => i.linePriceGroup === item.linePriceGroup && i.id !== item.id)
     : [];
 
+  const draftBatches = batches.filter((b) => b.status === "draft");
+  const pendingOverrideIds = item
+    ? overrides.filter((o) => o.itemId === item.id && o.status === "pending").map((o) => o.id)
+    : [];
+  const canBatch = pendingOverrideIds.length > 0;
+
   const discard = () => {
     if (!item) return;
     removeFromLooseTray(`${item.id}:base`);
     if (isTemp) removeFromLooseTray(`${item.id}:retail`);
   };
+
+  const status = item ? deriveItemStatus(item, batches) : null;
+  const fuelSaverActive = showFuelSaver || (item?.fuelSaver != null && item.fuelSaver > 0);
+  // Offer "Accept (no changes)" only while HQ still suggests a change for this item.
+  const showAccept = item != null && !item.reviewed && item.newBasePrice == null && item.recommendedBasePrice !== item.currentBasePrice;
 
   return (
     <Drawer
@@ -103,33 +120,33 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
-      title="Edit price"
+      title="Edit prices"
       size="md"
-      headerActions={
-        <Badge tone={remaining > 0 ? "warning" : "success"} size="sm">
-          {remaining} left to decide
-        </Badge>
-      }
+      headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
       footer={
         <div className="flex items-center gap-2">
-          <Button variant="tertiary" iconLeft={Trash2} onClick={discard}>
+          <Button variant="tertiary" iconLeft={Trash2} disabled={!item?.hasOverride} onClick={discard}>
             Discard
           </Button>
           <Button variant="secondary" iconLeft={ChevronLeft} disabled={!onPrev} onClick={onPrev} aria-label="Previous item" />
+          <Button variant="secondary" iconLeft={ChevronRight} disabled={!onNext} onClick={onNext} aria-label="Next item" />
           <div className="flex-1" />
-          {onAccept && (
-            <Button variant="secondary" iconLeft={Check} onClick={onAccept}>
+          {showAccept && (
+            <Button
+              variant="secondary"
+              iconLeft={Check}
+              onClick={() => {
+                acceptNoChange(item!.id);
+                onNext?.();
+              }}
+            >
               Accept (no changes)
             </Button>
           )}
           {onNext ? (
-            <Button variant="primary" onClick={onNext}>
-              Save &amp; next
-            </Button>
+            <Button variant="primary" onClick={onNext}>Save &amp; next</Button>
           ) : (
-            <Button variant="primary" onClick={onClose}>
-              Done
-            </Button>
+            <Button variant="primary" onClick={onClose}>Done</Button>
           )}
         </div>
       }
@@ -147,15 +164,24 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
             </div>
             <div className="min-w-0">
               <p className="text-base font-semibold text-gray-900">{item.name}</p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {item.id} · {item.aisle} · {item.brand}
-              </p>
+              <p className="text-xs text-gray-400 mt-0.5">{item.id} · {item.aisle} · {item.brand}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
                 {item.linePriceGroup && <Badge tone="in-progress" size="sm">Line price</Badge>}
               </div>
             </div>
           </div>
+
+          {/* Price type */}
+          <Field label="Price type">
+            <Select
+              options={PRICE_TYPE_OPTIONS}
+              value={item.category_type}
+              onChange={(v) => updatePriceType(item.id, v as PricingCategory)}
+              label="Price type"
+              size="sm"
+            />
+          </Field>
 
           {/* Reference values */}
           <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
@@ -166,10 +192,7 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
               <>
                 <InfoRow label="Retail current" value={fmt(item.currentRetailPrice ?? item.currentBasePrice)} />
                 <InfoRow label="Allowance cost" value={fmt(item.allowanceCost ?? item.cost)} />
-                <InfoRow
-                  label="Retail rec."
-                  value={fmt(item.recommendedRetailPrice ?? item.currentBasePrice)}
-                />
+                <InfoRow label="Retail rec." value={fmt(item.recommendedRetailPrice ?? item.currentBasePrice)} />
               </>
             )}
           </div>
@@ -180,11 +203,7 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
               <PriceInputCell
                 recommended={item.recommendedBasePrice}
                 value={item.newBasePrice}
-                state={derivePriceState({
-                  value: item.newBasePrice,
-                  status: item.baseOverrideStatus,
-                  hasAlert: item.hasAlert,
-                })}
+                state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
                 onCommit={(v) => updateBasePrice(item.id, v)}
               />
             </Field>
@@ -201,44 +220,95 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
                   />
                 </Field>
 
-                <Field label="Fuel saver">
-                  <div className="w-[170px]">
-                    <Select
-                      options={FUEL_SAVER_OPTIONS}
-                      value={String(item.fuelSaver ?? "0")}
-                      onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
-                      label="Fuel saver"
-                      size="sm"
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                    <Checkbox
+                      checked={fuelSaverActive}
+                      onCheckedChange={(c) => {
+                        const on = c === true;
+                        setShowFuelSaver(on);
+                        if (!on) updateFuelSaver(item.id, null);
+                      }}
+                      aria-label="Add fuel saver"
+                    />
+                    Add fuel saver
+                  </label>
+                  {fuelSaverActive && (
+                    <div className="w-[170px]">
+                      <Select
+                        options={FUEL_SAVER_OPTIONS}
+                        value={String(item.fuelSaver ?? "0")}
+                        onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
+                        label="Fuel saver"
+                        size="sm"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <Field label="Allowance period">
+                  <div className="flex items-center gap-2">
+                    <DatePicker
+                      mode="single"
+                      value={toDate(item.allowanceStartDate)}
+                      onChange={(d) => updateAllowanceDates(item.id, toIso(d), item.allowanceEndDate ?? null)}
+                      aria-label="Allowance start date"
+                    />
+                    <span className="text-gray-300">–</span>
+                    <DatePicker
+                      mode="single"
+                      value={toDate(item.allowanceEndDate)}
+                      onChange={(d) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, toIso(d))}
+                      aria-label="Allowance end date"
                     />
                   </div>
                 </Field>
-
-                {item.allowanceStartDate && item.allowanceEndDate && (
-                  <p className="text-xs text-gray-400">
-                    Allowance period: {fmtDateShort(item.allowanceStartDate)} –{" "}
-                    {fmtDateShort(item.allowanceEndDate)}
-                  </p>
-                )}
               </>
             )}
           </div>
 
-          {/* Live gross margin — recomputed from the user's current edits. */}
+          {/* Add to batch */}
+          <div className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <div className="flex items-center gap-1.5">
+              <Layers className="size-4 text-brand" />
+              <p className="text-sm font-medium text-gray-700">Add to batch</p>
+            </div>
+            {!canBatch ? (
+              <p className="text-xs text-gray-400">Edit a price first, then add this item to a batch to send it to SAP.</p>
+            ) : (
+              <div className="flex items-center gap-2">
+                {draftBatches.length > 0 && (
+                  <div className="flex-1">
+                    <Select
+                      options={draftBatches.map((b) => ({ label: b.name, value: b.id }))}
+                      value=""
+                      onChange={(v) => addToBatch(v as string, pendingOverrideIds)}
+                      label="Add to batch"
+                      size="sm"
+                      placeholder="Choose a batch…"
+                    />
+                  </div>
+                )}
+                <Button variant="secondary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pendingOverrideIds)}>
+                  New batch
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Live gross margin */}
           {(() => {
             const newBase = item.newBasePrice ?? item.recommendedBasePrice;
             const baseCurrentGm = grossMarginPct(item.currentBasePrice, item.cost);
             const baseNewGm = grossMarginPct(newBase, item.cost);
-
             const allowanceCost = item.allowanceCost ?? item.cost;
             const currentRetail = item.currentRetailPrice ?? item.currentBasePrice;
             const newRetailUnit =
-              (item.newRetailPrice ?? item.recommendedRetailPrice ?? currentRetail) /
-              Math.max(1, item.newRetailQty ?? 1);
+              (item.newRetailPrice ?? item.recommendedRetailPrice ?? currentRetail) / Math.max(1, item.newRetailQty ?? 1);
             const fuel = item.fuelSaver ?? 0;
             const retailCurrentGm = grossMarginPct(currentRetail, allowanceCost);
             const retailNewGm = grossMarginPct(newRetailUnit, allowanceCost);
             const retailFuelGm = grossMarginPct(newRetailUnit - fuel, allowanceCost);
-
             return (
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">Gross margin</p>
@@ -247,9 +317,7 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
                   {isTemp && (
                     <>
                       <MarginRow label="Retail (allowance)" current={retailCurrentGm} next={retailNewGm} />
-                      {fuel > 0 && (
-                        <MarginRow label="Retail incl. fuel saver" current={retailCurrentGm} next={retailFuelGm} />
-                      )}
+                      {fuel > 0 && <MarginRow label="Retail incl. fuel saver" current={retailCurrentGm} next={retailFuelGm} />}
                     </>
                   )}
                 </div>
@@ -257,7 +325,7 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
             );
           })()}
 
-          {/* Line price — editing one item can propagate across the priced line. */}
+          {/* Line price */}
           {lineItems.length > 0 && (
             <div>
               <div className="mb-2 flex items-center gap-1.5">
@@ -286,7 +354,7 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
             </div>
           )}
 
-          {/* Competitor prices — the motivation to move a store-level price. */}
+          {/* Competitor prices */}
           {item.competitors && item.competitors.length > 0 && (() => {
             const ourPrice = item.newBasePrice ?? item.currentBasePrice;
             return (
@@ -319,7 +387,7 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
             );
           })()}
 
-          {/* Related items — cross-sell context. */}
+          {/* Related items */}
           {relatedItems.length > 0 && (
             <div>
               <p className="text-sm font-medium text-gray-700 mb-2">Related items</p>
@@ -337,15 +405,33 @@ export function ItemEditDrawer({ item, variant, onClose, onPrev, onNext, onAccep
             </div>
           )}
 
-          {/* Impact preview — reuses the table tooltip breakdown on a dark panel. */}
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Projected impact</p>
-            <div className="rounded-xl bg-brand px-4 py-3 text-white">
-              <ImpactBreakdown item={item} />
-            </div>
-          </div>
+          {/* Projected impact — de-emphasized, collapsed by default */}
+          <ImpactDetails item={item} />
         </div>
       )}
     </Drawer>
+  );
+}
+
+// Secondary, muted impact panel — kept available but visually understated so the
+// drawer's focus stays on the price decision.
+function ImpactDetails({ item }: { item: PricingItem }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left"
+      >
+        <span className="text-sm font-medium text-gray-500">Projected impact</span>
+        <ChevronDown className={`size-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="border-t border-gray-100 px-4 py-3 text-gray-600">
+          <ImpactBreakdown item={item} />
+        </div>
+      )}
+    </div>
   );
 }

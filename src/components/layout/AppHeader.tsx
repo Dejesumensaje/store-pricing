@@ -4,6 +4,8 @@ import { Avatar, CountBadge, Button } from "@dejesumensaje/converge-ds-experimen
 import { Bell } from "lucide-react";
 import Link from "next/link";
 
+// Link is still used by the logo (returns to the single store screen).
+
 type Props = { alertCount?: number };
 
 export function AppHeader({ alertCount = 0 }: Props) {
@@ -20,16 +22,14 @@ export function AppHeader({ alertCount = 0 }: Props) {
       </div>
 
       <div className="flex items-center gap-4">
-        <Link href="/loose-tray">
-          <div className="relative inline-flex">
-            <Button variant="tertiary" iconLeft={Bell} aria-label="Notifications" />
-            {alertCount > 0 && (
-              <span className="absolute -top-1 -right-1 pointer-events-none">
-                <CountBadge count={alertCount} tone="warning" />
-              </span>
-            )}
-          </div>
-        </Link>
+        <div className="relative inline-flex">
+          <Button variant="tertiary" iconLeft={Bell} aria-label="Notifications" />
+          {alertCount > 0 && (
+            <span className="absolute -top-1 -right-1 pointer-events-none">
+              <CountBadge count={alertCount} tone="warning" />
+            </span>
+          )}
+        </div>
         <Avatar fallback="NL" />
       </div>
     </header>

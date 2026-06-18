@@ -1,52 +1,31 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, Batch, OverrideStatus, PriceField } from "@/types/pricing";
-import {
-  mockItems,
-  mockTempAllowanceItems,
-  mockEdlpItems,
-  mockNoChangeItems,
-  mockNewDiscontinuedItems,
-  mockOverrides,
-  mockBatches,
-} from "@/lib/mock-data";
-
-// Catalog arrays that hold reviewable items. Base and TA share item ids, so
-// "accept (no changes)" is scoped to one catalog to avoid cross-queue bleed.
-export type CatalogKey =
-  | "baseItems"
-  | "tempAllowanceItems"
-  | "edlpItems"
-  | "noChangeItems"
-  | "newDiscontinuedItems";
+import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory } from "@/types/pricing";
+import { mockItems, mockOverrides, mockBatches } from "@/lib/mock-data";
 
 type PricingStore = {
-  baseItems: PricingItem[];
-  tempAllowanceItems: PricingItem[];
-  edlpItems: PricingItem[];
-  noChangeItems: PricingItem[];
-  newDiscontinuedItems: PricingItem[];
+  // One unified catalog — every item carries its own price type (category_type).
+  items: PricingItem[];
   overrides: Override[];
   batches: Batch[];
-  // UI
-  isPendingDrawerOpen: boolean;
-  setPendingDrawerOpen: (open: boolean) => void;
   // Price edits — every commit upserts a pending override automatically
   updateBasePrice: (itemId: string, newPrice: number | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
-  // Accept an item as-is (no price change) within one catalog/queue.
-  acceptNoChange: (catalog: CatalogKey, itemId: string) => void;
+  updatePriceType: (itemId: string, type: PricingCategory) => void;
+  updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
+  // Accept an item as-is (no price change) — clears it from the HQ queue.
+  acceptNoChange: (itemId: string) => void;
   // Pending list / batches
   removeFromLooseTray: (overrideId: string) => void;
   removeFromBatch: (overrideId: string) => void;
   addToBatch: (batchId: string, overrideIds: string[]) => void;
   moveOverrideToBatch: (overrideId: string, targetBatchId: string) => void;
   createBatch: (name: string, overrideIds: string[]) => void;
+  scheduleBatch: (batchId: string, scheduledAt: string) => void;
   submitBatch: (batchId: string) => void;
   confirmBatch: (batchId: string) => void;
-  submitAll: () => void;
 };
 
 const isActive = (s?: OverrideStatus) => s === "pending" || s === "in_batch";
@@ -130,35 +109,21 @@ function applyStatusToItems(
 }
 
 export const usePricingStore = create<PricingStore>((set) => ({
-  baseItems: mockItems,
-  tempAllowanceItems: mockTempAllowanceItems,
-  edlpItems: mockEdlpItems,
-  noChangeItems: mockNoChangeItems,
-  newDiscontinuedItems: mockNewDiscontinuedItems,
+  items: mockItems,
   overrides: mockOverrides,
   batches: mockBatches,
 
-  isPendingDrawerOpen: false,
-  setPendingDrawerOpen: (open) => set({ isPendingDrawerOpen: open }),
-
   updateBasePrice: (itemId, newPrice) =>
     set((state) => {
-      // Base price is shared across views; the override's changeType comes from
-      // the catalog the item primarily belongs to (base → edlp → TA).
-      const source =
-        state.baseItems.find((i) => i.id === itemId) ??
-        state.edlpItems.find((i) => i.id === itemId) ??
-        state.tempAllowanceItems.find((i) => i.id === itemId);
+      const source = state.items.find((i) => i.id === itemId);
       if (!source) return {};
       const { overrides, batches, status } = upsertOverride(state, source, "base", newPrice);
-      const patch = (item: PricingItem) =>
-        item.id === itemId
-          ? withOverrideFlags({ ...item, newBasePrice: newPrice, baseOverrideStatus: status })
-          : item;
       return {
-        baseItems: state.baseItems.map(patch),
-        edlpItems: state.edlpItems.map(patch),
-        tempAllowanceItems: state.tempAllowanceItems.map(patch),
+        items: state.items.map((item) =>
+          item.id === itemId
+            ? withOverrideFlags({ ...item, newBasePrice: newPrice, baseOverrideStatus: status })
+            : item
+        ),
         overrides,
         batches,
       };
@@ -166,18 +131,12 @@ export const usePricingStore = create<PricingStore>((set) => ({
 
   updateRetailPrice: (itemId, qty, price) =>
     set((state) => {
-      const source = state.tempAllowanceItems.find((i) => i.id === itemId);
+      const source = state.items.find((i) => i.id === itemId);
       if (!source) return {};
       const normQty = price == null ? null : Math.max(1, Math.floor(qty) || 1);
-      const { overrides, batches, status } = upsertOverride(
-        state,
-        source,
-        "retail",
-        price,
-        normQty ?? undefined
-      );
+      const { overrides, batches, status } = upsertOverride(state, source, "retail", price, normQty ?? undefined);
       return {
-        tempAllowanceItems: state.tempAllowanceItems.map((item) =>
+        items: state.items.map((item) =>
           item.id === itemId
             ? withOverrideFlags({ ...item, newRetailQty: normQty, newRetailPrice: price, retailOverrideStatus: status })
             : item
@@ -189,17 +148,39 @@ export const usePricingStore = create<PricingStore>((set) => ({
 
   updateFuelSaver: (itemId, value) =>
     set((state) => ({
-      tempAllowanceItems: state.tempAllowanceItems.map((item) =>
-        item.id === itemId ? { ...item, fuelSaver: value } : item
+      items: state.items.map((item) => (item.id === itemId ? { ...item, fuelSaver: value } : item)),
+    })),
+
+  // Switching an item's price type. Moving to a temporary allowance ensures the
+  // retail/allowance fields exist so the drawer can render them.
+  updatePriceType: (itemId, type) =>
+    set((state) => ({
+      items: state.items.map((item) => {
+        if (item.id !== itemId) return item;
+        if (type === "temporary_allowance") {
+          return {
+            ...item,
+            category_type: type,
+            currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
+            allowanceCost: item.allowanceCost ?? Math.round(item.cost * 0.8 * 100) / 100,
+            recommendedRetailPrice: item.recommendedRetailPrice ?? Math.round(item.currentBasePrice * 0.85 * 100) / 100,
+          };
+        }
+        return { ...item, category_type: type };
+      }),
+    })),
+
+  updateAllowanceDates: (itemId, start, end) =>
+    set((state) => ({
+      items: state.items.map((item) =>
+        item.id === itemId ? { ...item, allowanceStartDate: start, allowanceEndDate: end } : item
       ),
     })),
 
-  acceptNoChange: (catalog, itemId) =>
+  acceptNoChange: (itemId) =>
     set((state) => ({
-      [catalog]: state[catalog].map((item) =>
-        item.id === itemId ? { ...item, reviewed: true } : item
-      ),
-    }) as Partial<PricingStore>),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: true } : item)),
+    })),
 
   // Discarding a pending change also clears the edit from the table cell.
   removeFromLooseTray: (overrideId) =>
@@ -219,13 +200,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
           ...b,
           overrideIds: b.overrideIds.filter((id) => id !== overrideId),
         })),
-        baseItems: state.baseItems.map(clear),
-        edlpItems: state.edlpItems.map(clear),
-        tempAllowanceItems: state.tempAllowanceItems.map(clear),
+        items: state.items.map(clear),
       };
     }),
 
-  // Remove from batch → back to pending (stays in loose tray)
+  // Remove from batch → back to pending (stays in the tray)
   removeFromBatch: (overrideId) =>
     set((state) => {
       const affected = state.overrides.filter((o) => o.id === overrideId);
@@ -237,9 +216,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
           ...b,
           overrideIds: b.overrideIds.filter((id) => id !== overrideId),
         })),
-        baseItems: applyStatusToItems(state.baseItems, affected, "pending"),
-        edlpItems: applyStatusToItems(state.edlpItems, affected, "pending"),
-        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "pending"),
+        items: applyStatusToItems(state.items, affected, "pending"),
       };
     }),
 
@@ -251,13 +228,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
           overrideIds.includes(o.id) ? { ...o, status: "in_batch", batchId } : o
         ),
         batches: state.batches.map((b) =>
-          b.id === batchId
-            ? { ...b, overrideIds: [...new Set([...b.overrideIds, ...overrideIds])] }
-            : b
+          b.id === batchId ? { ...b, overrideIds: [...new Set([...b.overrideIds, ...overrideIds])] } : b
         ),
-        baseItems: applyStatusToItems(state.baseItems, affected, "in_batch"),
-        edlpItems: applyStatusToItems(state.edlpItems, affected, "in_batch"),
-        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "in_batch"),
+        items: applyStatusToItems(state.items, affected, "in_batch"),
       };
     }),
 
@@ -293,11 +266,17 @@ export const usePricingStore = create<PricingStore>((set) => ({
         overrides: state.overrides.map((o) =>
           overrideIds.includes(o.id) ? { ...o, status: "in_batch", batchId: newBatch.id } : o
         ),
-        baseItems: applyStatusToItems(state.baseItems, affected, "in_batch"),
-        edlpItems: applyStatusToItems(state.edlpItems, affected, "in_batch"),
-        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "in_batch"),
+        items: applyStatusToItems(state.items, affected, "in_batch"),
       };
     }),
+
+  // Schedule a draft batch to send at a future date/time (overrides stay in_batch).
+  scheduleBatch: (batchId, scheduledAt) =>
+    set((state) => ({
+      batches: state.batches.map((b) =>
+        b.id === batchId ? { ...b, status: "scheduled", scheduledAt } : b
+      ),
+    })),
 
   submitBatch: (batchId) =>
     set((state) => {
@@ -306,12 +285,8 @@ export const usePricingStore = create<PricingStore>((set) => ({
         batches: state.batches.map((b) =>
           b.id === batchId ? { ...b, status: "submitted", submittedAt: new Date().toISOString() } : b
         ),
-        overrides: state.overrides.map((o) =>
-          o.batchId === batchId ? { ...o, status: "submitted" } : o
-        ),
-        baseItems: applyStatusToItems(state.baseItems, affected, "submitted"),
-        edlpItems: applyStatusToItems(state.edlpItems, affected, "submitted"),
-        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "submitted"),
+        overrides: state.overrides.map((o) => (o.batchId === batchId ? { ...o, status: "submitted" } : o)),
+        items: applyStatusToItems(state.items, affected, "submitted"),
       };
     }),
 
@@ -326,24 +301,8 @@ export const usePricingStore = create<PricingStore>((set) => ({
             ? { ...b, status: "confirmed", confirmedAt: new Date().toISOString(), sapReference }
             : b
         ),
-        overrides: state.overrides.map((o) =>
-          o.batchId === batchId ? { ...o, status: "confirmed" } : o
-        ),
-        baseItems: applyStatusToItems(state.baseItems, affected, "confirmed"),
-        edlpItems: applyStatusToItems(state.edlpItems, affected, "confirmed"),
-        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "confirmed"),
-      };
-    }),
-
-  submitAll: () =>
-    set((state) => {
-      const affected = state.overrides.filter((o) => o.status !== "submitted");
-      return {
-        overrides: state.overrides.map((o) => ({ ...o, status: "submitted" as const })),
-        batches: state.batches.map((b) => ({ ...b, status: "submitted" as const })),
-        baseItems: applyStatusToItems(state.baseItems, affected, "submitted"),
-        edlpItems: applyStatusToItems(state.edlpItems, affected, "submitted"),
-        tempAllowanceItems: applyStatusToItems(state.tempAllowanceItems, affected, "submitted"),
+        overrides: state.overrides.map((o) => (o.batchId === batchId ? { ...o, status: "confirmed" } : o)),
+        items: applyStatusToItems(state.items, affected, "confirmed"),
       };
     }),
 }));
