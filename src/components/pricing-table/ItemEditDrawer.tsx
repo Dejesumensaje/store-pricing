@@ -238,6 +238,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
           <div className="flex flex-col gap-5">
             <Field label="New base price">
               <PriceInputCell
+                autoFocus
                 recommended={item.recommendedBasePrice}
                 value={item.newBasePrice}
                 state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}

@@ -10,7 +10,7 @@ import {
   ActionBarActions,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
-import { Tag } from "lucide-react";
+import { Tag, SearchX } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { MainTabs, MainTab } from "@/components/store/MainTabs";
@@ -217,6 +217,27 @@ export default function StorePricingPage() {
         <div className="mt-4">
           {activeTab === "batch" ? (
             <BatchTrayView onNewBatch={openNewBatch} activeBatchId={activeBatchId} onSetActiveBatch={setActiveBatchId} />
+          ) : rows.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-20 text-gray-400">
+              <SearchX className="size-9 stroke-1" />
+              <p className="text-sm font-medium">No items match</p>
+              <p className="text-xs">
+                {activeTab === "hq" ? "No HQ recommendations for this filter." : "Try a different search or clear the filters."}
+              </p>
+              {(search || activeFilterCount > 0) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-1"
+                  onClick={() => {
+                    setSearch("");
+                    setFilters({});
+                  }}
+                >
+                  Clear search &amp; filters
+                </Button>
+              )}
+            </div>
           ) : (
             <DataTable
               columns={columns}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
 import { Check, AlertCircle } from "lucide-react";
 
@@ -14,6 +14,8 @@ type Props = {
   state: PriceCellState;
   onCommit: (value: number | null) => void;
   onViewAlerts?: () => void;
+  /** Focus + select on mount (fast keyboard entry in the drawer queue). */
+  autoFocus?: boolean;
 };
 
 export const BORDER: Record<PriceCellState, string> = {
@@ -23,23 +25,34 @@ export const BORDER: Record<PriceCellState, string> = {
   alert: "border-orange-400 bg-white text-gray-900",
 };
 
-export function PriceInputCell({ recommended, value, state, onCommit, onViewAlerts }: Props) {
+export function PriceInputCell({ recommended, value, state, onCommit, onViewAlerts, autoFocus }: Props) {
   const [draft, setDraft] = useState(value != null ? value.toFixed(2) : "");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setDraft(value != null ? value.toFixed(2) : "");
   }, [value]);
+
+  // Focus + select on mount for fast keyboard entry as the queue advances.
+  useEffect(() => {
+    if (autoFocus) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [autoFocus]);
 
   return (
     <div className="flex flex-col gap-0.5">
       <div className="relative w-[120px]">
         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
         <input
+          ref={inputRef}
           type="text"
           inputMode="decimal"
           value={draft}
           placeholder={recommended.toFixed(2)}
           onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.target.select()}
           onBlur={() => {
             const parsed = parseFloat(draft);
             onCommit(isNaN(parsed) ? null : parsed);
