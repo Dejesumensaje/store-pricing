@@ -1,5 +1,18 @@
-@import "tailwindcss";
+/*
+ * Tailwind is split into its sub-imports so our app utilities are emitted AFTER
+ * the design system's stylesheet. The DS ships its own full Tailwind build, and
+ * when imported after `tailwindcss` its base utilities (`.hidden`, `.flex-col`…)
+ * land later in the shared `utilities` cascade layer and silently override our
+ * responsive `md:*` variants — which killed every responsive toggle on desktop.
+ * Keeping `theme`/`preflight` before the DS preserves the DS's token overrides;
+ * emitting `utilities` last lets our `md:*` utilities win as intended.
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
 @import "@dejesumensaje/converge-ds-experimental/styles.css";
+@import "tailwindcss/utilities.css" layer(utilities);
 
 /*
  * Project theme tokens registered with Tailwind v4 so they are usable both as
