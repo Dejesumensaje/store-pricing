@@ -117,11 +117,25 @@ export const usePricingStore = create<PricingStore>((set) => ({
     set((state) => {
       const source = state.items.find((i) => i.id === itemId);
       if (!source) return {};
-      const { overrides, batches, status } = upsertOverride(state, source, "base", newPrice);
+      // Line price: items in a line share one price — editing one applies to all.
+      const groupIds = source.linePriceGroup
+        ? state.items.filter((i) => i.linePriceGroup === source.linePriceGroup).map((i) => i.id)
+        : [itemId];
+      let overrides = state.overrides;
+      let batches = state.batches;
+      const statusById: Record<string, OverrideStatus | undefined> = {};
+      for (const id of groupIds) {
+        const it = state.items.find((i) => i.id === id);
+        if (!it) continue;
+        const r = upsertOverride({ overrides, batches }, it, "base", newPrice);
+        overrides = r.overrides;
+        batches = r.batches;
+        statusById[id] = r.status;
+      }
       return {
         items: state.items.map((item) =>
-          item.id === itemId
-            ? withOverrideFlags({ ...item, newBasePrice: newPrice, baseOverrideStatus: status })
+          groupIds.includes(item.id)
+            ? withOverrideFlags({ ...item, newBasePrice: newPrice, baseOverrideStatus: statusById[item.id] })
             : item
         ),
         overrides,

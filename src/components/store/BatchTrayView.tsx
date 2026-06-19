@@ -2,18 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { Button, Badge, Select, Modal, AlertModal, DatePicker, ToggleGroup, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { Plus, Send, Layers, Trash2, Inbox, CalendarClock, CheckCircle2 } from "lucide-react";
+import { Button, Badge, Select, Modal, ToggleGroup, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Plus, Layers, Trash2, Inbox, CalendarClock, CheckCircle2 } from "lucide-react";
 import { BatchCard } from "@/components/batches/BatchCard";
 import { BatchDetailDrawer } from "@/components/batches/BatchDetailDrawer";
+import { SendToSapModal } from "@/components/store/SendToSapModal";
+import { DateField, todayIso } from "@/components/shared/DateField";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildItemsById, aggregateBatchImpact } from "@/lib/batch-utils";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
 import { Batch } from "@/types/pricing";
-
-const pad = (n: number) => String(n).padStart(2, "0");
-const toIso = (d?: Date) => (d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T09:00:00` : null);
 
 type Segment = "pending" | "scheduled" | "sent";
 
@@ -50,7 +49,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const [manageBatchId, setManageBatchId] = useState<string | null>(null);
   const [sendId, setSendId] = useState<string | null>(null);
   const [scheduleId, setScheduleId] = useState<string | null>(null);
-  const [scheduleDate, setScheduleDate] = useState<Date | undefined>(undefined);
+  const [scheduleDate, setScheduleDate] = useState<string | null>(null);
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const impacts = useMemo(
@@ -75,7 +74,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       onManage={() => setManageBatchId(b.id)}
       onSchedule={() => {
         setScheduleId(b.id);
-        setScheduleDate(b.scheduledAt ? new Date(b.scheduledAt) : undefined);
+        setScheduleDate(b.scheduledAt ? b.scheduledAt.slice(0, 10) : null);
       }}
       onSubmit={() => setSendId(b.id)}
       onConfirm={() => {
@@ -197,30 +196,14 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
 
       <BatchDetailDrawer batchId={manageBatchId} onOpenChange={(open) => !open && setManageBatchId(null)} />
 
-      <AlertModal
-        open={sendBatch != null}
+      <SendToSapModal
+        batch={sendBatch}
+        itemCount={sendBatch ? sendBatch.overrideIds.length : 0}
         onOpenChange={(open) => !open && setSendId(null)}
-        variant="alert"
-        headline={sendBatch ? `Send "${sendBatch.name}" to SAP now?` : ""}
-        description="This sends every price change in the batch to SAP immediately. New edits after sending create fresh pending changes."
-        footer={
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setSendId(null)}>Cancel</Button>
-            <Button
-              variant="primary"
-              iconLeft={Send}
-              onClick={() => {
-                if (sendBatch) {
-                  submitBatch(sendBatch.id);
-                  toast.success(`Batch "${sendBatch.name}" sent to SAP`);
-                }
-                setSendId(null);
-              }}
-            >
-              Send to SAP
-            </Button>
-          </div>
-        }
+        onSend={(id) => {
+          submitBatch(id);
+          toast.success("Sent to SAP — pending confirmation");
+        }}
       />
 
       <Modal
@@ -235,9 +218,8 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
               variant="primary"
               disabled={!scheduleDate}
               onClick={() => {
-                const iso = toIso(scheduleDate);
-                if (scheduleId && iso) {
-                  scheduleBatch(scheduleId, iso);
+                if (scheduleId && scheduleDate) {
+                  scheduleBatch(scheduleId, `${scheduleDate}T09:00:00`);
                   toast.success("Batch scheduled");
                 }
                 setScheduleId(null);
@@ -250,7 +232,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       >
         <div className="flex flex-col gap-2">
           <p className="text-sm text-gray-600">Pick the date this batch should be sent to SAP.</p>
-          <DatePicker mode="single" value={scheduleDate} onChange={setScheduleDate} min={new Date()} aria-label="Send date" />
+          <DateField value={scheduleDate} onChange={setScheduleDate} min={todayIso()} aria-label="Send date" />
         </div>
       </Modal>
     </div>

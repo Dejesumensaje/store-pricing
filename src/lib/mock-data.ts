@@ -2,11 +2,12 @@ import { PricingItem, Override, Batch, CompetitorPrice } from "@/types/pricing";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Items that share a line-price group (priced together as a line).
+// Items that share a line-price group: priced together as a line (same price).
+// Their base/recommended prices are kept aligned below so the line is coherent.
 const LINE_PRICE_GROUPS: Record<string, string> = {
   "RBCS5-1": "fl-tortilla",
-  "RBCS5-5": "fl-tortilla",
   "RBCS5-7": "fl-tortilla",
+  "RBCS5-8": "fl-tortilla",
 };
 
 // A few hand-picked "frequently priced together" relationships.
@@ -181,9 +182,10 @@ const baseMockItems: PricingItem[] = [
     packSize: "9.25oz",
     keyAttributes: ["Original", "Corn"],
     category_type: "everyday_low_price",
-    currentBasePrice: 3.99,
-    cost: 2.6,
-    recommendedBasePrice: 4.19,
+    // Aligned with the fl-tortilla line price (RBCS5-1 / RBCS5-8).
+    currentBasePrice: 5.49,
+    cost: 3.6,
+    recommendedBasePrice: 5.79,
     itemRole: "Destination",
   },
   {
@@ -193,10 +195,11 @@ const baseMockItems: PricingItem[] = [
     brand: "Campbell's",
     packSize: "7.5oz",
     keyAttributes: ["Kettle cooked", "Sea salt"],
-    category_type: "no_change",
-    currentBasePrice: 4.19,
-    cost: 2.75,
-    recommendedBasePrice: 4.39,
+    category_type: "base",
+    // Aligned with the fl-tortilla line price (RBCS5-1 / RBCS5-7).
+    currentBasePrice: 5.49,
+    cost: 3.6,
+    recommendedBasePrice: 5.79,
   },
 ];
 

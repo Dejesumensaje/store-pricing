@@ -9,8 +9,10 @@ const STATUS: Record<string, ItemStatus> = {
   edited: { label: "Edited", tone: "warning" },
   in_batch: { label: "In batch", tone: "in-progress" },
   scheduled: { label: "Scheduled", tone: "neutral" },
-  sent: { label: "Sent", tone: "neutral" },
-  confirmed: { label: "Confirmed", tone: "success" },
+  // Sent to SAP but not yet acknowledged — not live until SAP confirms.
+  sent: { label: "Pending SAP", tone: "warning" },
+  // SAP confirmed the change — the price is now live.
+  confirmed: { label: "Live", tone: "success" },
 };
 
 // A temp allowance whose effective date hasn't arrived yet is "Scheduled" even

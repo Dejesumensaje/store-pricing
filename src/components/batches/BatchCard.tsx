@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
-import { Send, CheckCircle2, Settings2, Layers, CalendarClock, Target } from "lucide-react";
+import { Send, CheckCircle2, Settings2, Layers, CalendarClock, Target, Eye } from "lucide-react";
 import { Batch } from "@/types/pricing";
 import { BatchImpact } from "@/lib/batch-utils";
 import { fmtDate } from "@/lib/format";
@@ -12,8 +12,8 @@ const STATUS_META: Record<
 > = {
   draft: { label: "Draft", tone: "neutral" },
   scheduled: { label: "Scheduled", tone: "in-progress" },
-  submitted: { label: "Submitted to SAP", tone: "warning" },
-  confirmed: { label: "Confirmed", tone: "success" },
+  submitted: { label: "Pending SAP confirmation", tone: "warning" },
+  confirmed: { label: "Live", tone: "success" },
 };
 
 const signed = (v: number, suffix = "") =>
@@ -80,8 +80,8 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
       )}
 
       <div className="mt-4 flex items-center gap-2">
-        <Button variant="secondary" size="sm" iconLeft={Settings2} onClick={onManage}>
-          Manage
+        <Button variant="secondary" size="sm" iconLeft={isOpen ? Settings2 : Eye} onClick={onManage}>
+          {isOpen ? "Manage" : "Preview"}
         </Button>
         <div className="flex-1" />
         {(batch.status === "draft" || batch.status === "scheduled") && (

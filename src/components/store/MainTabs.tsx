@@ -2,17 +2,16 @@
 
 import { Tabs } from "@dejesumensaje/converge-ds-experimental";
 
-export type MainTab = "all" | "hq" | "batch";
+export type MainTab = "all" | "hq";
 
 type Props = {
   value: MainTab;
   onChange: (tab: MainTab) => void;
   allCount: number;
   hqCount: number;
-  batchCount: number;
 };
 
-export function MainTabs({ value, onChange, allCount, hqCount, batchCount }: Props) {
+export function MainTabs({ value, onChange, allCount, hqCount }: Props) {
   return (
     <Tabs
       value={value}
@@ -20,7 +19,6 @@ export function MainTabs({ value, onChange, allCount, hqCount, batchCount }: Pro
       items={[
         { id: "all", label: "All items", count: allCount },
         { id: "hq", label: "HQ Recommendations", count: hqCount },
-        { id: "batch", label: "Batch tray", count: batchCount },
       ]}
     />
   );

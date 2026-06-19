@@ -81,8 +81,7 @@ function PriceCell({ item }: { item: PricingItem }) {
 export function buildStoreColumns(
   sel: SelHandlers,
   batches: Batch[],
-  visibleCols: Set<string>,
-  onEdit: (item: PricingItem) => void
+  visibleCols: Set<string>
 ): DataColumn<PricingItem>[] {
   const optional = STORE_OPTIONAL_COLUMNS.filter((c) => visibleCols.has(c.id)).map((c) => OPTIONAL_DEFS[c.id]);
 
@@ -120,24 +119,6 @@ export function buildStoreColumns(
         const status = deriveItemStatus(r, batches);
         return <Badge tone={status.tone} size="sm">{status.label}</Badge>;
       },
-    },
-    {
-      id: "edit",
-      group: "item",
-      width: 120,
-      align: "right",
-      header: "",
-      cell: (r) => (
-        <span
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(r);
-          }}
-          className="text-sm font-medium text-emerald-600 hover:underline cursor-pointer"
-        >
-          Edit prices
-        </span>
-      ),
     },
   ];
 }

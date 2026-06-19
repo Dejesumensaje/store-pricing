@@ -67,7 +67,7 @@ export function itemCol(): DataColumn<PricingItem> {
         <div className="size-9 bg-gray-100 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
           {r.image ? <Image src={r.image} alt={r.name} width={36} height={36} className="object-cover" /> : <span className="text-gray-300 text-xs">img</span>}
         </div>
-        <span className="text-blue-600 hover:underline cursor-pointer text-sm font-medium truncate max-w-[150px]">{r.name}</span>
+        <span className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{r.name}</span>
       </div>
     ),
   };

@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select, Checkbox, DatePicker } from "@dejesumensaje/converge-ds-experimental";
+import { Drawer, Button, Badge, Select, Checkbox, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { DateField } from "../shared/DateField";
 import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, PricingCategory } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
@@ -46,6 +47,33 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+// Enter a discount % off the current retail; computes the price so the user
+// doesn't do the math. Commits on blur/Enter.
+function DiscountInput({ currentRetail, initialPct, onApply }: { currentRetail: number; initialPct: string; onApply: (price: number) => void }) {
+  const [pct, setPct] = useState(initialPct);
+  const apply = () => {
+    const p = parseFloat(pct);
+    if (isNaN(p)) return;
+    onApply(Math.round(currentRetail * (1 - p / 100) * 100) / 100);
+  };
+  return (
+    <div className="relative w-[100px]">
+      <input
+        type="text"
+        inputMode="decimal"
+        value={pct}
+        placeholder="0"
+        onChange={(e) => setPct(e.target.value)}
+        onBlur={apply}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className="w-full rounded-md border border-gray-300 bg-white pl-2.5 pr-7 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        aria-label="Discount percent"
+      />
+      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-gray-500 pointer-events-none">%</span>
+    </div>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -71,9 +99,6 @@ function MarginRow({ label, current, next }: { label: string; current: number; n
   );
 }
 
-const pad = (n: number) => String(n).padStart(2, "0");
-const toDate = (s?: string | null) => (s ? new Date(`${s}T00:00:00`) : undefined);
-const toIso = (d?: Date) => (d ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` : null);
 
 // Per-item editing drawer. Self-driven: resolves the item from the store and
 // commits edits through the store actions; navigation walks the caller's list.
@@ -89,6 +114,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const addToBatch = usePricingStore((s) => s.addToBatch);
+  const toast = useToast();
 
   const item = items.find((i) => i.id === itemId) ?? null;
   const isTemp = item?.category_type === "temporary_allowance";
@@ -118,12 +144,15 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
   const addToActive = () => {
     if (!activeBatch) return;
     addToBatch(activeBatch.id, pendingOverrideIds);
+    toast.success(`Added to “${activeBatch.name}”`);
     advance();
   };
   // Add to a specific batch, make it active for subsequent items, then advance.
   const addToChosen = (batchId: string) => {
+    const target = batches.find((b) => b.id === batchId);
     addToBatch(batchId, pendingOverrideIds);
     onSetActiveBatch(batchId);
+    if (target) toast.success(`Added to “${target.name}”`);
     advance();
   };
 
@@ -220,90 +249,108 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
             size="sm"
           />
 
-          {/* Reference values */}
-          <div className="grid grid-cols-3 gap-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-            <InfoRow label="Current" value={fmt(item.currentBasePrice)} />
-            <InfoRow label="Cost" value={fmt(item.cost)} />
-            <InfoRow label="Recommended" value={fmt(item.recommendedBasePrice)} />
-            {isTemp && (
-              <>
-                <InfoRow label="Retail current" value={fmt(item.currentRetailPrice ?? item.currentBasePrice)} />
-                <InfoRow label="Allowance cost" value={fmt(item.allowanceCost ?? item.cost)} />
-                <InfoRow label="Retail rec." value={fmt(item.recommendedRetailPrice ?? item.currentBasePrice)} />
-              </>
-            )}
+          {/* Base price — reference values and the new-price input together. */}
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <div className="grid grid-cols-3 gap-4">
+              <InfoRow label="Current" value={fmt(item.currentBasePrice)} />
+              <InfoRow label="Cost" value={fmt(item.cost)} />
+              <InfoRow label="Recommended" value={fmt(item.recommendedBasePrice)} />
+            </div>
+            <div className="mt-3 border-t border-gray-200 pt-3">
+              <Field label="New base price">
+                <PriceInputCell
+                  autoFocus
+                  recommended={item.recommendedBasePrice}
+                  value={item.newBasePrice}
+                  state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
+                  onCommit={(v) => updateBasePrice(item.id, v)}
+                />
+              </Field>
+              {lineItems.length > 0 && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+                  <Link2 className="size-3.5 text-brand" /> Applies to the whole line ({lineItems.length + 1} items)
+                </p>
+              )}
+            </div>
           </div>
 
-          {/* Editable controls */}
-          <div className="flex flex-col gap-5">
-            <Field label="New base price">
-              <PriceInputCell
-                autoFocus
-                recommended={item.recommendedBasePrice}
-                value={item.newBasePrice}
-                state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
-                onCommit={(v) => updateBasePrice(item.id, v)}
-              />
-            </Field>
+          {/* Temporary allowance — retail reference + % off + retail controls. */}
+          {isTemp && (() => {
+            const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
+            const unit = item.newRetailPrice != null ? item.newRetailPrice / Math.max(1, item.newRetailQty ?? 1) : null;
+            const initialPct = unit != null && curRetail > 0 ? String(Math.max(0, Math.round((1 - unit / curRetail) * 100))) : "";
+            return (
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <div className="grid grid-cols-3 gap-4">
+                  <InfoRow label="Retail current" value={fmt(curRetail)} />
+                  <InfoRow label="Allowance cost" value={fmt(item.allowanceCost ?? item.cost)} />
+                  <InfoRow label="Retail rec." value={fmt(item.recommendedRetailPrice ?? item.currentBasePrice)} />
+                </div>
+                <div className="mt-3 flex flex-col gap-4 border-t border-gray-200 pt-3">
+                  <div className="flex flex-wrap items-start gap-5">
+                    <Field label="% off">
+                      <DiscountInput
+                        currentRetail={curRetail}
+                        initialPct={initialPct}
+                        onApply={(price) => updateRetailPrice(item.id, 1, price)}
+                      />
+                    </Field>
+                    <Field label="New retail price">
+                      <QtyPriceInput
+                        qty={item.newRetailQty ?? null}
+                        price={item.newRetailPrice ?? null}
+                        recommendedPrice={item.recommendedRetailPrice ?? item.currentBasePrice}
+                        state={derivePriceState({ value: item.newRetailPrice, status: item.retailOverrideStatus })}
+                        onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
+                      />
+                    </Field>
+                  </div>
 
-            {isTemp && (
-              <>
-                <Field label="New retail price">
-                  <QtyPriceInput
-                    qty={item.newRetailQty ?? null}
-                    price={item.newRetailPrice ?? null}
-                    recommendedPrice={item.recommendedRetailPrice ?? item.currentBasePrice}
-                    state={derivePriceState({ value: item.newRetailPrice, status: item.retailOverrideStatus })}
-                    onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
-                  />
-                </Field>
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                      <Checkbox
+                        checked={fuelSaverActive}
+                        onCheckedChange={(c) => {
+                          const on = c === true;
+                          setShowFuelSaver(on);
+                          if (!on) updateFuelSaver(item.id, null);
+                        }}
+                        aria-label="Add fuel saver"
+                      />
+                      Add fuel saver
+                    </label>
+                    {fuelSaverActive && (
+                      <div className="w-[170px]">
+                        <Select
+                          options={FUEL_SAVER_OPTIONS}
+                          value={String(item.fuelSaver ?? "0")}
+                          onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
+                          label="Fuel saver"
+                          size="sm"
+                        />
+                      </div>
+                    )}
+                  </div>
 
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                    <Checkbox
-                      checked={fuelSaverActive}
-                      onCheckedChange={(c) => {
-                        const on = c === true;
-                        setShowFuelSaver(on);
-                        if (!on) updateFuelSaver(item.id, null);
-                      }}
-                      aria-label="Add fuel saver"
-                    />
-                    Add fuel saver
-                  </label>
-                  {fuelSaverActive && (
-                    <div className="w-[170px]">
-                      <Select
-                        options={FUEL_SAVER_OPTIONS}
-                        value={String(item.fuelSaver ?? "0")}
-                        onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
-                        label="Fuel saver"
-                        size="sm"
+                  <Field label="Allowance period">
+                    <div className="flex items-center gap-2">
+                      <DateField
+                        value={item.allowanceStartDate}
+                        onChange={(v) => updateAllowanceDates(item.id, v, item.allowanceEndDate ?? null)}
+                        aria-label="Allowance start date"
+                      />
+                      <span className="text-gray-300">–</span>
+                      <DateField
+                        value={item.allowanceEndDate}
+                        onChange={(v) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, v)}
+                        aria-label="Allowance end date"
                       />
                     </div>
-                  )}
+                  </Field>
                 </div>
-
-                <Field label="Allowance period">
-                  <div className="flex items-center gap-2">
-                    <DatePicker
-                      mode="single"
-                      value={toDate(item.allowanceStartDate)}
-                      onChange={(d) => updateAllowanceDates(item.id, toIso(d), item.allowanceEndDate ?? null)}
-                      aria-label="Allowance start date"
-                    />
-                    <span className="text-gray-300">–</span>
-                    <DatePicker
-                      mode="single"
-                      value={toDate(item.allowanceEndDate)}
-                      onChange={(d) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, toIso(d))}
-                      aria-label="Allowance end date"
-                    />
-                  </div>
-                </Field>
-              </>
-            )}
-          </div>
+              </div>
+            );
+          })()}
 
           {/* Live gross margin */}
           {(() => {
@@ -333,35 +380,6 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
               </div>
             );
           })()}
-
-          {/* Line price */}
-          {lineItems.length > 0 && (
-            <div>
-              <div className="mb-2 flex items-center gap-1.5">
-                <Link2 className="size-4 text-brand" />
-                <p className="text-sm font-medium text-gray-700">Line price ({lineItems.length + 1} items)</p>
-              </div>
-              <div className="rounded-xl border border-gray-200 bg-white">
-                {lineItems.map((li) => (
-                  <div key={li.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
-                    <span className="truncate text-sm text-gray-700">{li.name}</span>
-                    <span className="text-sm tabular-nums text-gray-500">{fmt(li.newBasePrice ?? li.currentBasePrice)}</span>
-                  </div>
-                ))}
-              </div>
-              {item.newBasePrice != null && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  iconLeft={Link2}
-                  className="mt-2"
-                  onClick={() => lineItems.forEach((li) => updateBasePrice(li.id, item.newBasePrice!))}
-                >
-                  Apply {fmt(item.newBasePrice)} to the line
-                </Button>
-              )}
-            </div>
-          )}
 
           {/* Competitor prices */}
           {item.competitors && item.competitors.length > 0 && (() => {
@@ -396,23 +414,31 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
             );
           })()}
 
-          {/* Related items */}
-          {relatedItems.length > 0 && (
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Related items</p>
-              <div className="rounded-xl border border-gray-200 bg-white">
-                {relatedItems.map((ri) => (
-                  <div key={ri.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-gray-700">{ri.name}</p>
-                      <p className="text-xs text-gray-400">{ri.id}</p>
+          {/* Related items — includes line-price members (flagged), one table. */}
+          {(() => {
+            const lineIds = new Set(lineItems.map((li) => li.id));
+            const merged = [...lineItems, ...relatedItems.filter((ri) => !lineIds.has(ri.id))];
+            if (merged.length === 0) return null;
+            return (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Related items</p>
+                <div className="rounded-xl border border-gray-200 bg-white">
+                  {merged.map((ri) => (
+                    <div key={ri.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-gray-700">{ri.name}</p>
+                        <p className="text-xs text-gray-400">{ri.id}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {lineIds.has(ri.id) && <Badge tone="in-progress" size="sm">Line</Badge>}
+                        <span className="text-sm tabular-nums text-gray-500">{fmt(ri.newBasePrice ?? ri.currentBasePrice)}</span>
+                      </div>
                     </div>
-                    <span className="text-sm tabular-nums text-gray-500">{fmt(ri.newBasePrice ?? ri.currentBasePrice)}</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Projected impact — de-emphasized, collapsed by default */}
           <ImpactDetails item={item} />

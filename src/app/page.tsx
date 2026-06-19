@@ -4,13 +4,12 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Button,
-  Select,
   ActionBar,
   ActionBarLeading,
   ActionBarActions,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
-import { Tag, SearchX } from "lucide-react";
+import { SearchX, ArrowLeft } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { MainTabs, MainTab } from "@/components/store/MainTabs";
@@ -24,13 +23,8 @@ import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/Fil
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
-import { PricingItem, PricingCategory } from "@/types/pricing";
+import { PricingItem } from "@/types/pricing";
 import { PRICE_TYPE_META } from "@/lib/pricing-meta";
-
-const PRICE_TYPE_OPTIONS = (Object.keys(PRICE_TYPE_META) as PricingCategory[]).map((key) => ({
-  label: PRICE_TYPE_META[key].label,
-  value: key,
-}));
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
 
@@ -46,9 +40,9 @@ export default function StorePricingPage() {
   const pending = usePricingStore(useShallow(selectPendingOverrides));
   const createBatch = usePricingStore((s) => s.createBatch);
   const addToBatch = usePricingStore((s) => s.addToBatch);
-  const updatePriceType = usePricingStore((s) => s.updatePriceType);
 
   const [activeTab, setActiveTab] = useState<MainTab>("all");
+  const [view, setView] = useState<"items" | "batch">("items");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<FilterValue>({});
   const [filterOpen, setFilterOpen] = useState(false);
@@ -56,7 +50,6 @@ export default function StorePricingPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [drawerItemId, setDrawerItemId] = useState<string | null>(null);
   const [newBatch, setNewBatch] = useState<{ open: boolean; seedIds: string[] }>({ open: false, seedIds: [] });
-  const [applyType, setApplyType] = useState<PricingCategory | "">("");
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
   const trayCount = overrides.filter((o) => o.status === "pending" || o.status === "in_batch").length;
@@ -139,8 +132,7 @@ export default function StorePricingPage() {
           allSelected: rows.length > 0 && selected.size === rows.length,
         },
         batches,
-        visibleCols,
-        (item) => setDrawerItemId(item.id)
+        visibleCols
       ),
     [selected, rows, toggle, toggleAll, batches, visibleCols]
   );
@@ -177,79 +169,81 @@ export default function StorePricingPage() {
     setSelected(new Set());
   };
 
-  const handleApplyType = () => {
-    if (!applyType || selected.size === 0) return;
-    selected.forEach((id) => updatePriceType(id, applyType));
-    toast.success(`Applied "${PRICE_TYPE_META[applyType].label}" to ${selected.size} item${selected.size !== 1 ? "s" : ""}`);
-    setSelected(new Set());
-    setApplyType("");
-  };
-
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      <AppHeader alertCount={trayCount} onBellClick={() => setActiveTab("batch")} />
+      <AppHeader
+        cartCount={trayCount}
+        cartActive={view === "batch"}
+        onCartClick={() => setView((v) => (v === "batch" ? "items" : "batch"))}
+      />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-6">
         <StorePricingHeader />
 
-        <div className="mt-6 flex items-center justify-between gap-4">
-          <div className="min-w-0 overflow-x-auto">
-            <MainTabs
-              value={activeTab}
-              onChange={setActiveTab}
-              allCount={TOTAL_ITEM_COUNT}
-              hqCount={hqCount}
-              batchCount={trayCount}
-            />
-          </div>
-          {activeTab !== "batch" && (
-            <ItemsToolbar
-              search={search}
-              onSearch={setSearch}
-              onOpenFilter={() => setFilterOpen(true)}
-              activeFilterCount={activeFilterCount}
-              columnOptions={columnOptions}
-              onToggleColumn={onToggleColumn}
-            />
-          )}
-        </div>
+        {view === "batch" ? (
+          <>
+            <div className="mt-6 flex items-center gap-3">
+              <Button variant="tertiary" iconLeft={ArrowLeft} onClick={() => setView("items")}>
+                Back to items
+              </Button>
+              <h2 className="text-lg font-semibold text-gray-900">Batch tray</h2>
+            </div>
+            <div className="mt-4">
+              <BatchTrayView onNewBatch={openNewBatch} activeBatchId={activeBatchId} onSetActiveBatch={setActiveBatchId} />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="mt-6 flex items-center justify-between gap-4">
+              <div className="min-w-0 overflow-x-auto">
+                <MainTabs value={activeTab} onChange={setActiveTab} allCount={TOTAL_ITEM_COUNT} hqCount={hqCount} />
+              </div>
+              <ItemsToolbar
+                search={search}
+                onSearch={setSearch}
+                onOpenFilter={() => setFilterOpen(true)}
+                activeFilterCount={activeFilterCount}
+                columnOptions={columnOptions}
+                onToggleColumn={onToggleColumn}
+              />
+            </div>
 
-        <div className="mt-4">
-          {activeTab === "batch" ? (
-            <BatchTrayView onNewBatch={openNewBatch} activeBatchId={activeBatchId} onSetActiveBatch={setActiveBatchId} />
-          ) : rows.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-20 text-gray-400">
-              <SearchX className="size-9 stroke-1" />
-              <p className="text-sm font-medium">No items match</p>
-              <p className="text-xs">
-                {activeTab === "hq" ? "No HQ recommendations for this filter." : "Try a different search or clear the filters."}
-              </p>
-              {(search || activeFilterCount > 0) && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="mt-1"
-                  onClick={() => {
-                    setSearch("");
-                    setFilters({});
-                  }}
-                >
-                  Clear search &amp; filters
-                </Button>
+            <div className="mt-4">
+              {rows.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-20 text-gray-400">
+                  <SearchX className="size-9 stroke-1" />
+                  <p className="text-sm font-medium">No items match</p>
+                  <p className="text-xs">
+                    {activeTab === "hq" ? "No HQ recommendations for this filter." : "Try a different search or clear the filters."}
+                  </p>
+                  {(search || activeFilterCount > 0) && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-1"
+                      onClick={() => {
+                        setSearch("");
+                        setFilters({});
+                      }}
+                    >
+                      Clear search &amp; filters
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <DataTable
+                  columns={columns}
+                  rows={rows}
+                  rowKey={(r) => r.id}
+                  flat
+                  isSelected={(r) => selected.has(r.id)}
+                  isOverride={(r) => r.hasOverride}
+                  onRowClick={(r) => setDrawerItemId(r.id)}
+                />
               )}
             </div>
-          ) : (
-            <DataTable
-              columns={columns}
-              rows={rows}
-              rowKey={(r) => r.id}
-              flat
-              isSelected={(r) => selected.has(r.id)}
-              isOverride={(r) => r.hasOverride}
-              onRowClick={(r) => setDrawerItemId(r.id)}
-            />
-          )}
-        </div>
+          </>
+        )}
       </main>
 
       <FilterDrawer open={filterOpen} onOpenChange={setFilterOpen} facets={facets} value={filters} onApply={setFilters} />
@@ -282,7 +276,7 @@ export default function StorePricingPage() {
         }}
       />
 
-      {selected.size > 0 && activeTab !== "batch" && (
+      {selected.size > 0 && view === "items" && (
         <ActionBar
           aria-label="Bulk item actions"
           position="bottom-center"
@@ -295,19 +289,6 @@ export default function StorePricingPage() {
             </span>
           </ActionBarLeading>
           <ActionBarActions>
-            <div className="w-44">
-              <Select
-                label="Price type"
-                size="sm"
-                options={PRICE_TYPE_OPTIONS}
-                value={applyType}
-                onChange={(v) => setApplyType(v as PricingCategory)}
-                placeholder="Apply price type…"
-              />
-            </div>
-            <Button variant="secondary" size="sm" iconLeft={Tag} disabled={!applyType} onClick={handleApplyType}>
-              Apply
-            </Button>
             <BatchSplitButton
               size="sm"
               activeBatch={activeBatch}
