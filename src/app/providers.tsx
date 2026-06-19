@@ -4,7 +4,7 @@ import { TooltipProvider, ToastProvider } from "@dejesumensaje/converge-ds-exper
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ToastProvider>
+    <ToastProvider position="top-right">
       <TooltipProvider>{children}</TooltipProvider>
     </ToastProvider>
   );

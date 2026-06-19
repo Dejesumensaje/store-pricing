@@ -37,7 +37,7 @@ export function MobileItemList({ rows, batches, isSelected, toggle, onRowClick }
                   onRowClick(item);
                 }
               }}
-              className={`flex w-full items-start gap-3 rounded-xl border bg-white p-3 text-left transition-colors ${
+              className={`flex w-full items-start gap-3 rounded-xl border bg-white p-3 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                 selected ? "border-brand ring-1 ring-brand" : item.hasOverride ? "border-amber-200" : "border-gray-200"
               }`}
             >

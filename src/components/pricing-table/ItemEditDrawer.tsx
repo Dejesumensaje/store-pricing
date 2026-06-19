@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useId, useRef } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Checkbox, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateField } from "../shared/DateField";
@@ -12,6 +12,7 @@ import { ReductionInput } from "./ReductionInput";
 import { FUEL_SAVER_OPTIONS } from "./columns/tempColumns";
 import { ImpactBreakdown } from "./columns/shared";
 import { BatchSplitButton } from "../store/BatchSplitButton";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_META, PRICE_TYPE_INTENT } from "@/lib/pricing-meta";
 import { deriveItemStatus } from "@/lib/item-status";
 import { fmt } from "@/lib/format";
@@ -68,7 +69,7 @@ function MarginRow({ label, current, next }: { label: string; current: number; n
       <span className="text-gray-500">{label}</span>
       <div className="flex items-center gap-2 tabular-nums">
         <span className="text-gray-400">{fmtPct(current)}</span>
-        <span className="text-gray-300">→</span>
+        <span aria-hidden="true" className="text-gray-300">→</span>
         <span className="font-semibold text-gray-900">{fmtPct(next)}</span>
         <span className={`w-16 text-right font-medium ${tone}`}>{fmtPpDelta(delta)}</span>
       </div>
@@ -110,11 +111,21 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
   // Multi-unit retail deal toggle ("N for $X"). Seeded from the item's stored
   // quantity so existing deals open expanded.
   const [multiUnit, setMultiUnit] = useState(false);
+  // True right after the user adds this item to a batch — we stay on the item
+  // (no auto-jump) and focus the Next button so Enter still advances quickly.
+  const [justAdded, setJustAdded] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const nextBtnRef = useRef<HTMLButtonElement>(null);
   // Reset per-item UI reveals when navigating to another item.
   useEffect(() => {
     setShowFuelSaver(false);
     setMultiUnit((item?.newRetailQty ?? 1) > 1);
+    setJustAdded(false);
   }, [itemId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (justAdded) nextBtnRef.current?.focus();
+  }, [justAdded]);
 
   const advance = () => (onNext ? onNext() : onClose());
 
@@ -133,20 +144,21 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
     : [];
   const canBatch = pendingOverrideIds.length > 0;
 
-  // Add this item's pending edits to the active batch (one click), then advance.
+  // Add this item's pending edits to the active batch (one click). Stays on the
+  // item — the status flips to "In batch" and the footer offers an explicit Next.
   const addToActive = () => {
     if (!activeBatch) return;
     addToBatch(activeBatch.id, pendingOverrideIds);
     toast.success(`Added to “${activeBatch.name}”`);
-    advance();
+    setJustAdded(true);
   };
-  // Add to a specific batch, make it active for subsequent items, then advance.
+  // Add to a specific batch and make it active for subsequent items. Stays on item.
   const addToChosen = (batchId: string) => {
     const target = batches.find((b) => b.id === batchId);
     addToBatch(batchId, pendingOverrideIds);
     onSetActiveBatch(batchId);
     if (target) toast.success(`Added to “${target.name}”`);
-    advance();
+    setJustAdded(true);
   };
 
   const discard = () => {
@@ -161,6 +173,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
   const showAccept = item != null && !item.reviewed && item.newBasePrice == null && item.recommendedBasePrice !== item.currentBasePrice;
 
   return (
+    <>
     <Drawer
       open={item != null}
       onOpenChange={(o) => {
@@ -183,7 +196,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
       }
       footer={
         <div className="flex items-center gap-2">
-          <Button variant="tertiary" iconLeft={Trash2} aria-label="Discard changes" disabled={!item?.hasOverride} onClick={discard} />
+          <Button variant="tertiary" iconLeft={Trash2} aria-label="Discard changes" disabled={!item?.hasOverride} onClick={() => setConfirmDiscard(true)} />
           <div className="flex-1" />
           {canBatch ? (
             <>
@@ -208,7 +221,9 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
               Accept (no changes)
             </Button>
           ) : (
-            <Button variant="primary" onClick={advance}>{onNext ? "Next" : "Done"}</Button>
+            <Button ref={nextBtnRef} variant="primary" iconRight={onNext ? ChevronRight : undefined} onClick={advance}>
+              {onNext ? "Next item" : "Done"}
+            </Button>
           )}
         </div>
       }
@@ -221,7 +236,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
               {item.image ? (
                 <Image src={item.image} alt={item.name} width={64} height={64} className="object-cover" />
               ) : (
-                <Package className="size-6 text-gray-300" />
+                <Package className="size-6 text-gray-300" aria-hidden="true" />
               )}
             </div>
             <div className="min-w-0">
@@ -247,7 +262,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
             {intent && <p className="mt-1.5 text-xs text-gray-500">{intent.helper}</p>}
             {item.autoTypedFrom === "no_change" && (
               <p className="mt-1 flex items-center gap-1 text-xs font-medium text-brand">
-                <Check className="size-3.5" /> Changed to Base price
+                <Check className="size-3.5" aria-hidden="true" /> Changed to Base price
               </p>
             )}
           </div>
@@ -275,6 +290,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
                 <div className="flex items-center gap-2">
                   <PriceInputCell
                     autoFocus
+                    ariaLabel={intent?.priceLabel ?? "New base price"}
                     recommended={item.recommendedBasePrice}
                     value={item.newBasePrice}
                     state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
@@ -289,7 +305,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
               </Field>
               {lineItems.length > 0 && (
                 <p className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <Link2 className="size-3.5 text-brand" /> Applies to the whole line ({lineItems.length + 1} items)
+                  <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Applies to the whole line ({lineItems.length + 1} items)
                 </p>
               )}
             </div>
@@ -370,7 +386,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
                         onChange={(v) => updateAllowanceDates(item.id, v, item.allowanceEndDate ?? null)}
                         aria-label="Allowance start date"
                       />
-                      <span className="text-gray-300">–</span>
+                      <span aria-hidden="true" className="text-gray-300">–</span>
                       <DateField
                         value={item.allowanceEndDate}
                         onChange={(v) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, v)}
@@ -476,6 +492,16 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
         </div>
       )}
     </Drawer>
+    <ConfirmDialog
+      open={confirmDiscard}
+      onOpenChange={setConfirmDiscard}
+      headline="Discard this price change?"
+      description={item ? `${item.name} will go back to its current price. This can’t be undone.` : undefined}
+      confirmLabel="Discard"
+      destructive
+      onConfirm={discard}
+    />
+    </>
   );
 }
 
@@ -483,18 +509,24 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
 // drawer's focus stays on the price decision.
 function ImpactDetails({ item }: { item: PricingItem }) {
   const [open, setOpen] = useState(false);
+  const panelId = useId();
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={panelId}
         className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left"
       >
         <span className="text-sm font-medium text-gray-500">Projected impact</span>
-        <ChevronDown className={`size-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown
+          aria-hidden="true"
+          className={`size-4 text-gray-400 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+        />
       </button>
       {open && (
-        <div className="border-t border-gray-100 px-4 py-3 text-gray-600">
+        <div id={panelId} className="border-t border-gray-100 px-4 py-3 text-gray-600">
           <ImpactBreakdown item={item} />
         </div>
       )}

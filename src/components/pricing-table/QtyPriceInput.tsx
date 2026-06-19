@@ -26,6 +26,10 @@ type Props = {
 export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCommit, onViewAlerts }: Props) {
   const [draftQty, setDraftQty] = useState(qty != null && qty > 1 ? String(qty) : "");
   const [draftPrice, setDraftPrice] = useState(price != null ? price.toFixed(2) : "");
+  // Brief confirmation flash after a successful commit (parity with PriceInputCell).
+  const [flash, setFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
   useEffect(() => {
     setDraftQty(qty != null && qty > 1 ? String(qty) : "");
@@ -62,13 +66,18 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
       return;
     }
     onCommit(liveQty, livePrice);
+    setFlash(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(false), 600);
   };
+
+  const fieldTone = flash ? "border-emerald-300 bg-emerald-50 text-gray-900" : BORDER[state];
 
   return (
     <div className="flex flex-col gap-0.5">
       {multi ? (
         <div
-          className={`flex items-center w-[170px] border rounded-md focus-within:ring-2 focus-within:ring-blue-500 ${BORDER[state]}`}
+          className={`flex items-center w-[170px] border rounded-md transition-colors duration-500 motion-reduce:transition-none focus-within:ring-2 focus-within:ring-blue-500 ${fieldTone}`}
           onBlur={(e) => {
             // Commit only when focus leaves the whole control, so tabbing from
             // qty to price never commits a half-edited deal.
@@ -107,7 +116,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
         </div>
       ) : (
         <div className="relative w-[120px]">
-          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
+          <span aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
           <input
             type="text"
             inputMode="decimal"
@@ -121,14 +130,14 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             }}
-            className={`w-full pl-6 pr-2 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${BORDER[state]}`}
+            className={`w-full pl-6 pr-2 py-1.5 text-sm border rounded-md transition-colors duration-500 motion-reduce:transition-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${fieldTone}`}
           />
         </div>
       )}
 
       {state === "sent" ? (
         <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
-          <Check className="size-3" /> Sent{isDeal ? ` · ${fmtUnitPrice(liveQty, livePrice)}` : ""}
+          <Check className="size-3" aria-hidden="true" /> Sent{isDeal ? ` · ${fmtUnitPrice(liveQty, livePrice)}` : ""}
         </span>
       ) : state === "alert" ? (
         <Button variant="tertiary" size="sm" iconLeft={AlertCircle} onClick={onViewAlerts}>

@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
-import { Send, CheckCircle2, Settings2, Layers, CalendarClock, Target, Eye } from "lucide-react";
+import { Send, Settings2, Layers, CalendarClock, Target, Eye } from "lucide-react";
 import { Batch } from "@/types/pricing";
 import { BatchImpact } from "@/lib/batch-utils";
 import { fmtDate } from "@/lib/format";
@@ -25,13 +25,12 @@ type Props = {
   onManage: () => void;
   onSchedule: () => void;
   onSubmit: () => void;
-  onConfirm: () => void;
   /** When provided, shows the active-batch indicator / "Set active" affordance. */
   isActive?: boolean;
   onSetActive?: () => void;
 };
 
-export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onConfirm, isActive, onSetActive }: Props) {
+export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isActive, onSetActive }: Props) {
   const status = STATUS_META[batch.status];
   const isOpen = batch.status === "draft" || batch.status === "scheduled";
 
@@ -40,7 +39,7 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-group-impact-bg text-brand">
-            <Layers className="size-4.5" />
+            <Layers className="size-4.5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-gray-900">{batch.name}</h3>
@@ -69,7 +68,7 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
 
       {batch.scheduledAt && (batch.status === "scheduled" || batch.status === "draft") && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
-          <CalendarClock className="size-3.5" /> Scheduled for {fmtDate(batch.scheduledAt)}
+          <CalendarClock className="size-3.5" aria-hidden="true" /> Scheduled for {fmtDate(batch.scheduledAt)}
         </p>
       )}
 
@@ -92,11 +91,6 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
         {(batch.status === "draft" || batch.status === "scheduled") && (
           <Button variant="primary" size="sm" iconLeft={Send} onClick={onSubmit}>
             Send now
-          </Button>
-        )}
-        {batch.status === "submitted" && (
-          <Button variant="secondary" size="sm" iconLeft={CheckCircle2} onClick={onConfirm}>
-            Mark confirmed
           </Button>
         )}
       </div>

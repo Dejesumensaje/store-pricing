@@ -33,3 +33,22 @@
 body {
   font-family: var(--font-sans);
 }
+
+/*
+ * Subtle attention pulse for count badges when they increment (e.g. the batch
+ * tray badge after an item is added) so the user sees where their action
+ * landed. Honors reduced-motion like the DS's own animations.
+ */
+@keyframes badge-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.badge-pop {
+  animation: badge-pop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge-pop {
+    animation: none;
+  }
+}

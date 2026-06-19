@@ -8,6 +8,8 @@ import { BatchCard } from "@/components/batches/BatchCard";
 import { BatchDetailDrawer } from "@/components/batches/BatchDetailDrawer";
 import { SendToSapModal } from "@/components/store/SendToSapModal";
 import { DateField, todayIso } from "@/components/shared/DateField";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildItemsById, aggregateBatchImpact } from "@/lib/batch-utils";
 import { fmt, fmtQtyPrice } from "@/lib/format";
@@ -23,16 +25,6 @@ type Props = {
   onSetActiveBatch: (batchId: string | null) => void;
 };
 
-function EmptyState({ icon: Icon, title, hint }: { icon: typeof Inbox; title: string; hint?: string }) {
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-14 text-gray-400">
-      <Icon className="size-9 stroke-1" />
-      <p className="text-sm font-medium">{title}</p>
-      {hint && <p className="max-w-xs text-center text-xs">{hint}</p>}
-    </div>
-  );
-}
-
 export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: Props) {
   const toast = useToast();
   const items = usePricingStore((s) => s.items);
@@ -42,7 +34,6 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const addToBatch = usePricingStore((s) => s.addToBatch);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const submitBatch = usePricingStore((s) => s.submitBatch);
-  const confirmBatch = usePricingStore((s) => s.confirmBatch);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
 
   const [segment, setSegment] = useState<Segment>("pending");
@@ -50,6 +41,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const [sendId, setSendId] = useState<string | null>(null);
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<{ id: string; name: string } | null>(null);
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const impacts = useMemo(
@@ -77,10 +69,6 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
         setScheduleDate(b.scheduledAt ? b.scheduledAt.slice(0, 10) : null);
       }}
       onSubmit={() => setSendId(b.id)}
-      onConfirm={() => {
-        confirmBatch(b.id);
-        toast.success(`Batch "${b.name}" confirmed by SAP`);
-      }}
     />
   );
 
@@ -132,7 +120,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
                     <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:shrink-0">
                       <div className="flex items-center gap-2 text-sm tabular-nums">
                         <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
-                        <span className="text-gray-300">→</span>
+                        <span aria-hidden="true" className="text-gray-300">→</span>
                         <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
                       </div>
                       {openBatches.length > 0 && (
@@ -152,7 +140,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
                         size="sm"
                         iconLeft={Trash2}
                         aria-label={`Discard ${ov.itemName}`}
-                        onClick={() => removeFromLooseTray(ov.id)}
+                        onClick={() => setConfirmRemove({ id: ov.id, name: ov.itemName })}
                       />
                     </div>
                   </li>
@@ -195,6 +183,21 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           </div>
         )
       )}
+
+      <ConfirmDialog
+        open={confirmRemove != null}
+        onOpenChange={(open) => !open && setConfirmRemove(null)}
+        headline="Discard this price change?"
+        description={confirmRemove ? `${confirmRemove.name} will go back to its current price. This can’t be undone.` : undefined}
+        confirmLabel="Discard"
+        destructive
+        onConfirm={() => {
+          if (confirmRemove) {
+            removeFromLooseTray(confirmRemove.id);
+            toast.success("Price change discarded");
+          }
+        }}
+      />
 
       <BatchDetailDrawer batchId={manageBatchId} onOpenChange={(open) => !open && setManageBatchId(null)} />
 

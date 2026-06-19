@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Button,
@@ -20,6 +20,7 @@ import { BatchTrayView } from "@/components/store/BatchTrayView";
 import { BatchSplitButton } from "@/components/store/BatchSplitButton";
 import { MobileItemList } from "@/components/store/MobileItemList";
 import { ScanOverlay } from "@/components/store/ScanOverlay";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { DataTable } from "@/components/pricing-table/DataTable";
 import { buildStoreColumns, STORE_OPTIONAL_COLUMNS } from "@/components/store/buildStoreColumns";
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
@@ -59,6 +60,15 @@ export default function StorePricingPage() {
 
   const trayCount = overrides.filter((o) => o.status === "pending" || o.status === "in_batch").length;
   const hqCount = useMemo(() => items.filter(hqSuggests).length, [items]);
+
+  // Pulse the tray badge when its count grows (e.g. after add-to-batch) so the
+  // user sees where their action landed. Re-keys the badge to restart the anim.
+  const [trayPulse, setTrayPulse] = useState(0);
+  const prevTrayCount = useRef(trayCount);
+  useEffect(() => {
+    if (trayCount > prevTrayCount.current) setTrayPulse((n) => n + 1);
+    prevTrayCount.current = trayCount;
+  }, [trayCount]);
 
   // Batches the user can still build into (one-click "active batch" target).
   const openBatches = useMemo(
@@ -176,7 +186,13 @@ export default function StorePricingPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      <AppHeader />
+      <AppHeader
+        hqCount={hqCount}
+        onViewHq={() => {
+          setView("items");
+          setActiveTab("hq");
+        }}
+      />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8">
         <div className="flex flex-wrap items-center gap-3 md:gap-4">
@@ -191,7 +207,7 @@ export default function StorePricingPage() {
               Batch tray
             </Button>
             {trayCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 pointer-events-none">
+              <span key={trayPulse} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
                 <CountBadge count={trayCount} tone="warning" />
               </span>
             )}
@@ -228,26 +244,30 @@ export default function StorePricingPage() {
 
             <div className="mt-4">
               {rows.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-200 bg-white py-20 text-gray-400">
-                  <SearchX className="size-9 stroke-1" />
-                  <p className="text-sm font-medium">No items match</p>
-                  <p className="text-xs">
-                    {activeTab === "hq" ? "No HQ recommendations for this filter." : "Try a different search or clear the filters."}
-                  </p>
-                  {(search || activeFilterCount > 0) && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="mt-1"
-                      onClick={() => {
-                        setSearch("");
-                        setFilters({});
-                      }}
-                    >
-                      Clear search &amp; filters
-                    </Button>
-                  )}
-                </div>
+                <EmptyState
+                  icon={SearchX}
+                  title="No items match"
+                  hint={
+                    activeTab === "hq"
+                      ? "No HQ recommendations for this filter."
+                      : "Try a different search or clear the filters."
+                  }
+                  className="py-20"
+                  action={
+                    (search || activeFilterCount > 0) && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setSearch("");
+                          setFilters({});
+                        }}
+                      >
+                        Clear search &amp; filters
+                      </Button>
+                    )
+                  }
+                />
               ) : (
                 <>
                   {/* Phone: tappable cards + a select-all bar (cards have no header checkbox). */}

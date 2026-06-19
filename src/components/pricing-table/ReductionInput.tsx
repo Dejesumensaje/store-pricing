@@ -73,7 +73,10 @@ export function ReductionInput({
           inputMode="decimal"
           value={raw}
           placeholder="0"
-          onChange={(e) => setRaw(e.target.value)}
+          onChange={(e) => {
+            // Digits with up to 2 decimals only — reject letters/symbols.
+            if (/^\d*\.?\d{0,2}$/.test(e.target.value)) setRaw(e.target.value);
+          }}
           onBlur={commit}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();

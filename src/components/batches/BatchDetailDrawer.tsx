@@ -1,8 +1,9 @@
 "use client";
 
 import { Drawer, Button, Badge, Select, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { ArrowLeft, Trash2, Send, CheckCircle2, Inbox } from "lucide-react";
+import { ArrowLeft, Trash2, Send, Inbox } from "lucide-react";
 import { usePricingStore } from "@/store/pricing-store";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { fmt, fmtQtyPrice, fmtDate } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
 
@@ -19,7 +20,6 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
-  const confirmBatch = usePricingStore((s) => s.confirmBatch);
 
   const batch = batches.find((b) => b.id === batchId) ?? null;
   const batchOverrides = overrides.filter((o) => o.batchId === batchId);
@@ -60,18 +60,6 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                 Send to SAP ({batchOverrides.length})
               </Button>
             )}
-            {batch.status === "submitted" && (
-              <Button
-                variant="secondary"
-                iconLeft={CheckCircle2}
-                onClick={() => {
-                  confirmBatch(batch.id);
-                  toast.success(`Batch "${batch.name}" confirmed by SAP`);
-                }}
-              >
-                Mark confirmed
-              </Button>
-            )}
           </div>
         ) : undefined
       }
@@ -86,10 +74,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
           </div>
 
           {batchOverrides.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-16 text-gray-400">
-              <Inbox className="size-10 stroke-1" />
-              <p className="text-sm font-medium">No items in this batch</p>
-            </div>
+            <EmptyState icon={Inbox} title="No items in this batch" bordered={false} />
           ) : (
             <ul className="flex flex-col gap-2">
               {batchOverrides.map((ov) => (
@@ -106,7 +91,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                     </div>
                     <div className="flex items-center gap-2 text-sm shrink-0">
                       <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
-                      <span className="text-gray-300">→</span>
+                      <span aria-hidden="true" className="text-gray-300">→</span>
                       <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
                     </div>
                   </div>

@@ -51,7 +51,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
     return (
       <span className="flex items-center gap-1.5 text-sm tabular-nums">
         <span className="text-gray-400 line-through">{fmt(item.currentRetailPrice ?? item.currentBasePrice)}</span>
-        <span className="text-gray-300">›</span>
+        <span aria-hidden="true" className="text-gray-300">→</span>
         <span className="font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice!)}</span>
       </span>
     );
@@ -60,7 +60,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
     return (
       <span className="flex items-center gap-1.5 text-sm tabular-nums">
         <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-        <span className="text-gray-300">›</span>
+        <span aria-hidden="true" className="text-gray-300">→</span>
         <span className="font-semibold text-gray-900">{fmt(item.newBasePrice!)}</span>
       </span>
     );
@@ -69,7 +69,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
     return (
       <span className="flex items-center gap-1.5 text-sm tabular-nums">
         <span className="text-gray-500">{fmt(item.currentBasePrice)}</span>
-        <span className="text-gray-300">›</span>
+        <span aria-hidden="true" className="text-gray-300">→</span>
         <span className="font-medium text-brand">{fmt(item.recommendedBasePrice)}</span>
       </span>
     );

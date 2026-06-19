@@ -374,7 +374,26 @@ export function DataTable<T>({
                 key={rowKey(row)}
                 selected={selected}
                 onClick={onRowClick ? () => onRowClick(row) : undefined}
-                className={onRowClick ? "cursor-pointer hover:bg-gray-50" : undefined}
+                role={onRowClick ? "button" : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e) => {
+                        // Only act on the row itself — let inner controls
+                        // (the select checkbox) handle their own keys.
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                className={
+                  onRowClick
+                    ? "cursor-pointer transition-colors hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
+                    : undefined
+                }
               >
                 {columns.map((c) => {
                   const pinned = isPinned(c.group);
