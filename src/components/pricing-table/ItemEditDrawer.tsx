@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select, Checkbox, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Drawer, Button, Badge, Select, Checkbox, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateField } from "../shared/DateField";
 import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, PricingCategory } from "@/types/pricing";
@@ -48,10 +48,13 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <div className="flex min-h-6 items-center justify-between gap-3">
+        <span className="text-sm font-medium text-gray-700">{label}</span>
+        {action}
+      </div>
       {children}
     </div>
   );
@@ -104,8 +107,14 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
     : null;
 
   const [showFuelSaver, setShowFuelSaver] = useState(false);
-  // Reset the "add fuel saver" reveal when navigating to another item.
-  useEffect(() => setShowFuelSaver(false), [itemId]);
+  // Multi-unit retail deal toggle ("N for $X"). Seeded from the item's stored
+  // quantity so existing deals open expanded.
+  const [multiUnit, setMultiUnit] = useState(false);
+  // Reset per-item UI reveals when navigating to another item.
+  useEffect(() => {
+    setShowFuelSaver(false);
+    setMultiUnit((item?.newRetailQty ?? 1) > 1);
+  }, [itemId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const advance = () => (onNext ? onNext() : onClose());
 
@@ -297,25 +306,35 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
                   <InfoRow label="Retail rec." value={fmt(item.recommendedRetailPrice ?? item.currentBasePrice)} />
                 </div>
                 <div className="mt-3 flex flex-col gap-4 border-t border-gray-200 pt-3">
-                  <div className="flex flex-wrap items-start gap-5">
-                    <Field label="Reduction">
-                      <ReductionInput
-                        reference={curRetail}
-                        value={unit}
-                        onCommit={(price) => updateRetailPrice(item.id, 1, price)}
-                        defaultMode="pct"
+                  <Field label="Reduction">
+                    <ReductionInput
+                      reference={curRetail}
+                      value={unit}
+                      onCommit={(price) => updateRetailPrice(item.id, 1, price)}
+                      defaultMode="pct"
+                    />
+                  </Field>
+                  <Field
+                    label="New retail price"
+                    action={
+                      <Switch
+                        checked={multiUnit}
+                        onCheckedChange={setMultiUnit}
+                        label="Multi-unit deal"
+                        labelPosition="left"
+                        size="sm"
                       />
-                    </Field>
-                    <Field label="New retail price">
-                      <QtyPriceInput
-                        qty={item.newRetailQty ?? null}
-                        price={item.newRetailPrice ?? null}
-                        recommendedPrice={item.recommendedRetailPrice ?? item.currentBasePrice}
-                        state={derivePriceState({ value: item.newRetailPrice, status: item.retailOverrideStatus })}
-                        onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
-                      />
-                    </Field>
-                  </div>
+                    }
+                  >
+                    <QtyPriceInput
+                      qty={item.newRetailQty ?? null}
+                      price={item.newRetailPrice ?? null}
+                      recommendedPrice={item.recommendedRetailPrice ?? item.currentBasePrice}
+                      state={derivePriceState({ value: item.newRetailPrice, status: item.retailOverrideStatus })}
+                      multi={multiUnit}
+                      onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
+                    />
+                  </Field>
 
                   <div className="flex flex-col gap-2">
                     <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
