@@ -175,7 +175,8 @@ export default function StorePricingPage() {
       <AppHeader />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-6">
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <StorePricingHeader />
           <div className="relative inline-flex">
             <Button
               variant={view === "batch" ? "secondary" : "tertiary"}
@@ -191,7 +192,6 @@ export default function StorePricingPage() {
               </span>
             )}
           </div>
-          <StorePricingHeader />
         </div>
 
         {view === "batch" ? (
