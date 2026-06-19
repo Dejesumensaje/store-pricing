@@ -133,11 +133,20 @@ export const usePricingStore = create<PricingStore>((set) => ({
         statusById[id] = r.status;
       }
       return {
-        items: state.items.map((item) =>
-          groupIds.includes(item.id)
-            ? withOverrideFlags({ ...item, newBasePrice: newPrice, baseOverrideStatus: statusById[item.id] })
-            : item
-        ),
+        items: state.items.map((item) => {
+          if (!groupIds.includes(item.id)) return item;
+          let next: PricingItem = { ...item, newBasePrice: newPrice, baseOverrideStatus: statusById[item.id] };
+          if (newPrice != null && item.category_type === "no_change") {
+            // Editing a "no change" item IS a base price change — promote it,
+            // remembering the original type so we can revert if the edit is cleared.
+            next = { ...next, category_type: "base", autoTypedFrom: "no_change" };
+          } else if (newPrice == null && item.autoTypedFrom != null) {
+            // Edit cleared — revert the auto-switch once nothing else overrides the item.
+            const stillOverridden = overrides.some((o) => o.itemId === item.id);
+            if (!stillOverridden) next = { ...next, category_type: item.autoTypedFrom, autoTypedFrom: null };
+          }
+          return withOverrideFlags(next);
+        }),
         overrides,
         batches,
       };
@@ -171,16 +180,18 @@ export const usePricingStore = create<PricingStore>((set) => ({
     set((state) => ({
       items: state.items.map((item) => {
         if (item.id !== itemId) return item;
+        // Picking a type by hand is an explicit choice — drop the auto-switch memory.
         if (type === "temporary_allowance") {
           return {
             ...item,
             category_type: type,
+            autoTypedFrom: null,
             currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
             allowanceCost: item.allowanceCost ?? Math.round(item.cost * 0.8 * 100) / 100,
             recommendedRetailPrice: item.recommendedRetailPrice ?? Math.round(item.currentBasePrice * 0.85 * 100) / 100,
           };
         }
-        return { ...item, category_type: type };
+        return { ...item, category_type: type, autoTypedFrom: null };
       }),
     })),
 

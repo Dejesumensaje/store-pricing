@@ -55,6 +55,44 @@ export const PRICE_TYPE_META: Record<
   },
 };
 
+// Per-type "intent" config: what decision each price type represents, so the
+// drawer can anticipate the use case instead of showing a generic price input.
+//   helper       one-line description of the decision (shown under the Select)
+//   priceLabel   label for the main (base) price input
+//   permanent    true = a permanent shelf price (no allowance dates)
+//   usesReduction true = offer a "reduction off current" control (ReductionInput)
+export const PRICE_TYPE_INTENT: Record<
+  PricingCategory,
+  { helper: string; priceLabel: string; permanent?: boolean; usesReduction?: boolean }
+> = {
+  base: {
+    helper: "Permanent regular shelf price for this item.",
+    priceLabel: "New base price",
+    permanent: true,
+  },
+  temporary_allowance: {
+    helper: "Vendor-funded temporary reduction. Set the promo price and dates.",
+    priceLabel: "New base price",
+  },
+  everyday_low_price: {
+    helper: "Strategic permanent markdown to stay consistently cheaper.",
+    priceLabel: "New everyday low price",
+    permanent: true,
+    usesReduction: true,
+  },
+  no_change: {
+    helper: "HQ recommends keeping the current price. Editing the price switches this to a Base price change.",
+    priceLabel: "New base price",
+    permanent: true,
+  },
+  new_discontinued: {
+    // Refined per itemStatus in the drawer (new vs. discontinued).
+    helper: "Initial pricing for a new item, or handling for one being removed.",
+    priceLabel: "Initial price",
+    permanent: true,
+  },
+};
+
 // Change-type pills, in display order. "all" is the master view.
 export const CHANGE_TYPE_TABS: { value: string; label: string; route: string }[] = [
   { value: "all", label: "All items", route: "/all-items" },

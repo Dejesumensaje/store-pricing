@@ -8,10 +8,11 @@ import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, PricingCategory } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { QtyPriceInput } from "./QtyPriceInput";
+import { ReductionInput } from "./ReductionInput";
 import { FUEL_SAVER_OPTIONS } from "./columns/tempColumns";
 import { ImpactBreakdown } from "./columns/shared";
 import { BatchSplitButton } from "../store/BatchSplitButton";
-import { PRICE_TYPE_META } from "@/lib/pricing-meta";
+import { PRICE_TYPE_META, PRICE_TYPE_INTENT } from "@/lib/pricing-meta";
 import { deriveItemStatus } from "@/lib/item-status";
 import { fmt } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
@@ -43,33 +44,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-0.5">
       <span className="text-xs uppercase tracking-wide text-gray-400">{label}</span>
       <span className="text-sm font-medium text-gray-800">{value}</span>
-    </div>
-  );
-}
-
-// Enter a discount % off the current retail; computes the price so the user
-// doesn't do the math. Commits on blur/Enter.
-function DiscountInput({ currentRetail, initialPct, onApply }: { currentRetail: number; initialPct: string; onApply: (price: number) => void }) {
-  const [pct, setPct] = useState(initialPct);
-  const apply = () => {
-    const p = parseFloat(pct);
-    if (isNaN(p)) return;
-    onApply(Math.round(currentRetail * (1 - p / 100) * 100) / 100);
-  };
-  return (
-    <div className="relative w-[100px]">
-      <input
-        type="text"
-        inputMode="decimal"
-        value={pct}
-        placeholder="0"
-        onChange={(e) => setPct(e.target.value)}
-        onBlur={apply}
-        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-        className="w-full rounded-md border border-gray-300 bg-white pl-2.5 pr-7 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        aria-label="Discount percent"
-      />
-      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-sm text-gray-500 pointer-events-none">%</span>
     </div>
   );
 }
@@ -118,6 +92,16 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
 
   const item = items.find((i) => i.id === itemId) ?? null;
   const isTemp = item?.category_type === "temporary_allowance";
+  const isEdlp = item?.category_type === "everyday_low_price";
+  const isNewItem = item?.category_type === "new_discontinued" && item?.itemStatus === "new";
+  // Per-type intent (labels + helper copy). New/discontinued is refined by itemStatus.
+  const intent = item
+    ? item.category_type === "new_discontinued"
+      ? item.itemStatus === "discontinued"
+        ? { helper: "Item being removed — set a clearance price or mark for removal.", priceLabel: "Clearance price" }
+        : { helper: "New item — set the opening shelf price.", priceLabel: "Initial price" }
+      : PRICE_TYPE_INTENT[item.category_type]
+    : null;
 
   const [showFuelSaver, setShowFuelSaver] = useState(false);
   // Reset the "add fuel saver" reveal when navigating to another item.
@@ -240,34 +224,61 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
             </div>
           </div>
 
-          {/* Price type — the Select renders its own label, so no extra title. */}
-          <Select
-            options={PRICE_TYPE_OPTIONS}
-            value={item.category_type}
-            onChange={(v) => updatePriceType(item.id, v as PricingCategory)}
-            label="Price type"
-            size="sm"
-          />
+          {/* Price type — the Select renders its own label; a helper line below
+              describes the decision so the form anticipates each use case. */}
+          <div>
+            <Select
+              options={PRICE_TYPE_OPTIONS}
+              value={item.category_type}
+              onChange={(v) => updatePriceType(item.id, v as PricingCategory)}
+              label="Price type"
+              size="sm"
+            />
+            {intent && <p className="mt-1.5 text-xs text-gray-500">{intent.helper}</p>}
+            {item.autoTypedFrom === "no_change" && (
+              <p className="mt-1 flex items-center gap-1 text-xs font-medium text-brand">
+                <Check className="size-3.5" /> Changed to Base price
+              </p>
+            )}
+          </div>
 
-          {/* Base price — reference values and the new-price input together. */}
+          {/* Base price — reference values and the new-price input together.
+              New items have no "Current"; EDLP adds a permanent-reduction control. */}
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-            <div className="grid grid-cols-3 gap-4">
-              <InfoRow label="Current" value={fmt(item.currentBasePrice)} />
+            <div className={isNewItem ? "grid grid-cols-2 gap-4" : "grid grid-cols-3 gap-4"}>
+              {!isNewItem && <InfoRow label="Current" value={fmt(item.currentBasePrice)} />}
               <InfoRow label="Cost" value={fmt(item.cost)} />
-              <InfoRow label="Recommended" value={fmt(item.recommendedBasePrice)} />
+              <InfoRow label={isNewItem ? "Suggested" : "Recommended"} value={fmt(item.recommendedBasePrice)} />
             </div>
-            <div className="mt-3 border-t border-gray-200 pt-3">
-              <Field label="New base price">
-                <PriceInputCell
-                  autoFocus
-                  recommended={item.recommendedBasePrice}
-                  value={item.newBasePrice}
-                  state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
-                  onCommit={(v) => updateBasePrice(item.id, v)}
-                />
+            <div className="mt-3 flex flex-col gap-4 border-t border-gray-200 pt-3">
+              {isEdlp && (
+                <Field label="Permanent reduction">
+                  <ReductionInput
+                    reference={item.currentBasePrice}
+                    value={item.newBasePrice}
+                    onCommit={(price) => updateBasePrice(item.id, price)}
+                    defaultMode="amount"
+                  />
+                </Field>
+              )}
+              <Field label={intent?.priceLabel ?? "New base price"}>
+                <div className="flex items-center gap-2">
+                  <PriceInputCell
+                    autoFocus
+                    recommended={item.recommendedBasePrice}
+                    value={item.newBasePrice}
+                    state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
+                    onCommit={(v) => updateBasePrice(item.id, v)}
+                  />
+                  {isEdlp && item.newBasePrice != null && item.currentBasePrice - item.newBasePrice > 0.005 && (
+                    <span className="text-xs font-medium text-emerald-600">
+                      −{fmt(item.currentBasePrice - item.newBasePrice)} (−{Math.round(((item.currentBasePrice - item.newBasePrice) / item.currentBasePrice) * 100)}%)
+                    </span>
+                  )}
+                </div>
               </Field>
               {lineItems.length > 0 && (
-                <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+                <p className="flex items-center gap-1.5 text-xs text-gray-500">
                   <Link2 className="size-3.5 text-brand" /> Applies to the whole line ({lineItems.length + 1} items)
                 </p>
               )}
@@ -278,7 +289,6 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
           {isTemp && (() => {
             const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
             const unit = item.newRetailPrice != null ? item.newRetailPrice / Math.max(1, item.newRetailQty ?? 1) : null;
-            const initialPct = unit != null && curRetail > 0 ? String(Math.max(0, Math.round((1 - unit / curRetail) * 100))) : "";
             return (
               <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                 <div className="grid grid-cols-3 gap-4">
@@ -288,11 +298,12 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
                 </div>
                 <div className="mt-3 flex flex-col gap-4 border-t border-gray-200 pt-3">
                   <div className="flex flex-wrap items-start gap-5">
-                    <Field label="% off">
-                      <DiscountInput
-                        currentRetail={curRetail}
-                        initialPct={initialPct}
-                        onApply={(price) => updateRetailPrice(item.id, 1, price)}
+                    <Field label="Reduction">
+                      <ReductionInput
+                        reference={curRetail}
+                        value={unit}
+                        onCommit={(price) => updateRetailPrice(item.id, 1, price)}
+                        defaultMode="pct"
                       />
                     </Field>
                     <Field label="New retail price">

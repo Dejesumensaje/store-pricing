@@ -77,6 +77,12 @@ export type PricingItem = {
   /** Accepted as-is (no changes) — removes the item from the review queue. */
   reviewed?: boolean;
   category_type: PricingCategory;
+  /**
+   * Set when the price type was auto-switched on edit (e.g. `no_change` → `base`
+   * when the user typed a price). Lets us revert to the original type if the
+   * edit is cleared. Cleared the moment the user picks a type manually.
+   */
+  autoTypedFrom?: PricingCategory | null;
 };
 
 export type PriceField = "base" | "retail";
