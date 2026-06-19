@@ -16,34 +16,39 @@ type Props = {
 
 export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFilterCount, columnOptions, onToggleColumn }: Props) {
   return (
-    <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+    // Mobile: search pinned left, actions clustered right (justify-between).
+    // Desktop: the whole toolbar sits at the right of the tabs row, items inline.
+    <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-start">
       <SearchInput
         value={search}
         onValueChange={onSearch}
-        expandDirection="left"
+        size="sm"
+        expandDirection="right"
         aria-label="Search items"
         placeholder="Search by name or ID"
-        className="w-full md:w-56"
+        className="md:w-56"
       />
-      <Button
-        variant="secondary"
-        size="sm"
-        iconLeft={ScanLine}
-        className="md:hidden"
-        onClick={onScan}
-      >
-        Scan
-      </Button>
-      <Button
-        variant={activeFilterCount > 0 ? "secondary" : "tertiary"}
-        size="sm"
-        iconLeft={SlidersHorizontal}
-        aria-label="Filters"
-        onClick={onOpenFilter}
-      >
-        {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
-      </Button>
-      <ColumnsMenu options={columnOptions} onToggle={onToggleColumn} />
+      <div className="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          iconLeft={ScanLine}
+          className="md:hidden"
+          onClick={onScan}
+        >
+          Scan
+        </Button>
+        <Button
+          variant={activeFilterCount > 0 ? "secondary" : "tertiary"}
+          size="sm"
+          iconLeft={SlidersHorizontal}
+          aria-label="Filters"
+          onClick={onOpenFilter}
+        >
+          {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
+        </Button>
+        <ColumnsMenu options={columnOptions} onToggle={onToggleColumn} />
+      </div>
     </div>
   );
 }

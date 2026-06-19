@@ -179,9 +179,9 @@ export default function StorePricingPage() {
       <AppHeader />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8">
-        <div className="flex flex-col items-start gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-3 md:gap-4">
           <StorePricingHeader />
-          <div className="relative inline-flex">
+          <div className="relative order-2 ml-auto inline-flex md:order-3">
             <Button
               variant={view === "batch" ? "secondary" : "tertiary"}
               iconLeft={Layers}
@@ -252,7 +252,7 @@ export default function StorePricingPage() {
                 <>
                   {/* Phone: tappable cards + a select-all bar (cards have no header checkbox). */}
                   <div className="md:hidden">
-                    <div className="mb-2 flex items-center gap-2 px-1">
+                    <div className="mb-2 flex items-center gap-2 px-3">
                       <Checkbox
                         checked={rows.length > 0 && selected.size === rows.length}
                         onCheckedChange={toggleAll}
