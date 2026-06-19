@@ -14,6 +14,7 @@ type Props = {
 export function MainTabs({ value, onChange, allCount, hqCount }: Props) {
   return (
     <Tabs
+      size="sm"
       value={value}
       onValueChange={(v) => onChange(v as MainTab)}
       items={[

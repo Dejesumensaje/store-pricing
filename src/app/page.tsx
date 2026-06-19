@@ -4,12 +4,13 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Button,
+  CountBadge,
   ActionBar,
   ActionBarLeading,
   ActionBarActions,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
-import { SearchX, ArrowLeft } from "lucide-react";
+import { SearchX, ArrowLeft, Layers } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { MainTabs, MainTab } from "@/components/store/MainTabs";
@@ -171,22 +172,34 @@ export default function StorePricingPage() {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      <AppHeader
-        cartCount={trayCount}
-        cartActive={view === "batch"}
-        onCartClick={() => setView((v) => (v === "batch" ? "items" : "batch"))}
-      />
+      <AppHeader />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-6">
-        <StorePricingHeader />
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="relative inline-flex">
+            <Button
+              variant={view === "batch" ? "secondary" : "tertiary"}
+              iconLeft={Layers}
+              pressed={view === "batch"}
+              onClick={() => setView((v) => (v === "batch" ? "items" : "batch"))}
+            >
+              Batch tray
+            </Button>
+            {trayCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 pointer-events-none">
+                <CountBadge count={trayCount} tone="warning" />
+              </span>
+            )}
+          </div>
+          <StorePricingHeader />
+        </div>
 
         {view === "batch" ? (
           <>
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-6">
               <Button variant="tertiary" iconLeft={ArrowLeft} onClick={() => setView("items")}>
                 Back to items
               </Button>
-              <h2 className="text-lg font-semibold text-gray-900">Batch tray</h2>
             </div>
             <div className="mt-4">
               <BatchTrayView onNewBatch={openNewBatch} activeBatchId={activeBatchId} onSetActiveBatch={setActiveBatchId} />
