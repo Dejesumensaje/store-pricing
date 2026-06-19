@@ -86,16 +86,18 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
 
   return (
     <div className="flex flex-col gap-6">
-      <ToggleGroup
-        aria-label="Batch lifecycle"
-        value={segment}
-        onValueChange={(v) => setSegment(v as Segment)}
-        options={[
-          { value: "pending", label: `Pending (${pending.length + draftBatches.length})` },
-          { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
-          { value: "sent", label: `Sent (${sentBatches.length})` },
-        ]}
-      />
+      <div className="-mx-1 overflow-x-auto px-1">
+        <ToggleGroup
+          aria-label="Batch lifecycle"
+          value={segment}
+          onValueChange={(v) => setSegment(v as Segment)}
+          options={[
+            { value: "pending", label: `Pending (${pending.length + draftBatches.length})` },
+            { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
+            { value: "sent", label: `Sent (${sentBatches.length})` },
+          ]}
+        />
+      </div>
 
       {/* ── Pending: unbatched edits + draft batches ──────────────────────── */}
       {segment === "pending" && (
@@ -117,7 +119,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((ov) => (
-                  <li key={ov.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5">
+                  <li key={ov.id} className="flex flex-col items-start gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 md:flex-row md:items-center md:justify-between md:gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-gray-900">{ov.itemName}</p>
                       <div className="mt-0.5 flex items-center gap-1.5">
@@ -127,14 +129,14 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
                         <span className="text-xs text-gray-400">{CATEGORY_LABELS[ov.changeType]}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:shrink-0">
                       <div className="flex items-center gap-2 text-sm tabular-nums">
                         <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
                         <span className="text-gray-300">→</span>
                         <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
                       </div>
                       {openBatches.length > 0 && (
-                        <div className="w-44">
+                        <div className="w-full md:w-44">
                           <Select
                             label="Add to batch"
                             size="sm"
@@ -211,6 +213,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
         onOpenChange={(open) => !open && setScheduleId(null)}
         title="Schedule send"
         size="sm"
+        className="max-md:!max-w-[calc(100vw-1.5rem)]"
         footer={
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => setScheduleId(null)}>Cancel</Button>

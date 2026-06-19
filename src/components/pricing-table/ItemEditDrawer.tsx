@@ -168,6 +168,7 @@ export function ItemEditDrawer({ itemId, onClose, onPrev, onNext, position, acti
       }}
       title="Edit prices"
       size="md"
+      className="max-md:!w-full"
       headerActions={
         <div className="flex items-center gap-2">
           {status && <Badge tone={status.tone} size="sm">{status.label}</Badge>}

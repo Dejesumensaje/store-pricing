@@ -58,6 +58,7 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
       onOpenChange={onOpenChange}
       title="New batch"
       size="md"
+      className="max-md:!max-w-[calc(100vw-1.5rem)]"
       footer={
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => onOpenChange(false)}>

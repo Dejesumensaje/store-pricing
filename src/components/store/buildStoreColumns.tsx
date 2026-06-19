@@ -41,7 +41,7 @@ const OPTIONAL_DEFS: Record<string, DataColumn<PricingItem>> = {
 
 // Current → new price. New = committed override; falls back to a muted HQ
 // recommendation hint when HQ suggests a change the user hasn't acted on yet.
-function PriceCell({ item }: { item: PricingItem }) {
+export function PriceCell({ item }: { item: PricingItem }) {
   const isTemp = item.category_type === "temporary_allowance";
   const committedRetail = isTemp && item.newRetailPrice != null;
   const committedBase = item.newBasePrice != null;

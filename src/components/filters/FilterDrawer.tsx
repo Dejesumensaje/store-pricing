@@ -41,6 +41,7 @@ export function FilterDrawer({ open, onOpenChange, facets, value, onApply }: Pro
       onOpenChange={onOpenChange}
       title="Filters"
       size="sm"
+      className="max-md:!w-full"
       headerActions={total > 0 ? <Badge tone="in-progress" size="sm">{total}</Badge> : undefined}
       footer={
         <div className="flex items-center gap-2">

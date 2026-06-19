@@ -4,6 +4,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Button,
+  Checkbox,
   CountBadge,
   ActionBar,
   ActionBarLeading,
@@ -17,6 +18,8 @@ import { MainTabs, MainTab } from "@/components/store/MainTabs";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
 import { BatchTrayView } from "@/components/store/BatchTrayView";
 import { BatchSplitButton } from "@/components/store/BatchSplitButton";
+import { MobileItemList } from "@/components/store/MobileItemList";
+import { ScanOverlay } from "@/components/store/ScanOverlay";
 import { DataTable } from "@/components/pricing-table/DataTable";
 import { buildStoreColumns, STORE_OPTIONAL_COLUMNS } from "@/components/store/buildStoreColumns";
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
@@ -50,6 +53,7 @@ export default function StorePricingPage() {
   const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [drawerItemId, setDrawerItemId] = useState<string | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
   const [newBatch, setNewBatch] = useState<{ open: boolean; seedIds: string[] }>({ open: false, seedIds: [] });
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
@@ -174,8 +178,8 @@ export default function StorePricingPage() {
     <div className="flex min-h-screen flex-col bg-gray-50">
       <AppHeader />
 
-      <main className="mx-auto w-full max-w-[1400px] flex-1 px-8 py-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8">
+        <div className="flex flex-col items-start gap-3 md:flex-row md:flex-wrap md:items-center md:justify-between">
           <StorePricingHeader />
           <div className="relative inline-flex">
             <Button
@@ -207,7 +211,7 @@ export default function StorePricingPage() {
           </>
         ) : (
           <>
-            <div className="mt-6 flex items-center justify-between gap-4">
+            <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0 overflow-x-auto">
                 <MainTabs value={activeTab} onChange={setActiveTab} allCount={TOTAL_ITEM_COUNT} hqCount={hqCount} />
               </div>
@@ -215,6 +219,7 @@ export default function StorePricingPage() {
                 search={search}
                 onSearch={setSearch}
                 onOpenFilter={() => setFilterOpen(true)}
+                onScan={() => setScanOpen(true)}
                 activeFilterCount={activeFilterCount}
                 columnOptions={columnOptions}
                 onToggleColumn={onToggleColumn}
@@ -244,20 +249,56 @@ export default function StorePricingPage() {
                   )}
                 </div>
               ) : (
-                <DataTable
-                  columns={columns}
-                  rows={rows}
-                  rowKey={(r) => r.id}
-                  flat
-                  isSelected={(r) => selected.has(r.id)}
-                  isOverride={(r) => r.hasOverride}
-                  onRowClick={(r) => setDrawerItemId(r.id)}
-                />
+                <>
+                  {/* Phone: tappable cards + a select-all bar (cards have no header checkbox). */}
+                  <div className="md:hidden">
+                    <div className="mb-2 flex items-center gap-2 px-1">
+                      <Checkbox
+                        checked={rows.length > 0 && selected.size === rows.length}
+                        onCheckedChange={toggleAll}
+                        aria-label="Select all items"
+                      />
+                      <span className="text-sm text-gray-600">
+                        {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+                      </span>
+                    </div>
+                    <MobileItemList
+                      rows={rows}
+                      batches={batches}
+                      isSelected={(r) => selected.has(r.id)}
+                      toggle={toggle}
+                      onRowClick={(r) => setDrawerItemId(r.id)}
+                    />
+                  </div>
+
+                  {/* Tablet/desktop: full data table. */}
+                  <div className="hidden md:block">
+                    <DataTable
+                      columns={columns}
+                      rows={rows}
+                      rowKey={(r) => r.id}
+                      flat
+                      isSelected={(r) => selected.has(r.id)}
+                      isOverride={(r) => r.hasOverride}
+                      onRowClick={(r) => setDrawerItemId(r.id)}
+                    />
+                  </div>
+                </>
               )}
             </div>
           </>
         )}
       </main>
+
+      <ScanOverlay
+        open={scanOpen}
+        items={items}
+        onClose={() => setScanOpen(false)}
+        onScanResult={(id) => {
+          setScanOpen(false);
+          setDrawerItemId(id);
+        }}
+      />
 
       <FilterDrawer open={filterOpen} onOpenChange={setFilterOpen} facets={facets} value={filters} onApply={setFilters} />
 

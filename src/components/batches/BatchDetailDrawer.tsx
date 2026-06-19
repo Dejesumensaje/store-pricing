@@ -34,6 +34,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
       onOpenChange={onOpenChange}
       title={batch?.name ?? "Batch"}
       size="md"
+      className="max-md:!w-full"
       headerActions={
         batch ? (
           <Badge tone={batch.status === "confirmed" ? "success" : batch.status === "submitted" ? "warning" : "neutral"} size="sm">

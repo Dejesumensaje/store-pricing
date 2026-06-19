@@ -79,7 +79,7 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, onCon
         </p>
       )}
 
-      <div className="mt-4 flex items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button variant="secondary" size="sm" iconLeft={isOpen ? Settings2 : Eye} onClick={onManage}>
           {isOpen ? "Manage" : "Preview"}
         </Button>

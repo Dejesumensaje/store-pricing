@@ -41,6 +41,7 @@ export function SendToSapModal({ batch, itemCount, onOpenChange, onSend }: Props
       onOpenChange={(o) => !o && close()}
       title="Send to SAP"
       size="sm"
+      className="max-md:!max-w-[calc(100vw-1.5rem)]"
       dismissible={phase !== "loading"}
       showCloseButton={phase !== "loading"}
       footer={
