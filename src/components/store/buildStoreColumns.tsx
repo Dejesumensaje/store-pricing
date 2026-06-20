@@ -2,9 +2,9 @@
 
 import { DataColumn } from "../pricing-table/DataTable";
 import { selectCol, itemCol, idCol, SelHandlers } from "../pricing-table/columns/shared";
-import { PricingItem, Batch } from "@/types/pricing";
+import { PricingItem, Batch, OverrideStatus } from "@/types/pricing";
 import { PRICE_TYPE_META } from "@/lib/pricing-meta";
-import { deriveItemStatus } from "@/lib/item-status";
+import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { Badge } from "@dejesumensaje/converge-ds-experimental";
 
@@ -39,39 +39,87 @@ const OPTIONAL_DEFS: Record<string, DataColumn<PricingItem>> = {
   sensitivity: textCol("sensitivity", "Sensitivity", (r) => r.sensitivity, 100),
 };
 
-// Current → new price. New = committed override; falls back to a muted HQ
-// recommendation hint when HQ suggests a change the user hasn't acted on yet.
+// A change is "in-flight" (transition shown old → new) until SAP confirms it.
+// Confirmed/absent → the price is settled and shown as a single live value.
+const inFlight = (s?: OverrideStatus) => s === "pending" || s === "in_batch" || s === "submitted";
+
+// One price field: a single live value when settled, else current → new.
+function PriceLine({
+  label,
+  current,
+  next,
+  settled,
+}: {
+  label?: string;
+  current: string;
+  next: string;
+  settled: boolean;
+}) {
+  return (
+    <span className="flex items-center gap-1.5 text-sm tabular-nums">
+      {label && <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-400">{label}</span>}
+      {settled ? (
+        <span className="font-semibold text-gray-900">{next}</span>
+      ) : (
+        <>
+          <span className="text-gray-400 line-through">{current}</span>
+          <span aria-hidden="true" className="text-gray-300">→</span>
+          <span className="font-semibold text-gray-900">{next}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+// Price column. Settled items show a single live price (no strike-through). The
+// before → after pattern is reserved for the user's own edits. HQ recommendations
+// are already live, so they show just the single live price + an "HQ" badge until
+// reviewed. Temporary allowances show the retail deal, plus a labeled Base line
+// when base also changed.
 export function PriceCell({ item }: { item: PricingItem }) {
   const isTemp = item.category_type === "temporary_allowance";
   const committedRetail = isTemp && item.newRetailPrice != null;
   const committedBase = item.newBasePrice != null;
-  const hqSuggests = !item.reviewed && !committedBase && item.recommendedBasePrice !== item.currentBasePrice;
 
-  if (committedRetail) {
+  // HQ review (already live, nothing overridden) — single live price + HQ badge.
+  if (!committedBase && !committedRetail && hqReviewNeeded(item)) {
     return (
       <span className="flex items-center gap-1.5 text-sm tabular-nums">
-        <span className="text-gray-400 line-through">{fmt(item.currentRetailPrice ?? item.currentBasePrice)}</span>
-        <span aria-hidden="true" className="text-gray-300">→</span>
-        <span className="font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice!)}</span>
+        <span className="font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
+        <Badge tone="in-progress" size="sm">HQ</Badge>
       </span>
     );
   }
+
+  if (isTemp) {
+    const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
+    return (
+      <span className="flex flex-col gap-0.5">
+        <PriceLine
+          label="Retail"
+          current={fmt(curRetail)}
+          next={committedRetail ? fmtQtyPrice(item.newRetailQty, item.newRetailPrice!) : fmt(curRetail)}
+          settled={!committedRetail || !inFlight(item.retailOverrideStatus)}
+        />
+        {committedBase && (
+          <PriceLine
+            label="Base"
+            current={fmt(item.currentBasePrice)}
+            next={fmt(item.newBasePrice!)}
+            settled={!inFlight(item.baseOverrideStatus)}
+          />
+        )}
+      </span>
+    );
+  }
+
   if (committedBase) {
     return (
-      <span className="flex items-center gap-1.5 text-sm tabular-nums">
-        <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-        <span aria-hidden="true" className="text-gray-300">→</span>
-        <span className="font-semibold text-gray-900">{fmt(item.newBasePrice!)}</span>
-      </span>
-    );
-  }
-  if (hqSuggests) {
-    return (
-      <span className="flex items-center gap-1.5 text-sm tabular-nums">
-        <span className="text-gray-500">{fmt(item.currentBasePrice)}</span>
-        <span aria-hidden="true" className="text-gray-300">→</span>
-        <span className="font-medium text-brand">{fmt(item.recommendedBasePrice)}</span>
-      </span>
+      <PriceLine
+        current={fmt(item.currentBasePrice)}
+        next={fmt(item.newBasePrice!)}
+        settled={!inFlight(item.baseOverrideStatus)}
+      />
     );
   }
   return <span className="text-sm tabular-nums text-gray-700">{fmt(item.currentBasePrice)}</span>;
@@ -105,10 +153,13 @@ export function buildStoreColumns(
       group: "item",
       width: 160,
       header: "Price type",
-      cell: (r) => {
-        const meta = PRICE_TYPE_META[r.category_type];
-        return <Badge tone={meta.tone} size="sm">{meta.label}</Badge>;
-      },
+      // Neutral chip — color is reserved for the Status column so the two adjacent
+      // badges don't read as the same semantic.
+      cell: (r) => (
+        <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+          {PRICE_TYPE_META[r.category_type].label}
+        </span>
+      ),
     },
     {
       id: "status",

@@ -17,6 +17,7 @@ import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { MainTabs, MainTab } from "@/components/store/MainTabs";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
 import { BatchTrayView } from "@/components/store/BatchTrayView";
+import { HqReviewBanner } from "@/components/store/HqReviewBanner";
 import { BatchSplitButton } from "@/components/store/BatchSplitButton";
 import { MobileItemList } from "@/components/store/MobileItemList";
 import { ScanOverlay } from "@/components/store/ScanOverlay";
@@ -30,12 +31,9 @@ import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem } from "@/types/pricing";
 import { PRICE_TYPE_META } from "@/lib/pricing-meta";
+import { hqReviewNeeded } from "@/lib/item-status";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
-
-// An item HQ wants changed that the store hasn't acted on yet.
-const hqSuggests = (i: PricingItem) =>
-  !i.reviewed && i.newBasePrice == null && i.recommendedBasePrice !== i.currentBasePrice;
 
 export default function StorePricingPage() {
   const toast = useToast();
@@ -45,7 +43,10 @@ export default function StorePricingPage() {
   const pending = usePricingStore(useShallow(selectPendingOverrides));
   const createBatch = usePricingStore((s) => s.createBatch);
   const addToBatch = usePricingStore((s) => s.addToBatch);
+  const removeFromBatch = usePricingStore((s) => s.removeFromBatch);
 
+  // Home is always All items — the director's permanent workspace. The HQ queue
+  // is reached via the tab or the header bell (it empties; All items doesn't).
   const [activeTab, setActiveTab] = useState<MainTab>("all");
   const [view, setView] = useState<"items" | "batch">("items");
   const [search, setSearch] = useState("");
@@ -59,7 +60,7 @@ export default function StorePricingPage() {
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
   const trayCount = overrides.filter((o) => o.status === "pending" || o.status === "in_batch").length;
-  const hqCount = useMemo(() => items.filter(hqSuggests).length, [items]);
+  const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
 
   // Pulse the tray badge when its count grows (e.g. after add-to-batch) so the
   // user sees where their action landed. Re-keys the badge to restart the anim.
@@ -116,7 +117,7 @@ export default function StorePricingPage() {
   );
 
   const rows = useMemo(() => {
-    let list = activeTab === "hq" ? items.filter(hqSuggests) : items;
+    let list = activeTab === "hq" ? items.filter(hqReviewNeeded) : items;
     list = list.filter(matchesFilters);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -174,13 +175,31 @@ export default function StorePricingPage() {
 
   const openNewBatch = (seedIds: string[]) => setNewBatch({ open: true, seedIds });
 
+  // Add specific override ids to a batch — shared by the drawer (one item) and the
+  // bulk bar (the selection). Makes that batch active and offers a one-click Undo.
+  const addOverridesToBatch = useCallback(
+    (batchId: string, overrideIds: string[]) => {
+      if (overrideIds.length === 0) {
+        toast.error("No edits to batch");
+        return;
+      }
+      addToBatch(batchId, overrideIds);
+      setActiveBatchId(batchId);
+      const name = usePricingStore.getState().batches.find((b) => b.id === batchId)?.name ?? "batch";
+      toast.success(`Added to ${name}`, {
+        description: `${overrideIds.length} price change${overrideIds.length !== 1 ? "s" : ""}`,
+        action: { label: "Undo", onClick: () => overrideIds.forEach((id) => removeFromBatch(id)) },
+      });
+    },
+    [addToBatch, removeFromBatch, toast]
+  );
+
   const handleBulkAddToBatch = (batchId: string) => {
     if (selectedPendingIds.length === 0) {
       toast.error("Selected items have no edits to batch");
       return;
     }
-    addToBatch(batchId, selectedPendingIds);
-    toast.success(`Added ${selectedPendingIds.length} change${selectedPendingIds.length !== 1 ? "s" : ""} to batch`);
+    addOverridesToBatch(batchId, selectedPendingIds);
     setSelected(new Set());
   };
 
@@ -204,7 +223,7 @@ export default function StorePricingPage() {
               pressed={view === "batch"}
               onClick={() => setView((v) => (v === "batch" ? "items" : "batch"))}
             >
-              Batch tray
+              To send
             </Button>
             {trayCount > 0 && (
               <span key={trayPulse} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
@@ -243,6 +262,11 @@ export default function StorePricingPage() {
             </div>
 
             <div className="mt-4">
+              {activeTab === "hq" && hqCount > 0 && (
+                <div className="mb-4">
+                  <HqReviewBanner count={hqCount} />
+                </div>
+              )}
               {rows.length === 0 ? (
                 <EmptyState
                   icon={SearchX}
@@ -324,13 +348,15 @@ export default function StorePricingPage() {
 
       <ItemEditDrawer
         itemId={drawerItemId}
+        flow={activeTab}
+        activeBatch={activeBatch}
+        openBatches={openBatches}
+        onAddToBatch={addOverridesToBatch}
+        onNewBatch={openNewBatch}
         onClose={() => setDrawerItemId(null)}
         onPrev={onPrev}
         onNext={onNext}
         position={drawerIdx >= 0 ? { index: drawerIdx, total: rowIds.length } : undefined}
-        activeBatchId={activeBatchId}
-        onSetActiveBatch={setActiveBatchId}
-        onNewBatch={openNewBatch}
       />
 
       <NewBatchModal

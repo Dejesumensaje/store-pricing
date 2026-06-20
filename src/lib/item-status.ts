@@ -6,6 +6,10 @@ export type ItemStatus = { label: string; tone: BadgeTone };
 
 const STATUS: Record<string, ItemStatus> = {
   live: { label: "Live", tone: "success" },
+  // Live in SAP via an HQ-pushed price the store hasn't acknowledged or overridden
+  // yet. It IS live — this only flags that it still wants the director's review.
+  // (The HQ origin is already clear from the tab + the price cell's HQ badge.)
+  review: { label: "Needs review", tone: "in-progress" },
   edited: { label: "Edited", tone: "warning" },
   in_batch: { label: "In batch", tone: "in-progress" },
   scheduled: { label: "Scheduled", tone: "neutral" },
@@ -14,6 +18,12 @@ const STATUS: Record<string, ItemStatus> = {
   // SAP confirmed the change — the price is now live.
   confirmed: { label: "Live", tone: "success" },
 };
+
+// An HQ-pushed price (already live in SAP) the store hasn't acted on yet —
+// neither acknowledged ("Keep HQ price") nor overridden. Shared by the page (HQ
+// tab filter + count), the price cell, and the drawer's "Keep HQ price" escape.
+export const hqReviewNeeded = (i: PricingItem) =>
+  !!i.hqReviewPending && !i.reviewed && !i.hasOverride;
 
 // A temp allowance whose effective date hasn't arrived yet is "Scheduled" even
 // after it's sent — the new price only goes live on the start date.
@@ -28,7 +38,8 @@ export function deriveItemStatus(item: PricingItem, batches: Batch[]): ItemStatu
   const statuses = [item.baseOverrideStatus, item.retailOverrideStatus].filter(
     (s): s is OverrideStatus => s != null
   );
-  if (statuses.length === 0) return STATUS.live;
+  // No committed change: Live unless HQ is still waiting on the store's review.
+  if (statuses.length === 0) return hqReviewNeeded(item) ? STATUS.review : STATUS.live;
 
   if (statuses.includes("pending")) return STATUS.edited;
 

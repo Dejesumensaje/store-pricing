@@ -14,7 +14,7 @@ import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildItemsById, aggregateBatchImpact } from "@/lib/batch-utils";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
-import { Batch } from "@/types/pricing";
+import { Batch, Override } from "@/types/pricing";
 
 type Segment = "pending" | "scheduled" | "sent";
 
@@ -33,7 +33,10 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const pending = usePricingStore(useShallow(selectPendingOverrides));
   const addToBatch = usePricingStore((s) => s.addToBatch);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
+  const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
+  const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const submitBatch = usePricingStore((s) => s.submitBatch);
+  const sendAllPending = usePricingStore((s) => s.sendAllPending);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
 
   const [segment, setSegment] = useState<Segment>("pending");
@@ -41,7 +44,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const [sendId, setSendId] = useState<string | null>(null);
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<{ id: string; name: string } | null>(null);
+  const [confirmSendAll, setConfirmSendAll] = useState(false);
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const impacts = useMemo(
@@ -54,6 +57,21 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const sentBatches = batches.filter((b) => b.status === "submitted" || b.status === "confirmed");
   const openBatches = [...draftBatches, ...scheduledBatches];
   const sendBatch = batches.find((b) => b.id === sendId) ?? null;
+
+  // Discarding a pending edit is cheap and reversible — skip the modal, just toast
+  // with an Undo that re-applies the price.
+  const discardEdit = (ov: Override) => {
+    removeFromLooseTray(ov.id);
+    toast.success("Price change discarded", {
+      action: {
+        label: "Undo",
+        onClick: () =>
+          ov.priceField === "base"
+            ? updateBasePrice(ov.itemId, ov.newPrice)
+            : updateRetailPrice(ov.itemId, ov.qty ?? 1, ov.newPrice),
+      },
+    });
+  };
 
   // Shared card renderer so each segment stays consistent.
   const renderCard = (b: Batch, opts?: { active?: boolean }) => (
@@ -93,17 +111,22 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           <section>
             <div className="mb-3 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-gray-900">Unbatched edits</h2>
+                <h2 className="text-base font-semibold text-gray-900">Ready to send</h2>
                 <Badge tone={pending.length > 0 ? "warning" : "neutral"} size="sm">{pending.length}</Badge>
               </div>
               {pending.length > 0 && (
-                <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
-                  New batch
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => setConfirmSendAll(true)}>
+                    Send all to SAP
+                  </Button>
+                  <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
+                    New batch
+                  </Button>
+                </div>
               )}
             </div>
             {pending.length === 0 ? (
-              <EmptyState icon={Inbox} title="No unbatched edits" hint="Price changes you make show up here until you add them to a batch." />
+              <EmptyState icon={Inbox} title="Nothing to send yet" hint="Price changes land here, ready to send — on their own or in a batch." />
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((ov) => (
@@ -140,7 +163,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
                         size="sm"
                         iconLeft={Trash2}
                         aria-label={`Discard ${ov.itemName}`}
-                        onClick={() => setConfirmRemove({ id: ov.id, name: ov.itemName })}
+                        onClick={() => discardEdit(ov)}
                       />
                     </div>
                   </li>
@@ -152,7 +175,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           <section>
             <h2 className="mb-3 text-base font-semibold text-gray-900">Draft batches</h2>
             {draftBatches.length === 0 ? (
-              <EmptyState icon={Layers} title="No draft batches" hint="Group edits into a batch to schedule or send them to SAP." />
+              <EmptyState icon={Layers} title="No draft batches" hint="Group changes into a batch to schedule or send together." />
             ) : (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {draftBatches.map((b) => renderCard(b, { active: true }))}
@@ -165,7 +188,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       {/* ── Scheduled ─────────────────────────────────────────────────────── */}
       {segment === "scheduled" && (
         scheduledBatches.length === 0 ? (
-          <EmptyState icon={CalendarClock} title="No scheduled batches" hint="Schedule a draft batch and it will appear here until its send date." />
+          <EmptyState icon={CalendarClock} title="No scheduled batches" hint="Scheduled batches wait here until their send date." />
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {scheduledBatches.map((b) => renderCard(b, { active: true }))}
@@ -176,7 +199,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       {/* ── Sent ──────────────────────────────────────────────────────────── */}
       {segment === "sent" && (
         sentBatches.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="No batches sent yet" hint="Batches you send to SAP show up here with their confirmation status." />
+          <EmptyState icon={CheckCircle2} title="No batches sent yet" hint="Sent batches show up here with their status." />
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {sentBatches.map((b) => renderCard(b))}
@@ -185,17 +208,16 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       )}
 
       <ConfirmDialog
-        open={confirmRemove != null}
-        onOpenChange={(open) => !open && setConfirmRemove(null)}
-        headline="Discard this price change?"
-        description={confirmRemove ? `${confirmRemove.name} will go back to its current price. This can’t be undone.` : undefined}
-        confirmLabel="Discard"
-        destructive
+        open={confirmSendAll}
+        onOpenChange={(open) => !open && setConfirmSendAll(false)}
+        headline={`Send ${pending.length} change${pending.length !== 1 ? "s" : ""} to SAP?`}
+        description="Sent without a batch; live once SAP confirms."
+        confirmLabel="Send to SAP"
         onConfirm={() => {
-          if (confirmRemove) {
-            removeFromLooseTray(confirmRemove.id);
-            toast.success("Price change discarded");
-          }
+          const n = pending.length;
+          sendAllPending();
+          toast.success(`Sent ${n} change${n !== 1 ? "s" : ""} to SAP — pending confirmation`);
+          setSegment("sent");
         }}
       />
 

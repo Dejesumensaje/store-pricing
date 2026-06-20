@@ -60,8 +60,7 @@ export function SendToSapModal({ batch, itemCount, onOpenChange, onSend }: Props
       {batch && phase === "confirm" && (
         <p className="text-sm text-gray-600">
           Send all {itemCount} price change{itemCount !== 1 ? "s" : ""} in{" "}
-          <span className="font-medium text-gray-900">“{batch.name}”</span> to SAP now? New edits made after
-          sending create fresh pending changes.
+          <span className="font-medium text-gray-900">“{batch.name}”</span> to SAP now?
         </p>
       )}
 
@@ -76,9 +75,7 @@ export function SendToSapModal({ batch, itemCount, onOpenChange, onSend }: Props
         <div className="flex flex-col items-center gap-2 py-6 text-center">
           <CheckCircle2 className="size-10 text-emerald-600" />
           <p className="text-sm font-semibold text-gray-900">Sent to SAP</p>
-          <p className="text-xs text-gray-500">
-            Pending confirmation from SAP. The price goes live once SAP confirms it.
-          </p>
+          <p className="text-xs text-gray-500">Goes live once SAP confirms.</p>
         </div>
       )}
     </Modal>
