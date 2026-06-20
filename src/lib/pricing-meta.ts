@@ -66,7 +66,7 @@ export const PRICE_TYPE_INTENT: Record<
   { helper: string; priceLabel: string; permanent?: boolean; usesReduction?: boolean }
 > = {
   base: {
-    helper: "Permanent regular shelf price for this item.",
+    helper: "The regular shelf price.",
     priceLabel: "New base price",
     permanent: true,
   },
@@ -75,7 +75,7 @@ export const PRICE_TYPE_INTENT: Record<
     priceLabel: "New base price",
   },
   everyday_low_price: {
-    helper: "Strategic permanent markdown to stay consistently cheaper.",
+    helper: "A permanent markdown to stay consistently low.",
     priceLabel: "New everyday low price",
     permanent: true,
     usesReduction: true,

@@ -126,8 +126,8 @@ export function ItemEditDrawer({
   const intent = item
     ? item.category_type === "new_discontinued"
       ? item.itemStatus === "discontinued"
-        ? { helper: "Item being removed — set a clearance price or mark for removal.", priceLabel: "Clearance price" }
-        : { helper: "New item — set the opening shelf price.", priceLabel: "Initial price" }
+        ? { helper: "Being removed — set a clearance price.", priceLabel: "Clearance price" }
+        : { helper: "New item — set its opening price.", priceLabel: "Initial price" }
       : PRICE_TYPE_INTENT[item.category_type]
     : null;
 
@@ -317,8 +317,8 @@ export function ItemEditDrawer({
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
               <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
               <span>
-                <span className="font-medium text-gray-800">HQ set this price — already live.</span>{" "}
-                Keep it, or type a new price to override and send.
+                <span className="font-medium text-gray-800">HQ set this price and it&apos;s already live.</span>{" "}
+                Keep it, or enter your own price.
               </span>
             </div>
           )}
@@ -336,8 +336,8 @@ export function ItemEditDrawer({
               </div>
               <p className="mt-1.5 text-xs text-gray-500">
                 {isTemp
-                  ? "Vendor-funded — set by HQ. You can override the price and dates, not the type."
-                  : "HQ recommends keeping this price. Edit the price below to make a Base change."}
+                  ? "Vendor-funded — set by HQ. You can change the price and dates, but not the type."
+                  : "HQ recommends keeping this. Edit the price to make a Base change."}
               </p>
             </div>
           ) : (
@@ -619,7 +619,7 @@ export function ItemEditDrawer({
       headline="Revert this price change?"
       description={
         item
-          ? `${item.name} will go back to its current ${confirmRevert === "retail" ? "retail" : "base"} price. It will also leave its batch.`
+          ? `${item.name} returns to its current ${confirmRevert === "retail" ? "retail" : "base"} price and leaves its batch.`
           : undefined
       }
       confirmLabel="Revert"

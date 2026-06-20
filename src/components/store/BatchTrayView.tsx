@@ -126,7 +126,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
               )}
             </div>
             {pending.length === 0 ? (
-              <EmptyState icon={Inbox} title="Nothing to send yet" hint="Price changes you make show up here, ready to send to SAP — on their own or grouped into a batch." />
+              <EmptyState icon={Inbox} title="Nothing to send yet" hint="Price changes land here, ready to send — on their own or in a batch." />
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((ov) => (
@@ -175,7 +175,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           <section>
             <h2 className="mb-3 text-base font-semibold text-gray-900">Draft batches</h2>
             {draftBatches.length === 0 ? (
-              <EmptyState icon={Layers} title="No draft batches" hint="Group edits into a batch to schedule or send them to SAP." />
+              <EmptyState icon={Layers} title="No draft batches" hint="Group changes into a batch to schedule or send together." />
             ) : (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {draftBatches.map((b) => renderCard(b, { active: true }))}
@@ -188,7 +188,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       {/* ── Scheduled ─────────────────────────────────────────────────────── */}
       {segment === "scheduled" && (
         scheduledBatches.length === 0 ? (
-          <EmptyState icon={CalendarClock} title="No scheduled batches" hint="Schedule a draft batch and it will appear here until its send date." />
+          <EmptyState icon={CalendarClock} title="No scheduled batches" hint="Scheduled batches wait here until their send date." />
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {scheduledBatches.map((b) => renderCard(b, { active: true }))}
@@ -199,7 +199,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       {/* ── Sent ──────────────────────────────────────────────────────────── */}
       {segment === "sent" && (
         sentBatches.length === 0 ? (
-          <EmptyState icon={CheckCircle2} title="No batches sent yet" hint="Batches you send to SAP show up here with their confirmation status." />
+          <EmptyState icon={CheckCircle2} title="No batches sent yet" hint="Sent batches show up here with their status." />
         ) : (
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {sentBatches.map((b) => renderCard(b))}
@@ -211,7 +211,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
         open={confirmSendAll}
         onOpenChange={(open) => !open && setConfirmSendAll(false)}
         headline={`Send ${pending.length} change${pending.length !== 1 ? "s" : ""} to SAP?`}
-        description="They'll be sent directly — no batch — and go live once SAP confirms."
+        description="Sent without a batch; live once SAP confirms."
         confirmLabel="Send to SAP"
         onConfirm={() => {
           const n = pending.length;
