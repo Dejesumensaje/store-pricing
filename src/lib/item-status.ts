@@ -8,7 +8,8 @@ const STATUS: Record<string, ItemStatus> = {
   live: { label: "Live", tone: "success" },
   // Live in SAP via an HQ-pushed price the store hasn't acknowledged or overridden
   // yet. It IS live — this only flags that it still wants the director's review.
-  review: { label: "HQ review", tone: "in-progress" },
+  // (The HQ origin is already clear from the tab + the price cell's HQ badge.)
+  review: { label: "Needs review", tone: "in-progress" },
   edited: { label: "Edited", tone: "warning" },
   in_batch: { label: "In batch", tone: "in-progress" },
   scheduled: { label: "Scheduled", tone: "neutral" },
