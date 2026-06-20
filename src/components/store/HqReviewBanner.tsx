@@ -11,9 +11,11 @@ export function HqReviewBanner({ count }: { count: number }) {
       <Info className="mt-0.5 size-4 shrink-0 text-brand" aria-hidden="true" />
       <p className="text-sm text-gray-600">
         <span className="font-medium text-gray-800">
-          HQ updated {count} {count === 1 ? "price" : "prices"} — already live.
+          {count === 1
+            ? "HQ set this price and it's already live."
+            : `HQ set these ${count} prices and they're already live.`}
         </span>{" "}
-        Review each one: keep it as is, or set your own price.
+        {count === 1 ? "Keep it, or set your own." : "Keep each, or set your own."}
       </p>
     </div>
   );
