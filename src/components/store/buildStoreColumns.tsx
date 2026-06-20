@@ -57,12 +57,12 @@ function PriceLine({
 }) {
   return (
     <span className="flex items-center gap-1.5 text-sm tabular-nums">
-      {label && <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-400">{label}</span>}
+      {label && <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-500">{label}</span>}
       {settled ? (
         <span className="font-semibold text-gray-900">{next}</span>
       ) : (
         <>
-          <span className="text-gray-400 line-through">{current}</span>
+          <span className="text-gray-500 line-through">{current}</span>
           <span aria-hidden="true" className="text-gray-300">→</span>
           <span className="font-semibold text-gray-900">{next}</span>
         </>

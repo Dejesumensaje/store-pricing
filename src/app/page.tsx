@@ -218,7 +218,9 @@ export default function StorePricingPage() {
           <StorePricingHeader />
           <div className="relative order-2 ml-auto inline-flex md:order-3">
             <Button
-              variant={view === "batch" ? "secondary" : "tertiary"}
+              // Gain emphasis once there are changes waiting — the send step is
+              // the flow's terminal action, so a tertiary button under-sells it.
+              variant={view === "batch" || trayCount > 0 ? "secondary" : "tertiary"}
               iconLeft={Layers}
               pressed={view === "batch"}
               onClick={() => setView((v) => (v === "batch" ? "items" : "batch"))}

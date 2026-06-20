@@ -4,7 +4,7 @@ import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
 import { Send, Settings2, Layers, CalendarClock, Target, Eye } from "lucide-react";
 import { Batch } from "@/types/pricing";
 import { BatchImpact } from "@/lib/batch-utils";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtImpactMoney, fmtImpactUnits } from "@/lib/format";
 
 const STATUS_META: Record<
   Batch["status"],
@@ -15,9 +15,6 @@ const STATUS_META: Record<
   submitted: { label: "Pending SAP confirmation", tone: "warning" },
   confirmed: { label: "Live", tone: "success" },
 };
-
-const signed = (v: number, suffix = "") =>
-  `${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(1)}${suffix}`;
 
 type Props = {
   batch: Batch;
@@ -43,7 +40,7 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isAct
           </div>
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-gray-900">{batch.name}</h3>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-500">
               {impact.itemCount} item{impact.itemCount !== 1 ? "s" : ""} · created {fmtDate(batch.createdAt)}
             </p>
           </div>
@@ -61,9 +58,9 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isAct
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-3 rounded-lg bg-gray-50 px-4 py-3">
-        <Metric label="Sales" value={signed(impact.salesValue, "M")} positive={impact.salesValue >= 0} />
-        <Metric label="Margin" value={signed(impact.marginValue, "M")} positive={impact.marginValue >= 0} />
-        <Metric label="Units" value={signed(impact.unitsValue, "k")} positive={impact.unitsValue >= 0} />
+        <Metric label="Sales" value={fmtImpactMoney(impact.salesValue)} positive={impact.salesValue >= 0} />
+        <Metric label="Margin" value={fmtImpactMoney(impact.marginValue)} positive={impact.marginValue >= 0} />
+        <Metric label="Units" value={fmtImpactUnits(impact.unitsValue)} positive={impact.unitsValue >= 0} />
       </div>
 
       {batch.scheduledAt && (batch.status === "scheduled" || batch.status === "draft") && (
@@ -73,7 +70,7 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isAct
       )}
 
       {batch.sapReference && (
-        <p className="mt-3 text-xs text-gray-400">
+        <p className="mt-3 text-xs text-gray-500">
           SAP ref <span className="font-medium text-gray-600">{batch.sapReference}</span>
         </p>
       )}
@@ -101,7 +98,7 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isAct
 function Metric({ label, value, positive }: { label: string; value: string; positive: boolean }) {
   return (
     <div className="min-w-0">
-      <p className="text-xs text-gray-400">{label}</p>
+      <p className="text-xs text-gray-500">{label}</p>
       <p className={`text-sm font-semibold tabular-nums ${positive ? "text-emerald-600" : "text-red-600"}`}>
         {value}
       </p>

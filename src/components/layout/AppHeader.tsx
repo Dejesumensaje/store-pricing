@@ -14,7 +14,8 @@ type Props = {
 export function AppHeader({ hqCount = 0, onViewHq }: Props) {
   const hasNotifications = hqCount > 0;
   return (
-    <header className="bg-white border-b border-gray-200 px-6 h-14 flex items-center justify-between sticky top-0 z-30">
+    <header className="bg-white border-b border-gray-200 h-14 sticky top-0 z-30">
+      <div className="mx-auto flex h-full w-full max-w-[1400px] items-center justify-between px-4 md:px-8">
       <div className="flex items-center gap-3">
         <Link href="/" className="flex items-center gap-3">
           <span className="text-red-600 font-bold text-xl tracking-tight">
@@ -35,11 +36,12 @@ export function AppHeader({ hqCount = 0, onViewHq }: Props) {
           />
           {hasNotifications && (
             <span className="absolute -top-1 -right-1 pointer-events-none">
-              <CountBadge count={hqCount} tone="warning" />
+              <CountBadge count={hqCount} tone="in-progress" />
             </span>
           )}
         </div>
         <Avatar fallback="NL" />
+      </div>
       </div>
     </header>
   );

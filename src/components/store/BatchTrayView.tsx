@@ -109,9 +109,9 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
       {segment === "pending" && (
         <div className="flex flex-col gap-8">
           <section>
-            <div className="mb-3 flex items-center justify-between gap-4">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-gray-900">Ready to send</h2>
+                <h2 className="whitespace-nowrap text-base font-semibold text-gray-900">Ready to send</h2>
                 <Badge tone={pending.length > 0 ? "warning" : "neutral"} size="sm">{pending.length}</Badge>
               </div>
               {pending.length > 0 && (
@@ -137,17 +137,17 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
                         <Badge tone={ov.priceField === "base" ? "in-progress" : "warning"} size="sm">
                           {ov.priceField === "base" ? "Base" : "Retail"}
                         </Badge>
-                        <span className="text-xs text-gray-400">{CATEGORY_LABELS[ov.changeType]}</span>
+                        <span className="text-xs text-gray-500">{CATEGORY_LABELS[ov.changeType]}</span>
                       </div>
                     </div>
-                    <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:shrink-0">
-                      <div className="flex items-center gap-2 text-sm tabular-nums">
-                        <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
+                    <div className="flex w-full items-center gap-3 md:w-auto md:shrink-0">
+                      <div className="flex shrink-0 items-center gap-2 text-sm tabular-nums">
+                        <span className="text-gray-500">{fmt(ov.currentPrice)}</span>
                         <span aria-hidden="true" className="text-gray-300">→</span>
                         <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
                       </div>
                       {openBatches.length > 0 && (
-                        <div className="w-full md:w-44">
+                        <div className="min-w-0 flex-1 md:w-44 md:flex-none">
                           <Select
                             label="Add to batch"
                             size="sm"

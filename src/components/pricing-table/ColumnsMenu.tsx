@@ -52,7 +52,7 @@ export function ColumnsMenu({
           onKeyDown={onKeyDown}
           className="absolute right-0 top-full z-50 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg p-3"
         >
-          <p id={labelId} className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+          <p id={labelId} className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
             Optional columns
           </p>
           <div className="flex flex-col gap-2">

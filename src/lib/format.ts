@@ -21,3 +21,34 @@ export function fmtDateShort(iso: string) {
 export function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+
+/**
+ * Compact signed money for impact metrics, scaling the suffix to the magnitude
+ * so small values don't collapse to "+0.0M". Input is in millions of dollars:
+ * 2.8 → "+$2.8M", 0.04 → "+$40k", 0 → "$0".
+ */
+export function fmtImpactMoney(millions: number) {
+  const d = millions * 1_000_000;
+  if (Math.round(d) === 0) return "$0";
+  const abs = Math.abs(d);
+  const body =
+    abs >= 1_000_000 ? `$${(abs / 1_000_000).toFixed(1)}M`
+    : abs >= 1_000 ? `$${Math.round(abs / 1_000)}k`
+    : `$${Math.round(abs)}`;
+  return `${d >= 0 ? "+" : "−"}${body}`;
+}
+
+/**
+ * Compact signed unit count for impact metrics. Input is in thousands of units:
+ * 500 → "+500k", 1200 → "+1.2M", 0 → "0".
+ */
+export function fmtImpactUnits(thousands: number) {
+  const u = thousands * 1_000;
+  if (Math.round(u) === 0) return "0";
+  const abs = Math.abs(u);
+  const body =
+    abs >= 1_000_000 ? `${(abs / 1_000_000).toFixed(1)}M`
+    : abs >= 1_000 ? `${Math.round(abs / 1_000)}k`
+    : `${Math.round(abs)}`;
+  return `${u >= 0 ? "+" : "−"}${body}`;
+}
