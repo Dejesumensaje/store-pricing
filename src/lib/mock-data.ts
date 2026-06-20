@@ -360,6 +360,22 @@ const newDiscontinuedCatalog: PricingItem[] = [
   category_type: "new_discontinued" as const,
 })).map(enrichItemContext);
 
+// HQ recommendations: HQ already pushed these prices and they're LIVE in SAP.
+// The store reviews them — keep (no-op) or override (send). For each, the former
+// recommended price becomes the live `currentBasePrice` and the old price is
+// remembered as `previousBasePrice` for the drawer's "was → now" context.
+const HQ_REVIEW_IDS = new Set(["RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4"]);
+
+function applyHqReview(item: PricingItem): PricingItem {
+  if (!HQ_REVIEW_IDS.has(item.id)) return item;
+  return {
+    ...item,
+    hqReviewPending: true,
+    previousBasePrice: item.currentBasePrice,
+    currentBasePrice: item.recommendedBasePrice,
+  };
+}
+
 // ─── Unified catalog ─────────────────────────────────────────────────────────
 // One list of every item. Each carries its own `category_type` (price type),
 // editable in the drawer. The store boots from this; the tabs filter it.
@@ -368,7 +384,7 @@ export const mockItems: PricingItem[] = [
   ...edlpCatalog,
   ...noChangeCatalog,
   ...newDiscontinuedCatalog,
-];
+].map(applyHqReview);
 
 // Headline count shown on the "All items (N)" pill (the live store carries far
 // more SKUs than the demo seeds).

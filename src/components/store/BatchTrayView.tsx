@@ -34,6 +34,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const addToBatch = usePricingStore((s) => s.addToBatch);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const submitBatch = usePricingStore((s) => s.submitBatch);
+  const sendAllPending = usePricingStore((s) => s.sendAllPending);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
 
   const [segment, setSegment] = useState<Segment>("pending");
@@ -42,6 +43,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<{ id: string; name: string } | null>(null);
+  const [confirmSendAll, setConfirmSendAll] = useState(false);
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const impacts = useMemo(
@@ -93,17 +95,22 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           <section>
             <div className="mb-3 flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold text-gray-900">Unbatched edits</h2>
+                <h2 className="text-base font-semibold text-gray-900">Ready to send</h2>
                 <Badge tone={pending.length > 0 ? "warning" : "neutral"} size="sm">{pending.length}</Badge>
               </div>
               {pending.length > 0 && (
-                <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
-                  New batch
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="text-link" size="sm" onClick={() => setConfirmSendAll(true)}>
+                    Send all to SAP
+                  </Button>
+                  <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
+                    New batch
+                  </Button>
+                </div>
               )}
             </div>
             {pending.length === 0 ? (
-              <EmptyState icon={Inbox} title="No unbatched edits" hint="Price changes you make show up here until you add them to a batch." />
+              <EmptyState icon={Inbox} title="Nothing to send yet" hint="Price changes you make show up here, ready to send to SAP — on their own or grouped into a batch." />
             ) : (
               <ul className="flex flex-col gap-2">
                 {pending.map((ov) => (
@@ -183,6 +190,20 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           </div>
         )
       )}
+
+      <ConfirmDialog
+        open={confirmSendAll}
+        onOpenChange={(open) => !open && setConfirmSendAll(false)}
+        headline={`Send ${pending.length} change${pending.length !== 1 ? "s" : ""} to SAP?`}
+        description="They'll be sent directly — no batch — and go live once SAP confirms."
+        confirmLabel="Send to SAP"
+        onConfirm={() => {
+          const n = pending.length;
+          sendAllPending();
+          toast.success(`Sent ${n} change${n !== 1 ? "s" : ""} to SAP — pending confirmation`);
+          setSegment("sent");
+        }}
+      />
 
       <ConfirmDialog
         open={confirmRemove != null}

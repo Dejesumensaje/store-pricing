@@ -66,7 +66,9 @@ export function MobileItemList({ rows, batches, isSelected, toggle, onRowClick }
                   <PriceCell item={item} />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <Badge tone={meta.tone} size="sm">{meta.label}</Badge>
+                  <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                    {meta.label}
+                  </span>
                   <Badge tone={status.tone} size="sm">{status.label}</Badge>
                 </div>
               </div>

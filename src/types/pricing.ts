@@ -37,6 +37,8 @@ export type PricingItem = {
   currentBasePrice: number;
   cost: number;
   recommendedBasePrice: number;
+  /** Price before HQ's most recent change — for "was → now" context on HQ recs. */
+  previousBasePrice?: number;
   newBasePrice: number | null; // null = using recommended
   // Temp allowance fields (only for temporary_allowance category)
   currentRetailPrice?: number;
@@ -76,6 +78,12 @@ export type PricingItem = {
   hasAlert?: boolean;
   /** Accepted as-is (no changes) — removes the item from the review queue. */
   reviewed?: boolean;
+  /**
+   * HQ pushed this price and it's ALREADY live in SAP. The store reviews it:
+   * keep (no-op, nothing sent) or override (sent). The queue clears the item
+   * once it's reviewed or overridden.
+   */
+  hqReviewPending?: boolean;
   category_type: PricingCategory;
   /**
    * Set when the price type was auto-switched on edit (e.g. `no_change` → `base`

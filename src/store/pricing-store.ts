@@ -17,6 +17,8 @@ type PricingStore = {
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
   // Accept an item as-is (no price change) — clears it from the HQ queue.
   acceptNoChange: (itemId: string) => void;
+  // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
+  setReviewed: (itemId: string, value: boolean) => void;
   // Pending list / batches
   removeFromLooseTray: (overrideId: string) => void;
   removeFromBatch: (overrideId: string) => void;
@@ -25,6 +27,9 @@ type PricingStore = {
   createBatch: (name: string, overrideIds: string[]) => void;
   scheduleBatch: (batchId: string, scheduledAt: string) => void;
   submitBatch: (batchId: string) => void;
+  // Send every unbatched (pending) edit straight to SAP — no batch ceremony.
+  // Still groups them into one auto-named submitted batch so the send is traceable.
+  sendAllPending: () => void;
   confirmBatch: (batchId: string) => void;
 };
 
@@ -207,6 +212,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
       items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: true } : item)),
     })),
 
+  setReviewed: (itemId, value) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: value } : item)),
+    })),
+
   // Discarding a pending change also clears the edit from the table cell.
   removeFromLooseTray: (overrideId) =>
     set((state) => {
@@ -311,6 +321,29 @@ export const usePricingStore = create<PricingStore>((set) => ({
           b.id === batchId ? { ...b, status: "submitted", submittedAt: new Date().toISOString() } : b
         ),
         overrides: state.overrides.map((o) => (o.batchId === batchId ? { ...o, status: "submitted" } : o)),
+        items: applyStatusToItems(state.items, affected, "submitted"),
+      };
+    }),
+
+  sendAllPending: () =>
+    set((state) => {
+      const pendingIds = state.overrides.filter((o) => o.status === "pending").map((o) => o.id);
+      if (pendingIds.length === 0) return {};
+      const now = new Date().toISOString();
+      const batch: Batch = {
+        id: `batch-${Date.now()}`,
+        name: `Direct send · ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
+        status: "submitted",
+        overrideIds: pendingIds,
+        createdAt: now,
+        submittedAt: now,
+      };
+      const affected = state.overrides.filter((o) => pendingIds.includes(o.id));
+      return {
+        batches: [...state.batches, batch],
+        overrides: state.overrides.map((o) =>
+          pendingIds.includes(o.id) ? { ...o, status: "submitted", batchId: batch.id } : o
+        ),
         items: applyStatusToItems(state.items, affected, "submitted"),
       };
     }),
