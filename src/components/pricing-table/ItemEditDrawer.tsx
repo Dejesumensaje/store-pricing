@@ -334,11 +334,7 @@ export function ItemEditDrawer({
                 </Badge>
                 <Lock className="size-3.5 text-gray-400" aria-hidden="true" />
               </div>
-              <p className="mt-1.5 text-xs text-gray-500">
-                {isTemp
-                  ? "Vendor-funded — set by HQ. You can change the price and dates, but not the type."
-                  : "HQ recommends keeping this. Edit the price to make a Base change."}
-              </p>
+              {intent && <p className="mt-1.5 text-xs text-gray-500">{intent.helper}</p>}
             </div>
           ) : (
             <div>

@@ -71,7 +71,7 @@ export const PRICE_TYPE_INTENT: Record<
     permanent: true,
   },
   temporary_allowance: {
-    helper: "Vendor-funded temporary reduction. Set the promo price and dates.",
+    helper: "Vendor-funded promo set by HQ. You can change the price and dates, not the type.",
     priceLabel: "New base price",
   },
   everyday_low_price: {
@@ -81,7 +81,7 @@ export const PRICE_TYPE_INTENT: Record<
     usesReduction: true,
   },
   no_change: {
-    helper: "HQ recommends keeping the current price. Editing the price switches this to a Base price change.",
+    helper: "HQ recommends keeping this price. Edit the price to make a Base change.",
     priceLabel: "New base price",
     permanent: true,
   },
