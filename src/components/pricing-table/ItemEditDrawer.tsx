@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateField } from "../shared/DateField";
 import { BatchSplitButton } from "../store/BatchSplitButton";
-import { usePricingStore, selectPendingCount } from "@/store/pricing-store";
+import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, PricingCategory, OverrideStatus, Batch } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { QtyPriceInput } from "./QtyPriceInput";
@@ -18,7 +18,7 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { ChevronLeft, ChevronRight, RotateCcw, Check, Package, Link2, ChevronDown, Inbox, Lock, Info, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Layers } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -111,7 +111,6 @@ export function ItemEditDrawer({
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const setReviewed = usePricingStore((s) => s.setReviewed);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
-  const pendingCount = usePricingStore(selectPendingCount);
   const toast = useToast();
 
   const item = items.find((i) => i.id === itemId) ?? null;
@@ -246,14 +245,7 @@ export function ItemEditDrawer({
         // by the flow: the HQ queue funnels into a batch; All items defaults to
         // saving for later. An HQ rec not yet acted on gets a "Keep HQ price"
         // escape that acknowledges the (already-live) price with no send.
-        <div className="flex items-center gap-2">
-          {pendingCount > 0 && (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-              <Inbox className="size-3.5" aria-hidden="true" />
-              {pendingCount} ready to send
-            </span>
-          )}
-          <div className="flex-1" />
+        <div className="flex items-center justify-end gap-2">
           {showAccept ? (
             <>
               <Button variant="secondary" iconLeft={Check} onClick={keepHqPrice}>
@@ -370,10 +362,9 @@ export function ItemEditDrawer({
               New items have no "Current"; EDLP adds a permanent-reduction control. */}
           <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
             {isHq ? (
-              <div className="grid grid-cols-3 gap-4">
-                <InfoRow label="Previous" value={fmt(item.previousBasePrice ?? item.currentBasePrice)} />
-                <InfoRow label="Cost" value={fmt(item.cost)} />
+              <div className="grid grid-cols-2 gap-4">
                 <InfoRow label="Live (HQ)" value={fmt(item.currentBasePrice)} />
+                <InfoRow label="Cost" value={fmt(item.cost)} />
               </div>
             ) : (
               <div className={isNewItem ? "grid grid-cols-2 gap-4" : "grid grid-cols-3 gap-4"}>

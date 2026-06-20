@@ -37,8 +37,6 @@ export type PricingItem = {
   currentBasePrice: number;
   cost: number;
   recommendedBasePrice: number;
-  /** Price before HQ's most recent change — for "was → now" context on HQ recs. */
-  previousBasePrice?: number;
   newBasePrice: number | null; // null = using recommended
   // Temp allowance fields (only for temporary_allowance category)
   currentRetailPrice?: number;

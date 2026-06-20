@@ -71,9 +71,9 @@ function PriceLine({
   );
 }
 
-// Price column. Settled items show a single live price (no strike-through). An
-// in-flight edit shows current → new. HQ recommendations are already live, so the
-// HQ price is the current one — shown as previous → live with an "HQ" badge until
+// Price column. Settled items show a single live price (no strike-through). The
+// before → after pattern is reserved for the user's own edits. HQ recommendations
+// are already live, so they show just the single live price + an "HQ" badge until
 // reviewed. Temporary allowances show the retail deal, plus a labeled Base line
 // when base also changed.
 export function PriceCell({ item }: { item: PricingItem }) {
@@ -81,16 +81,10 @@ export function PriceCell({ item }: { item: PricingItem }) {
   const committedRetail = isTemp && item.newRetailPrice != null;
   const committedBase = item.newBasePrice != null;
 
-  // HQ review (already live, nothing overridden) — previous → live + HQ badge.
+  // HQ review (already live, nothing overridden) — single live price + HQ badge.
   if (!committedBase && !committedRetail && hqReviewNeeded(item)) {
     return (
       <span className="flex items-center gap-1.5 text-sm tabular-nums">
-        {item.previousBasePrice != null && (
-          <>
-            <span className="text-gray-400 line-through">{fmt(item.previousBasePrice)}</span>
-            <span aria-hidden="true" className="text-gray-300">→</span>
-          </>
-        )}
         <span className="font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
         <Badge tone="in-progress" size="sm">HQ</Badge>
       </span>

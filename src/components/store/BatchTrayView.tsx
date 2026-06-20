@@ -14,7 +14,7 @@ import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildItemsById, aggregateBatchImpact } from "@/lib/batch-utils";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
-import { Batch } from "@/types/pricing";
+import { Batch, Override } from "@/types/pricing";
 
 type Segment = "pending" | "scheduled" | "sent";
 
@@ -33,6 +33,8 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const pending = usePricingStore(useShallow(selectPendingOverrides));
   const addToBatch = usePricingStore((s) => s.addToBatch);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
+  const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
+  const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const submitBatch = usePricingStore((s) => s.submitBatch);
   const sendAllPending = usePricingStore((s) => s.sendAllPending);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
@@ -42,7 +44,6 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const [sendId, setSendId] = useState<string | null>(null);
   const [scheduleId, setScheduleId] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState<string | null>(null);
-  const [confirmRemove, setConfirmRemove] = useState<{ id: string; name: string } | null>(null);
   const [confirmSendAll, setConfirmSendAll] = useState(false);
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
@@ -56,6 +57,21 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
   const sentBatches = batches.filter((b) => b.status === "submitted" || b.status === "confirmed");
   const openBatches = [...draftBatches, ...scheduledBatches];
   const sendBatch = batches.find((b) => b.id === sendId) ?? null;
+
+  // Discarding a pending edit is cheap and reversible — skip the modal, just toast
+  // with an Undo that re-applies the price.
+  const discardEdit = (ov: Override) => {
+    removeFromLooseTray(ov.id);
+    toast.success("Price change discarded", {
+      action: {
+        label: "Undo",
+        onClick: () =>
+          ov.priceField === "base"
+            ? updateBasePrice(ov.itemId, ov.newPrice)
+            : updateRetailPrice(ov.itemId, ov.qty ?? 1, ov.newPrice),
+      },
+    });
+  };
 
   // Shared card renderer so each segment stays consistent.
   const renderCard = (b: Batch, opts?: { active?: boolean }) => (
@@ -100,7 +116,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
               </div>
               {pending.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <Button variant="text-link" size="sm" onClick={() => setConfirmSendAll(true)}>
+                  <Button variant="secondary" size="sm" onClick={() => setConfirmSendAll(true)}>
                     Send all to SAP
                   </Button>
                   <Button variant="primary" size="sm" iconLeft={Plus} onClick={() => onNewBatch(pending.map((o) => o.id))}>
@@ -147,7 +163,7 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
                         size="sm"
                         iconLeft={Trash2}
                         aria-label={`Discard ${ov.itemName}`}
-                        onClick={() => setConfirmRemove({ id: ov.id, name: ov.itemName })}
+                        onClick={() => discardEdit(ov)}
                       />
                     </div>
                   </li>
@@ -202,21 +218,6 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
           sendAllPending();
           toast.success(`Sent ${n} change${n !== 1 ? "s" : ""} to SAP — pending confirmation`);
           setSegment("sent");
-        }}
-      />
-
-      <ConfirmDialog
-        open={confirmRemove != null}
-        onOpenChange={(open) => !open && setConfirmRemove(null)}
-        headline="Discard this price change?"
-        description={confirmRemove ? `${confirmRemove.name} will go back to its current price. This can’t be undone.` : undefined}
-        confirmLabel="Discard"
-        destructive
-        onConfirm={() => {
-          if (confirmRemove) {
-            removeFromLooseTray(confirmRemove.id);
-            toast.success("Price change discarded");
-          }
         }}
       />
 

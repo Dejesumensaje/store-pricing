@@ -361,9 +361,8 @@ const newDiscontinuedCatalog: PricingItem[] = [
 })).map(enrichItemContext);
 
 // HQ recommendations: HQ already pushed these prices and they're LIVE in SAP.
-// The store reviews them — keep (no-op) or override (send). For each, the former
-// recommended price becomes the live `currentBasePrice` and the old price is
-// remembered as `previousBasePrice` for the drawer's "was → now" context.
+// The store reviews them — keep (no-op) or override (send). The recommended price
+// becomes the live `currentBasePrice`; the store sees just that single live price.
 const HQ_REVIEW_IDS = new Set(["RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4"]);
 
 function applyHqReview(item: PricingItem): PricingItem {
@@ -371,7 +370,6 @@ function applyHqReview(item: PricingItem): PricingItem {
   return {
     ...item,
     hqReviewPending: true,
-    previousBasePrice: item.currentBasePrice,
     currentBasePrice: item.recommendedBasePrice,
   };
 }
