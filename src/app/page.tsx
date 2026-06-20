@@ -17,6 +17,7 @@ import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { MainTabs, MainTab } from "@/components/store/MainTabs";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
 import { BatchTrayView } from "@/components/store/BatchTrayView";
+import { HqReviewBanner } from "@/components/store/HqReviewBanner";
 import { BatchSplitButton } from "@/components/store/BatchSplitButton";
 import { MobileItemList } from "@/components/store/MobileItemList";
 import { ScanOverlay } from "@/components/store/ScanOverlay";
@@ -261,6 +262,11 @@ export default function StorePricingPage() {
             </div>
 
             <div className="mt-4">
+              {activeTab === "hq" && hqCount > 0 && (
+                <div className="mb-4">
+                  <HqReviewBanner count={hqCount} />
+                </div>
+              )}
               {rows.length === 0 ? (
                 <EmptyState
                   icon={SearchX}
