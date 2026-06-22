@@ -1,12 +1,13 @@
 "use client";
 
+import { Info } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { selectCol, itemCol, idCol, SelHandlers } from "../pricing-table/columns/shared";
-import { PricingItem, Batch, OverrideStatus } from "@/types/pricing";
-import { PRICE_TYPE_META } from "@/lib/pricing-meta";
-import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { fmt, fmtQtyPrice } from "@/lib/format";
-import { Badge } from "@dejesumensaje/converge-ds-experimental";
+import { PricingItem, Batch } from "@/types/pricing";
+import { deriveItemStatus } from "@/lib/item-status";
+import { deriveChangeSummary, pricingStrategyLabel, ChangeEntry } from "@/lib/change-summary";
+import { fmt } from "@/lib/format";
+import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 
 // Optional columns the gear/settings menu can toggle on (off by default).
 export const STORE_OPTIONAL_COLUMNS: { id: string; label: string }[] = [
@@ -39,90 +40,75 @@ const OPTIONAL_DEFS: Record<string, DataColumn<PricingItem>> = {
   sensitivity: textCol("sensitivity", "Sensitivity", (r) => r.sensitivity, 100),
 };
 
-// A change is "in-flight" (transition shown old → new) until SAP confirms it.
-// Confirmed/absent → the price is settled and shown as a single live value.
-const inFlight = (s?: OverrideStatus) => s === "pending" || s === "in_batch" || s === "submitted";
-
-// One price field: a single live value when settled, else current → new.
-function PriceLine({
-  label,
-  current,
-  next,
-  settled,
-}: {
-  label?: string;
-  current: string;
-  next: string;
-  settled: boolean;
-}) {
+// Current SAP state only, never pending edits. Only temporary allowances carry a
+// retail price distinct from the base/shelf price — those show labeled Base +
+// Retail lines; every other type has a single price.
+export function CurrentSapCell({ item }: { item: PricingItem }) {
+  if (item.category_type !== "temporary_allowance") {
+    return <span className="text-sm tabular-nums text-gray-900">{fmt(item.currentBasePrice)}</span>;
+  }
+  const retail = item.currentRetailPrice ?? item.currentBasePrice;
   return (
-    <span className="flex items-center gap-1.5 text-sm tabular-nums">
-      {label && <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-500">{label}</span>}
-      {settled ? (
-        <span className="font-semibold text-gray-900">{next}</span>
-      ) : (
-        <>
-          <span className="text-gray-500 line-through">{current}</span>
-          <span aria-hidden="true" className="text-gray-300">→</span>
-          <span className="font-semibold text-gray-900">{next}</span>
-        </>
-      )}
+    <span className="flex flex-col gap-0.5 text-sm tabular-nums">
+      <span className="flex items-center gap-1.5">
+        <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-500">Base</span>
+        <span className="text-gray-900">{fmt(item.currentBasePrice)}</span>
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-500">Retail</span>
+        <span className="text-gray-900">{fmt(retail)}</span>
+      </span>
     </span>
   );
 }
 
-// Price column. Settled items show a single live price (no strike-through). The
-// before → after pattern is reserved for the user's own edits. HQ recommendations
-// are already live, so they show just the single live price + an "HQ" badge until
-// reviewed. Temporary allowances show the retail deal, plus a labeled Base line
-// when base also changed.
-export function PriceCell({ item }: { item: PricingItem }) {
-  const isTemp = item.category_type === "temporary_allowance";
-  const committedRetail = isTemp && item.newRetailPrice != null;
-  const committedBase = item.newBasePrice != null;
+// One action as two lines: the verb-led type, then its outcome. Some actions
+// (e.g. discontinuation) have no price outcome — the second line is omitted.
+// Understated weight/size so the column doesn't overpower the rest of the row —
+// hierarchy comes from color (action darker, value lighter), not bold/large text.
+function EntryLines({ entry }: { entry: ChangeEntry }) {
+  return (
+    <span className="flex flex-col leading-tight">
+      <span className="text-xs text-gray-700">{entry.label}</span>
+      {entry.detail && <span className="text-xs tabular-nums text-gray-400">{entry.detail}</span>}
+    </span>
+  );
+}
 
-  // HQ review (already live, nothing overridden) — single live price + HQ badge.
-  if (!committedBase && !committedRetail && hqReviewNeeded(item)) {
-    return (
-      <span className="flex items-center gap-1.5 text-sm tabular-nums">
-        <span className="font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
-        <Badge tone="in-progress" size="sm">HQ</Badge>
+// The pricing decision the store applied (type + outcome). Independent of the
+// workflow status. Items with several modifications collapse to a count and
+// reveal the full list on hover/focus.
+export function ChangeSummaryCell({ item }: { item: PricingItem }) {
+  const summary = deriveChangeSummary(item);
+
+  if (summary.kind === "none") {
+    return <span className="text-xs text-gray-400">No change</span>;
+  }
+  if (summary.kind === "single") {
+    return <EntryLines entry={summary.entry} />;
+  }
+  return (
+    <Tooltip
+      content={
+        <ul className="flex flex-col gap-1 text-left">
+          {summary.entries.map((e) => (
+            <li key={e.label} className="flex flex-col">
+              <span className="text-xs font-medium">{e.label}</span>
+              {e.detail && <span className="text-[11px] tabular-nums opacity-80">{e.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      }
+    >
+      <span className="flex cursor-default flex-col leading-tight">
+        <span className="inline-flex items-center gap-1 text-xs text-gray-700">
+          Multiple changes
+          <Info aria-hidden className="size-3 text-gray-400" />
+        </span>
+        <span className="text-xs text-gray-400">{summary.entries.length} modifications</span>
       </span>
-    );
-  }
-
-  if (isTemp) {
-    const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
-    return (
-      <span className="flex flex-col gap-0.5">
-        <PriceLine
-          label="Retail"
-          current={fmt(curRetail)}
-          next={committedRetail ? fmtQtyPrice(item.newRetailQty, item.newRetailPrice!) : fmt(curRetail)}
-          settled={!committedRetail || !inFlight(item.retailOverrideStatus)}
-        />
-        {committedBase && (
-          <PriceLine
-            label="Base"
-            current={fmt(item.currentBasePrice)}
-            next={fmt(item.newBasePrice!)}
-            settled={!inFlight(item.baseOverrideStatus)}
-          />
-        )}
-      </span>
-    );
-  }
-
-  if (committedBase) {
-    return (
-      <PriceLine
-        current={fmt(item.currentBasePrice)}
-        next={fmt(item.newBasePrice!)}
-        settled={!inFlight(item.baseOverrideStatus)}
-      />
-    );
-  }
-  return <span className="text-sm tabular-nums text-gray-700">{fmt(item.currentBasePrice)}</span>;
+    </Tooltip>
+  );
 }
 
 // Minimal default columns + optional ones toggled via the gear menu.
@@ -140,26 +126,34 @@ export function buildStoreColumns(
     textCol("category", "Category", (r) => r.category, 140),
     ...optional,
     {
-      id: "price",
+      id: "strategy",
       group: "item",
       width: 160,
-      header: "Price",
-      sortable: true,
-      sortAccessor: (r) => r.newBasePrice ?? r.currentBasePrice,
-      cell: (r) => <PriceCell item={r} />,
-    },
-    {
-      id: "priceType",
-      group: "item",
-      width: 160,
-      header: "Price type",
+      header: "Pricing strategy",
+      // The item's current pricing model — never an action (that's Change summary).
       // Neutral chip — color is reserved for the Status column so the two adjacent
       // badges don't read as the same semantic.
       cell: (r) => (
         <span className="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-          {PRICE_TYPE_META[r.category_type].label}
+          {pricingStrategyLabel(r)}
         </span>
       ),
+    },
+    {
+      id: "currentSap",
+      group: "item",
+      width: 150,
+      header: "Current SAP price",
+      sortable: true,
+      sortAccessor: (r) => r.currentBasePrice,
+      cell: (r) => <CurrentSapCell item={r} />,
+    },
+    {
+      id: "changeSummary",
+      group: "item",
+      width: 200,
+      header: "Change summary",
+      cell: (r) => <ChangeSummaryCell item={r} />,
     },
     {
       id: "status",

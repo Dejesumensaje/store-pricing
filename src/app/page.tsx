@@ -30,7 +30,7 @@ import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem } from "@/types/pricing";
-import { PRICE_TYPE_META } from "@/lib/pricing-meta";
+import { pricingStrategyLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
@@ -93,7 +93,11 @@ export default function StorePricingPage() {
       { key: "itemRole", label: "Item role", options: uniqueSorted(items.map((i) => i.itemRole)) },
       { key: "nationalVsStore", label: "National vs. store", options: uniqueSorted(items.map((i) => i.nationalVsStore)) },
       { key: "sensitivity", label: "Sensitivity", options: uniqueSorted(items.map((i) => i.sensitivity)) },
-      { key: "priceType", label: "Price type", options: uniqueSorted(items.map((i) => PRICE_TYPE_META[i.category_type].label)) },
+      { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyLabel)) },
+      // Change type matches any of a (possibly multi-change) item's actions (AC7).
+      { key: "changeType", label: "Change type", options: CHANGE_FILTER_OPTIONS.filter((o) =>
+        items.some((i) => itemChangeGroups(i).includes(o))
+      ) },
     ],
     [items]
   );
@@ -107,8 +111,14 @@ export default function StorePricingPage() {
     (i: PricingItem) => {
       for (const [key, opts] of Object.entries(filters)) {
         if (opts.length === 0) continue;
+        // Change type is multi-valued: an item matches if any of its actions'
+        // groups is selected (so a multi-change item shows under each one).
+        if (key === "changeType") {
+          if (!itemChangeGroups(i).some((g) => opts.includes(g))) return false;
+          continue;
+        }
         const itemValue =
-          key === "priceType" ? PRICE_TYPE_META[i.category_type].label : (i as unknown as Record<string, string>)[key];
+          key === "strategy" ? pricingStrategyLabel(i) : (i as unknown as Record<string, string>)[key];
         if (!opts.includes(itemValue)) return false;
       }
       return true;
@@ -214,35 +224,44 @@ export default function StorePricingPage() {
       />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8">
-        <div className="flex flex-wrap items-center gap-3 md:gap-4">
-          <StorePricingHeader />
-          <div className="relative order-2 ml-auto inline-flex md:order-3">
-            <Button
-              // Gain emphasis once there are changes waiting — the send step is
-              // the flow's terminal action, so a tertiary button under-sells it.
-              variant={view === "batch" || trayCount > 0 ? "secondary" : "tertiary"}
-              iconLeft={Layers}
-              pressed={view === "batch"}
-              onClick={() => setView((v) => (v === "batch" ? "items" : "batch"))}
-            >
-              To send
-            </Button>
-            {trayCount > 0 && (
-              <span key={trayPulse} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
-                <CountBadge count={trayCount} tone="warning" />
-              </span>
-            )}
+        {/* Store identity + the "To send" navigation CTA belong to the item list.
+            Inside the submission workflow they're dropped — that screen has its
+            own self-contained header ("SAP Submission" + the lifecycle tabs). */}
+        {view === "items" && (
+          <div className="flex flex-wrap items-center gap-3 md:gap-4">
+            <StorePricingHeader />
+            <div className="relative order-2 ml-auto inline-flex md:order-3">
+              <Button
+                // Gain emphasis once there are changes waiting — the send step is
+                // the flow's terminal action, so a tertiary button under-sells it.
+                variant={trayCount > 0 ? "secondary" : "tertiary"}
+                iconLeft={Layers}
+                onClick={() => setView("batch")}
+              >
+                To send
+              </Button>
+              {trayCount > 0 && (
+                <span key={trayPulse} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
+                  <CountBadge count={trayCount} tone="warning" />
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {view === "batch" ? (
           <>
-            <div className="mt-6">
-              <Button variant="tertiary" iconLeft={ArrowLeft} onClick={() => setView("items")}>
-                Back to items
-              </Button>
-            </div>
-            <div className="mt-4">
+            <Button
+              variant="tertiary"
+              iconLeft={ArrowLeft}
+              onClick={() => setView("items")}
+              className="self-start"
+            >
+              Back to items
+            </Button>
+            <div className="mt-3">
+              {/* The submission workspace owns its header: the "SAP Submission"
+                  title sits in a row with the lifecycle tabs (see BatchTrayView). */}
               <BatchTrayView onNewBatch={openNewBatch} activeBatchId={activeBatchId} onSetActiveBatch={setActiveBatchId} />
             </div>
           </>

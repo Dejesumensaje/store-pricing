@@ -92,17 +92,21 @@ export function BatchTrayView({ onNewBatch, activeBatchId, onSetActiveBatch }: P
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="-mx-1 overflow-x-auto px-1">
-        <ToggleGroup
-          aria-label="Batch lifecycle"
-          value={segment}
-          onValueChange={(v) => setSegment(v as Segment)}
-          options={[
-            { value: "pending", label: `Pending (${pending.length + draftBatches.length})` },
-            { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
-            { value: "sent", label: `Sent (${sentBatches.length})` },
-          ]}
-        />
+      {/* Workspace title on the left, lifecycle tabs pinned to the right edge. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <h2 className="text-2xl font-bold text-gray-900">SAP Submission</h2>
+        <div className="-mx-1 overflow-x-auto px-1 sm:mx-0 sm:px-0">
+          <ToggleGroup
+            aria-label="Batch lifecycle"
+            value={segment}
+            onValueChange={(v) => setSegment(v as Segment)}
+            options={[
+              { value: "pending", label: `Pending (${pending.length + draftBatches.length})` },
+              { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
+              { value: "sent", label: `Sent (${sentBatches.length})` },
+            ]}
+          />
+        </div>
       </div>
 
       {/* ── Pending: unbatched edits + draft batches ──────────────────────── */}

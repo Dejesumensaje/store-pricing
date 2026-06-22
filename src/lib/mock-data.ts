@@ -84,6 +84,13 @@ const baseMockItems: PricingItem[] = [
     currentBasePrice: 4.29,
     cost: 2.85,
     recommendedBasePrice: 4.49,
+    // An allowance already live in SAP (retail $3.99 < base) that the store
+    // deepens to $3.49 → "Updated Temporary Allowance". See W7BESS:retail seed.
+    currentRetailPrice: 3.99,
+    newRetailQty: 1,
+    newRetailPrice: 3.49,
+    retailOverrideStatus: "pending",
+    hasOverride: true,
   },
   {
     ...baseItem,
@@ -93,10 +100,15 @@ const baseMockItems: PricingItem[] = [
     currentBasePrice: 5.49,
     cost: 3.6,
     recommendedBasePrice: 5.79,
-    // Seeded retail (temp allowance) deal — see mockOverrides RBCS5-1:retail.
+    // Three stacked decisions → "Multiple changes / 3 modifications": a base
+    // increase, the 3-for-$12 multi-unit deal, and a fuel saver. See the matching
+    // RBCS5-1:base / RBCS5-1:retail seeds in mockOverrides.
+    newBasePrice: 5.79,
+    baseOverrideStatus: "pending",
     newRetailQty: 3,
     newRetailPrice: 12.0,
     retailOverrideStatus: "pending",
+    fuelSaver: 0.1,
     hasOverride: true,
     impactSalesValue: 1.4,
     impactSalesPct: 3,
@@ -154,10 +166,14 @@ const baseMockItems: PricingItem[] = [
     name: "Tostitos Scoops 10oz",
     packSize: "10oz",
     keyAttributes: ["Scoops", "Party size"],
+    // Converted from a regular base price to an everyday low price → strategy is
+    // now EDLP, Change Summary "Converted to EDLP". See RBCS5-5:base seed.
+    category_type: "everyday_low_price",
+    sapStrategy: "base",
     currentBasePrice: 5.19,
     cost: 3.4,
-    recommendedBasePrice: 5.49,
-    newBasePrice: 5.29,
+    recommendedBasePrice: 4.99,
+    newBasePrice: 4.99,
     hasOverride: true,
     baseOverrideStatus: "in_batch",
   },
@@ -169,8 +185,8 @@ const baseMockItems: PricingItem[] = [
     keyAttributes: ["Whole grain", "Cheddar"],
     currentBasePrice: 4.49,
     cost: 2.95,
-    recommendedBasePrice: 4.69,
-    newBasePrice: 4.59,
+    recommendedBasePrice: 4.39,
+    newBasePrice: 4.39,
     hasOverride: true,
     baseOverrideStatus: "in_batch",
     impactConfidence: "Medium",
@@ -234,10 +250,10 @@ export const mockOverrides: Override[] = [
     id: "RBCS5-5:base",
     itemId: "RBCS5-5",
     itemName: "Tostitos Scoops 10oz",
-    changeType: "base",
+    changeType: "everyday_low_price",
     priceField: "base",
     currentPrice: 5.19,
-    newPrice: 5.29,
+    newPrice: 4.99,
     status: "in_batch",
     batchId: "batch-1",
   },
@@ -248,9 +264,39 @@ export const mockOverrides: Override[] = [
     changeType: "base",
     priceField: "base",
     currentPrice: 4.49,
-    newPrice: 4.59,
+    newPrice: 4.39,
     status: "in_batch",
     batchId: "batch-2",
+  },
+  {
+    id: "RBCS5-1:base",
+    itemId: "RBCS5-1",
+    itemName: "Doritos Nacho Cheese 11.5oz",
+    changeType: "base",
+    priceField: "base",
+    currentPrice: 5.49,
+    newPrice: 5.79,
+    status: "pending",
+  },
+  {
+    id: "EDLP-2:base",
+    itemId: "EDLP-2",
+    itemName: "Great Value Potato Chips 8oz",
+    changeType: "everyday_low_price",
+    priceField: "base",
+    currentPrice: 1.98,
+    newPrice: 1.88,
+    status: "pending",
+  },
+  {
+    id: "W7BESS:retail",
+    itemId: "W7BESS",
+    itemName: "Lay's Classic Potato Chips 18oz",
+    changeType: "temporary_allowance",
+    priceField: "retail",
+    currentPrice: 3.99,
+    newPrice: 3.49,
+    status: "pending",
   },
   {
     id: "RBCS5-1:retail",
@@ -315,7 +361,15 @@ const edlpCatalog: PricingItem[] = [
   recommendedBasePrice: it.rec,
   impactConfidence: i % 2 === 0 ? "High" : "Medium",
   category_type: "everyday_low_price" as const,
-})).map(enrichItemContext);
+}))
+  .map(enrichItemContext)
+  // Reprice one already-live EDLP item so the Change Summary shows "Updated EDLP
+  // Price" (an EDLP conversion is demoed separately on RBCS5-5). See EDLP-2:base.
+  .map((it) =>
+    it.id === "EDLP-2"
+      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "pending" as const, hasOverride: true }
+      : it
+  );
 
 const noChangeCatalog: PricingItem[] = [
   { name: "Tostitos Salsa Medium 15.5oz", packSize: "15.5oz", current: 4.59, cost: 2.9 },
