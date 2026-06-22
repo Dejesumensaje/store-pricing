@@ -96,9 +96,9 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
             onChange={(e) => {
               if (/^\d{0,2}$/.test(e.target.value)) setDraftQty(e.target.value);
             }}
-            className="w-8 py-1.5 text-sm text-center bg-transparent focus:outline-none placeholder:text-gray-400"
+            className="w-8 py-1.5 text-sm text-center bg-transparent focus:outline-none placeholder:text-gray-500"
           />
-          <span className="text-xs text-gray-400 select-none shrink-0 border-l border-gray-200 pl-1.5">
+          <span className="text-xs text-gray-500 select-none shrink-0 border-l border-gray-200 pl-1.5">
             for
           </span>
           <span className="text-sm text-gray-500 pl-1 select-none">$</span>
@@ -111,7 +111,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
             onChange={(e) => {
               if (/^\d*\.?\d{0,2}$/.test(e.target.value)) setDraftPrice(e.target.value);
             }}
-            className="w-0 flex-1 pr-2 py-1.5 text-sm bg-transparent focus:outline-none placeholder:text-gray-400"
+            className="w-0 flex-1 pr-2 py-1.5 text-sm bg-transparent focus:outline-none placeholder:text-gray-500"
           />
         </div>
       ) : (

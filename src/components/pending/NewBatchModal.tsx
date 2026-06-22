@@ -88,7 +88,7 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
             className="mb-2 w-full"
           />
           {candidates.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No pending items available.</p>
+            <p className="text-sm text-gray-500 text-center py-4">No pending items available.</p>
           ) : (
             <div className="border border-gray-200 rounded-lg overflow-hidden max-h-56 overflow-y-auto">
               {filtered.map((ov) => (
@@ -105,12 +105,12 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{ov.itemName}</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-gray-500">
                       {CATEGORY_LABELS[ov.changeType]} · {ov.priceField === "base" ? "Base" : "Retail"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-sm shrink-0">
-                    <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
+                    <span className="text-gray-500">{fmt(ov.currentPrice)}</span>
                     <span className="text-gray-300">→</span>
                     <span className="font-semibold text-gray-700">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
                   </div>

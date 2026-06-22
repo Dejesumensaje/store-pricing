@@ -22,7 +22,7 @@ export function DateField({ value, onChange, min, className, ...rest }: Props) {
       value={value ?? ""}
       min={min}
       onChange={(e) => onChange(e.target.value || null)}
-      className={`rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 ${className ?? ""}`}
+      className={`rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand ${className ?? ""}`}
       {...rest}
     />
   );

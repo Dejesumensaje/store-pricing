@@ -21,7 +21,7 @@ type Props = {
 };
 
 export const BORDER: Record<PriceCellState, string> = {
-  untouched: "border-gray-300 bg-white text-gray-400",
+  untouched: "border-gray-300 bg-white text-gray-500",
   edited: "border-gray-900 bg-white text-gray-900",
   sent: "border-emerald-500 bg-white text-gray-900",
   alert: "border-orange-400 bg-white text-gray-900",
@@ -80,14 +80,14 @@ export function PriceInputCell({ recommended, value, state, onCommit, onViewAler
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
-          className={`w-full pl-6 pr-2 py-1.5 text-sm border rounded-md transition-colors duration-500 motion-reduce:transition-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          className={`w-full pl-6 pr-2 py-1.5 text-sm border rounded-md transition-colors duration-500 motion-reduce:transition-none focus:outline-none focus:ring-2 focus:ring-brand ${
             flash ? "border-emerald-300 bg-emerald-50 text-gray-900" : BORDER[state]
           }`}
         />
       </div>
       {state === "sent" && (
         <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
-          <Check className="size-3" aria-hidden="true" /> Sent
+          <Check className="size-3" aria-hidden="true" /> Sent to SAP
         </span>
       )}
       {state === "alert" && (

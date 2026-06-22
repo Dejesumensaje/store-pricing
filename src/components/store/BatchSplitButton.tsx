@@ -84,7 +84,7 @@ export function BatchSplitButton({
         >
           {openBatches.length > 0 && (
             <>
-              <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Add to batch</p>
+              <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Add to batch</p>
               {openBatches.map((b) => (
                 <button
                   key={b.id}

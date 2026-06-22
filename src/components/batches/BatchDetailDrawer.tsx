@@ -66,7 +66,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
     >
       {!batch ? null : (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between text-xs text-gray-400">
+          <div className="flex items-center justify-between text-xs text-gray-500">
             <span>Created {fmtDate(batch.createdAt)}</span>
             {batch.sapReference && (
               <span>SAP ref <span className="font-medium text-gray-600">{batch.sapReference}</span></span>
@@ -86,11 +86,11 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                         <Badge tone={ov.priceField === "base" ? "in-progress" : "warning"} size="sm">
                           {ov.priceField === "base" ? "Base" : "Retail"}
                         </Badge>
-                        <span className="text-xs text-gray-400">{CATEGORY_LABELS[ov.changeType]}</span>
+                        <span className="text-xs text-gray-500">{CATEGORY_LABELS[ov.changeType]}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 text-sm shrink-0">
-                      <span className="text-gray-400">{fmt(ov.currentPrice)}</span>
+                      <span className="text-gray-500">{fmt(ov.currentPrice)}</span>
                       <span aria-hidden="true" className="text-gray-300">→</span>
                       <span className="font-semibold text-gray-900">{fmtQtyPrice(ov.qty, ov.newPrice)}</span>
                     </div>

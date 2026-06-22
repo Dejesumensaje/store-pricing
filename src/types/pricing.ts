@@ -84,6 +84,13 @@ export type PricingItem = {
   hqReviewPending?: boolean;
   category_type: PricingCategory;
   /**
+   * The pricing strategy currently live in SAP. `category_type` is the strategy
+   * now assigned to the item (possibly a pending change); when `sapStrategy`
+   * differs, the store converted the item's strategy (e.g. Base → EDLP), which
+   * the Change Summary surfaces as "Converted to …". Defaults to `category_type`.
+   */
+  sapStrategy?: PricingCategory;
+  /**
    * Set when the price type was auto-switched on edit (e.g. `no_change` → `base`
    * when the user typed a price). Lets us revert to the original type if the
    * edit is cleared. Cleared the moment the user picks a type manually.

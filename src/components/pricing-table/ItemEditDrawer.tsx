@@ -52,7 +52,7 @@ const PRICE_TYPE_OPTIONS = STORE_ASSIGNABLE_TYPES.map((key) => ({
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs uppercase tracking-wide text-gray-400">{label}</span>
+      <span className="text-xs uppercase tracking-wide text-gray-500">{label}</span>
       <span className="text-sm font-medium text-gray-800">{value}</span>
     </div>
   );
@@ -77,7 +77,7 @@ function MarginRow({ label, current, next }: { label: string; current: number; n
     <div className="flex items-center justify-between gap-3 text-sm">
       <span className="text-gray-500">{label}</span>
       <div className="flex items-center gap-2 tabular-nums">
-        <span className="text-gray-400">{fmtPct(current)}</span>
+        <span className="text-gray-500">{fmtPct(current)}</span>
         <span aria-hidden="true" className="text-gray-300">→</span>
         <span className="font-semibold text-gray-900">{fmtPct(next)}</span>
         <span className={`w-16 text-right font-medium ${tone}`}>{fmtPpDelta(delta)}</span>
@@ -304,7 +304,7 @@ export function ItemEditDrawer({
             </div>
             <div className="min-w-0">
               <p className="text-base font-semibold text-gray-900">{item.name}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{item.id} · {item.aisle} · {item.brand}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{item.id} · {item.aisle} · {item.brand}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
                 {item.linePriceGroup && <Badge tone="in-progress" size="sm">Line price</Badge>}
@@ -332,7 +332,7 @@ export function ItemEditDrawer({
                 <Badge tone={PRICE_TYPE_META[item.category_type].tone} size="sm">
                   {PRICE_TYPE_META[item.category_type].label}
                 </Badge>
-                <Lock className="size-3.5 text-gray-400" aria-hidden="true" />
+                <Lock className="size-3.5 text-gray-500" aria-hidden="true" />
               </div>
               {intent && <p className="mt-1.5 text-xs text-gray-500">{intent.helper}</p>}
             </div>
@@ -562,11 +562,11 @@ export function ItemEditDrawer({
                       <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
                         <div className="min-w-0">
                           <span className="text-sm text-gray-700">{c.name}</span>
-                          {c.distanceMi != null && <span className="ml-2 text-xs text-gray-400">{c.distanceMi} mi</span>}
+                          {c.distanceMi != null && <span className="ml-2 text-xs text-gray-500">{c.distanceMi} mi</span>}
                         </div>
                         <div className="flex items-center gap-2 tabular-nums">
                           <span className="text-sm text-gray-700">{fmt(c.price)}</span>
-                          <span className={`w-20 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-400"}`}>
+                          <span className={`w-20 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500"}`}>
                             {diff > 0 ? `+${fmt(diff)} hi` : diff < 0 ? `${fmt(diff)} lo` : "match"}
                           </span>
                         </div>
@@ -591,7 +591,7 @@ export function ItemEditDrawer({
                     <div key={ri.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
                       <div className="min-w-0">
                         <p className="truncate text-sm text-gray-700">{ri.name}</p>
-                        <p className="text-xs text-gray-400">{ri.id}</p>
+                        <p className="text-xs text-gray-500">{ri.id}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         {lineIds.has(ri.id) && <Badge tone="in-progress" size="sm">Line</Badge>}
@@ -645,7 +645,7 @@ function ImpactDetails({ item }: { item: PricingItem }) {
         <span className="text-sm font-medium text-gray-500">Projected impact</span>
         <ChevronDown
           aria-hidden="true"
-          className={`size-4 text-gray-400 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+          className={`size-4 text-gray-500 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
         />
       </button>
       {open && (

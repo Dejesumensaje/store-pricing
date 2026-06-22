@@ -17,7 +17,7 @@ type Props = {
 export function EmptyState({ icon: Icon, title, hint, action, bordered = true, className }: Props) {
   return (
     <div
-      className={`flex flex-col items-center gap-2 text-gray-400 ${
+      className={`flex flex-col items-center gap-2 text-gray-500 ${
         bordered ? "rounded-xl border border-dashed border-gray-200 bg-white py-14" : "py-16"
       } ${className ?? ""}`}
     >
