@@ -77,9 +77,12 @@ export type PricingItem = {
   /** Accepted as-is (no changes) — removes the item from the review queue. */
   reviewed?: boolean;
   /**
-   * HQ pushed this price and it's ALREADY live in SAP. The store reviews it:
-   * keep (no-op, nothing sent) or override (sent). The queue clears the item
-   * once it's reviewed or overridden.
+   * HQ has a recommendation for this item awaiting the director's decision. The
+   * proposal is NOT live in SAP — `recommendedBasePrice` holds HQ's proposed
+   * price while `currentBasePrice` stays the live price. The director decides:
+   * accept (apply the rec), override (apply their own price), or keep current
+   * (reject). Accept/override create a pending change to send; keep sends nothing.
+   * The queue clears the item once it's decided.
    */
   hqReviewPending?: boolean;
   category_type: PricingCategory;

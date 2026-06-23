@@ -6,6 +6,22 @@ import { fmt, fmtQtyPrice } from "./format";
 export function pricingStrategyLabel(item: PricingItem): string {
   switch (item.category_type) {
     case "everyday_low_price":
+      return "EDLP";
+    case "temporary_allowance":
+      return "TA";
+    case "new_discontinued":
+      return item.itemStatus === "discontinued" ? "Disc." : "New";
+    case "base":
+    case "no_change":
+    default:
+      return "Base";
+  }
+}
+
+// The unabbreviated change-type name, shown on hover over the short pill.
+export function pricingStrategyFullLabel(item: PricingItem): string {
+  switch (item.category_type) {
+    case "everyday_low_price":
       return "Everyday Low Price";
     case "temporary_allowance":
       return "Temporary Allowance";
@@ -39,10 +55,21 @@ export type ChangeKind =
 // empty, e.g. discontinuation has no price outcome).
 export type ChangeEntry = { kind: ChangeKind; label: string; detail: string };
 
-export type ChangeSummary =
-  | { kind: "none" }
-  | { kind: "single"; entry: ChangeEntry }
-  | { kind: "multiple"; entries: ChangeEntry[] };
+// The director's decision on an item, relative to HQ's recommendation. Replaces
+// the old per-type verb summary — the price outcome lives in the price columns,
+// so this only says what was decided.
+export type DecisionState = "pending" | "accepted" | "overridden" | "kept_current" | "changed" | "none";
+
+type DecisionTone = "neutral" | "success" | "negative" | "warning" | "in-progress";
+
+export const DECISION_META: Record<DecisionState, { label: string; tone: DecisionTone } | null> = {
+  pending: { label: "Pending", tone: "in-progress" },
+  accepted: { label: "Accepted", tone: "success" },
+  overridden: { label: "Overridden", tone: "warning" },
+  kept_current: { label: "Kept current", tone: "neutral" },
+  changed: { label: "Changed", tone: "in-progress" },
+  none: null,
+};
 
 const transition = (from: number, to: number) => `${fmt(from)} → ${fmt(to)}`;
 const sapStrategyOf = (item: PricingItem): PricingCategory => item.sapStrategy ?? item.category_type;
@@ -112,13 +139,24 @@ export function changeEntries(item: PricingItem): ChangeEntry[] {
   );
 }
 
-// What pricing action(s) the store applied, awaiting review / batching / sync.
+// What the director decided about an item, relative to HQ's recommendation. The
+// relevant price field is retail for temporary allowances, base otherwise.
 // Independent of the workflow status (see deriveItemStatus).
-export function deriveChangeSummary(item: PricingItem): ChangeSummary {
-  const entries = changeEntries(item);
-  if (entries.length === 0) return { kind: "none" };
-  if (entries.length === 1) return { kind: "single", entry: entries[0] };
-  return { kind: "multiple", entries };
+export function deriveDecision(item: PricingItem): DecisionState {
+  const isTemp = item.category_type === "temporary_allowance";
+  const decided = isTemp ? item.newRetailPrice ?? null : item.newBasePrice;
+  const recommended = isTemp ? item.recommendedRetailPrice ?? null : item.recommendedBasePrice;
+  const hasDecision = decided != null;
+
+  if (item.hqReviewPending) {
+    if (hasDecision) {
+      const matches = recommended != null && Math.abs(decided - recommended) < 0.005;
+      return matches ? "accepted" : "overridden";
+    }
+    return item.reviewed ? "kept_current" : "pending";
+  }
+  // No HQ recommendation — a director-initiated change, or nothing.
+  return hasDecision ? "changed" : "none";
 }
 
 // ─── Change-type filtering (AC7) ─────────────────────────────────────────────

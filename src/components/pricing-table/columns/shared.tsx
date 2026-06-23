@@ -29,6 +29,8 @@ export function ImpactBadge({ level }: { level: "High" | "Medium" | "Low" }) {
 
 type SelHandlers = {
   isSelected: (r: PricingItem) => boolean;
+  /** Whether the row can be selected — only items with a decision are. */
+  isSelectable?: (r: PricingItem) => boolean;
   toggle: (r: PricingItem) => void;
   toggleAll: () => void;
   allSelected: boolean;
@@ -45,12 +47,20 @@ export function selectCol(h: SelHandlers): DataColumn<PricingItem> {
     header: (
       <Checkbox checked={h.allSelected} onCheckedChange={() => h.toggleAll()} aria-label="Select all" />
     ),
-    cell: (row) => (
-      // Stop the click from bubbling to the row (which opens the edit drawer).
-      <span onClick={(e) => e.stopPropagation()} className="inline-flex">
-        <Checkbox checked={h.isSelected(row)} onCheckedChange={() => h.toggle(row)} aria-label="Select item" />
-      </span>
-    ),
+    cell: (row) => {
+      const selectable = h.isSelectable ? h.isSelectable(row) : true;
+      return (
+        // Stop the click from bubbling to the row (which opens the edit drawer).
+        <span onClick={(e) => e.stopPropagation()} className="inline-flex">
+          <Checkbox
+            checked={h.isSelected(row)}
+            disabled={!selectable}
+            onCheckedChange={() => h.toggle(row)}
+            aria-label="Select item"
+          />
+        </span>
+      );
+    },
   };
 }
 
@@ -67,7 +77,9 @@ export function itemCol(): DataColumn<PricingItem> {
         <div className="size-9 bg-gray-100 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
           {r.image ? <Image src={r.image} alt={r.name} width={36} height={36} className="object-cover" /> : <span className="text-gray-300 text-xs">img</span>}
         </div>
-        <span className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{r.name}</span>
+        <Tooltip content={r.name}>
+          <span className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{r.name}</span>
+        </Tooltip>
       </div>
     ),
   };
