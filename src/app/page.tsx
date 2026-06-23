@@ -137,30 +137,47 @@ export default function StorePricingPage() {
   }, [items, activeTab, matchesFilters, search]);
 
   // ── Selection ────────────────────────────────────────────────────────────
-  const toggle = useCallback((row: PricingItem) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(row.id) ? next.delete(row.id) : next.add(row.id);
-      return next;
-    });
-  }, []);
+  // Only items with a pending decision can be selected (those are what "To send"
+  // batches) — guides the director to pick exactly what they've decided on.
+  const pendingItemIds = useMemo(
+    () => new Set(overrides.filter((o) => o.status === "pending").map((o) => o.itemId)),
+    [overrides]
+  );
+  const isSelectable = useCallback((r: PricingItem) => pendingItemIds.has(r.id), [pendingItemIds]);
+  const selectableRows = useMemo(() => rows.filter(isSelectable), [rows, isSelectable]);
+
+  const toggle = useCallback(
+    (row: PricingItem) => {
+      if (!pendingItemIds.has(row.id)) return;
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.has(row.id) ? next.delete(row.id) : next.add(row.id);
+        return next;
+      });
+    },
+    [pendingItemIds]
+  );
   const toggleAll = useCallback(() => {
-    setSelected((prev) => (prev.size === rows.length ? new Set() : new Set(rows.map((i) => i.id))));
-  }, [rows]);
+    setSelected((prev) => {
+      const allSel = selectableRows.length > 0 && selectableRows.every((r) => prev.has(r.id));
+      return allSel ? new Set() : new Set(selectableRows.map((i) => i.id));
+    });
+  }, [selectableRows]);
 
   const columns = useMemo(
     () =>
       buildStoreColumns(
         {
           isSelected: (r) => selected.has(r.id),
+          isSelectable,
           toggle,
           toggleAll,
-          allSelected: rows.length > 0 && selected.size === rows.length,
+          allSelected: selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.id)),
         },
         batches,
         visibleCols
       ),
-    [selected, rows, toggle, toggleAll, batches, visibleCols]
+    [selected, selectableRows, isSelectable, toggle, toggleAll, batches, visibleCols]
   );
 
   const columnOptions = STORE_OPTIONAL_COLUMNS.map((c) => ({ ...c, visible: visibleCols.has(c.id) }));
@@ -319,18 +336,20 @@ export default function StorePricingPage() {
                   <div className="md:hidden">
                     <div className="mb-2 flex items-center gap-2 px-3">
                       <Checkbox
-                        checked={rows.length > 0 && selected.size === rows.length}
+                        checked={selectableRows.length > 0 && selectableRows.every((r) => selected.has(r.id))}
+                        disabled={selectableRows.length === 0}
                         onCheckedChange={toggleAll}
-                        aria-label="Select all items"
+                        aria-label="Select all decided items"
                       />
                       <span className="text-sm text-gray-600">
-                        {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+                        {selected.size > 0 ? `${selected.size} selected` : "Select decided"}
                       </span>
                     </div>
                     <MobileItemList
                       rows={rows}
                       batches={batches}
                       isSelected={(r) => selected.has(r.id)}
+                      isSelectable={isSelectable}
                       toggle={toggle}
                       onRowClick={(r) => setDrawerItemId(r.id)}
                     />

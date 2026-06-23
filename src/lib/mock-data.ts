@@ -1,4 +1,4 @@
-import { PricingItem, Override, Batch, CompetitorPrice } from "@/types/pricing";
+import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity } from "@/types/pricing";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -47,8 +47,8 @@ function enrichItemContext(item: PricingItem): PricingItem {
 }
 
 const baseItem = {
-  aisle: "Potato chips",
-  category: "Potato chips",
+  aisle: "Aisle 12",
+  category: "Snacks",
   subcategory: "Potato chips",
   brand: "Frito-Lay",
   packSize: "11.5oz",
@@ -414,19 +414,86 @@ const newDiscontinuedCatalog: PricingItem[] = [
   category_type: "new_discontinued" as const,
 })).map(enrichItemContext);
 
-// HQ recommendations: HQ already pushed these prices and they're LIVE in SAP.
-// The store reviews them — keep (no-op) or override (send). The recommended price
-// becomes the live `currentBasePrice`; the store sees just that single live price.
+// HQ recommendations: HQ proposes a new price for these items. The proposal is
+// NOT live in SAP — `currentBasePrice` stays the live (old) price and
+// `recommendedBasePrice` carries HQ's proposal, so the director can compare the
+// two and decide (accept / override / keep current) before anything is sent.
 const HQ_REVIEW_IDS = new Set(["RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4"]);
 
 function applyHqReview(item: PricingItem): PricingItem {
   if (!HQ_REVIEW_IDS.has(item.id)) return item;
-  return {
-    ...item,
-    hqReviewPending: true,
-    currentBasePrice: item.recommendedBasePrice,
-  };
+  return { ...item, hqReviewPending: true };
 }
+
+// ─── Synthetic catalog (scale) ───────────────────────────────────────────────
+// The hand-crafted items above drive the demo flows (line groups, HQ recs,
+// overrides). To exercise the filters at realistic scale we add a broad,
+// deterministic catalog of "live" (no-change) SKUs across many categories,
+// subcategories and brands — so the Category/Brand facets get a searchable,
+// hundreds-of-values feel instead of the single "Snacks" cluster.
+const TAXONOMY: { category: string; aisle: string; subcategories: string[] }[] = [
+  { category: "Beverages", aisle: "Aisle 7", subcategories: ["Soda", "Bottled water", "Juice", "Sports drinks", "Energy drinks", "Tea"] },
+  { category: "Coffee", aisle: "Aisle 8", subcategories: ["Ground coffee", "Coffee pods", "Whole bean", "Instant"] },
+  { category: "Dairy", aisle: "Aisle 1", subcategories: ["Milk", "Cheese", "Yogurt", "Butter", "Eggs"] },
+  { category: "Frozen", aisle: "Aisle 20", subcategories: ["Pizza", "Ice cream", "Frozen meals", "Frozen vegetables"] },
+  { category: "Bakery", aisle: "Aisle 3", subcategories: ["Bread", "Buns & rolls", "Tortillas", "Sweet baked"] },
+  { category: "Cereal", aisle: "Aisle 9", subcategories: ["Cold cereal", "Granola", "Oatmeal"] },
+  { category: "Pasta & sauce", aisle: "Aisle 10", subcategories: ["Pasta", "Pasta sauce", "Noodles"] },
+  { category: "Canned goods", aisle: "Aisle 11", subcategories: ["Soup", "Canned vegetables", "Canned beans", "Canned fruit"] },
+  { category: "Condiments", aisle: "Aisle 13", subcategories: ["Ketchup & mustard", "Mayonnaise", "Salad dressing", "Hot sauce"] },
+  { category: "Baking", aisle: "Aisle 14", subcategories: ["Flour & sugar", "Baking mixes", "Spices"] },
+  { category: "Candy", aisle: "Aisle 15", subcategories: ["Chocolate", "Gummies", "Mints & gum"] },
+  { category: "Meat", aisle: "Aisle 30", subcategories: ["Beef", "Poultry", "Pork", "Bacon & sausage"] },
+  { category: "Seafood", aisle: "Aisle 31", subcategories: ["Fish", "Shrimp", "Canned tuna"] },
+  { category: "Produce", aisle: "Aisle 40", subcategories: ["Fruit", "Vegetables", "Salad kits", "Herbs"] },
+  { category: "Health & beauty", aisle: "Aisle 50", subcategories: ["Shampoo", "Toothpaste", "Vitamins", "Skin care"] },
+  { category: "Household", aisle: "Aisle 55", subcategories: ["Cleaning", "Paper goods", "Laundry", "Trash bags"] },
+  { category: "Pet", aisle: "Aisle 60", subcategories: ["Dog food", "Cat food", "Treats"] },
+  { category: "Baby", aisle: "Aisle 62", subcategories: ["Diapers", "Baby food", "Wipes"] },
+  { category: "Breakfast", aisle: "Aisle 4", subcategories: ["Syrup & mixes", "Breakfast bars", "Frozen breakfast"] },
+];
+
+const SYNTHETIC_BRANDS = [
+  "Hy-Vee", "Great Value", "Coca-Cola", "PepsiCo", "Nestlé", "General Mills", "Kraft Heinz",
+  "Kellogg's", "Tyson", "Hormel", "Tropicana", "Gatorade", "Dasani", "Folgers", "Quaker",
+  "Betty Crocker", "Hershey's", "Mars", "Barilla", "Heinz", "Hidden Valley", "Tide", "Charmin",
+  "Bounty", "Purina", "Pampers", "Gerber", "Dove", "Colgate", "Nature Valley", "Cheerios", "Oreo",
+];
+const SYNTHETIC_SIZES = ["8oz", "12oz", "16oz", "24oz", "1 lb", "2 lb", "6 pk", "12 pk", "24 pk", "32oz", "64oz"];
+const SYNTHETIC_ROLES: ItemRole[] = ["Traffic driver", "Margin driver", "Destination", "Convenience"];
+const SYNTHETIC_SENS: Sensitivity[] = ["H", "M", "L"];
+const ITEMS_PER_CATEGORY = 11;
+
+const syntheticCatalog: PricingItem[] = TAXONOMY.flatMap((cat, ci) =>
+  Array.from({ length: ITEMS_PER_CATEGORY }, (_, i): PricingItem => {
+    const n = ci * ITEMS_PER_CATEGORY + i + 1;
+    const sub = cat.subcategories[i % cat.subcategories.length];
+    const brand = SYNTHETIC_BRANDS[(n * 7) % SYNTHETIC_BRANDS.length];
+    const size = SYNTHETIC_SIZES[n % SYNTHETIC_SIZES.length];
+    const price = round2(1.49 + ((n * 37) % 900) / 100);
+    const isStore = brand === "Hy-Vee" || brand === "Great Value";
+    return {
+      ...baseItem,
+      id: `SKU-${1000 + n}`,
+      name: `${brand} ${sub} ${size}`,
+      aisle: cat.aisle,
+      category: cat.category,
+      subcategory: sub,
+      brand,
+      packSize: size,
+      keyAttributes: [sub],
+      nationalVsStore: isStore ? "Store" : "National",
+      itemRole: SYNTHETIC_ROLES[n % SYNTHETIC_ROLES.length],
+      sensitivity: SYNTHETIC_SENS[n % SYNTHETIC_SENS.length],
+      currentBasePrice: price,
+      cost: round2(price * 0.62),
+      recommendedBasePrice: price, // no change → Live, no action needed
+      newBasePrice: null,
+      hasOverride: false,
+      category_type: "no_change",
+    };
+  })
+).map(enrichItemContext);
 
 // ─── Unified catalog ─────────────────────────────────────────────────────────
 // One list of every item. Each carries its own `category_type` (price type),
@@ -436,8 +503,8 @@ export const mockItems: PricingItem[] = [
   ...edlpCatalog,
   ...noChangeCatalog,
   ...newDiscontinuedCatalog,
+  ...syntheticCatalog,
 ].map(applyHqReview);
 
-// Headline count shown on the "All items (N)" pill (the live store carries far
-// more SKUs than the demo seeds).
-export const TOTAL_ITEM_COUNT = 1260;
+// Headline count shown on the "All items (N)" pill.
+export const TOTAL_ITEM_COUNT = mockItems.length;

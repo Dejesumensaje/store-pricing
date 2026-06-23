@@ -6,9 +6,9 @@ export type ItemStatus = { label: string; tone: BadgeTone };
 
 const STATUS: Record<string, ItemStatus> = {
   live: { label: "Live", tone: "success" },
-  // Live in SAP via an HQ-pushed price the store hasn't acknowledged or overridden
-  // yet. It IS live — this only flags that it still wants the director's review.
-  // (The HQ origin is already clear from the tab + the price cell's HQ badge.)
+  // An HQ recommendation the director hasn't decided on yet. The proposal is NOT
+  // live — the item still carries its current SAP price; this flags that a
+  // decision (accept / override / keep current) is owed.
   review: { label: "Needs review", tone: "in-progress" },
   edited: { label: "Edited", tone: "warning" },
   in_batch: { label: "In batch", tone: "in-progress" },
@@ -19,9 +19,9 @@ const STATUS: Record<string, ItemStatus> = {
   confirmed: { label: "Live", tone: "success" },
 };
 
-// An HQ-pushed price (already live in SAP) the store hasn't acted on yet —
-// neither acknowledged ("Keep HQ price") nor overridden. Shared by the page (HQ
-// tab filter + count), the price cell, and the drawer's "Keep HQ price" escape.
+// An HQ recommendation the store hasn't decided on yet — neither kept ("Keep
+// current") nor accepted/overridden. Shared by the page (HQ tab filter + count),
+// the price cell, and the drawer's decision actions.
 export const hqReviewNeeded = (i: PricingItem) =>
   !!i.hqReviewPending && !i.reviewed && !i.hasOverride;
 
