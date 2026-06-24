@@ -17,7 +17,7 @@ import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_META, PRICE_TYPE_INTENT } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { fmt } from "@/lib/format";
+import { fmt, fmtQtyPrice } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
 import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Pencil } from "lucide-react";
@@ -105,6 +105,12 @@ export function ItemEditDrawer({
   // change) — show it locked instead of an assignable Select.
   const typeLocked = isTemp || item?.category_type === "no_change";
   const isEdlp = item?.category_type === "everyday_low_price";
+  // Sent to SAP, not yet confirmed: the change is in flight and nothing can be
+  // altered until SAP accepts it. The whole drawer goes read-only/disabled — the
+  // Live view, but locked. Tracked per field; `sending` locks shared controls.
+  const baseLocked = item?.baseOverrideStatus === "submitted";
+  const retailLocked = item?.retailOverrideStatus === "submitted";
+  const sending = baseLocked || retailLocked;
   // Per-type intent (labels + helper copy). New/discontinued is refined by itemStatus.
   const intent = item
     ? item.category_type === "new_discontinued"
@@ -282,7 +288,7 @@ export function ItemEditDrawer({
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
-      title="Edit prices"
+      title={sending ? "Price details" : "Edit prices"}
       size="md"
       className="max-md:!w-full"
       headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
@@ -333,6 +339,16 @@ export function ItemEditDrawer({
               this edit produces (white regular tag + yellow promo tag). */}
           <ShelfTagPreview item={item} />
 
+          {/* Sent to SAP — the whole drawer is read-only until SAP confirms. */}
+          {sending && (
+            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+              <Lock className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+              <span className="text-amber-900">
+                Sent to SAP — locked until SAP confirms it. Nothing here can be changed yet.
+              </span>
+            </div>
+          )}
+
           {/* HQ recommendation context — WHAT is proposed and WHY (Sarah: the
               director should understand the recommendation, not just see a price).
               Replaces the old generic "accept it, enter your own, or keep" copy,
@@ -347,12 +363,13 @@ export function ItemEditDrawer({
           {/* Price type — assignable types use a Select; HQ-owned (vendor-funded
               allowance) and system ("no change") types are locked and demoted to a
               quiet one-line caption instead of a titled, non-actionable block. */}
-          {typeLocked ? (
+          {typeLocked || sending ? (
             <p className="-mt-2 flex items-center gap-1.5 text-xs text-gray-500">
               <Lock className="size-3.5 shrink-0 text-gray-400" aria-hidden="true" />
               <span>
                 <span className="font-medium text-gray-600">{PRICE_TYPE_META[item.category_type].label}</span>
-                {isTemp && " · price & dates editable, type set by HQ"}
+                {/* Don't claim "editable" once it's sent. */}
+                {isTemp && !sending && " · price & dates editable, type set by HQ"}
               </span>
             </p>
           ) : (
@@ -397,12 +414,23 @@ export function ItemEditDrawer({
                     yellow tag, so repeating the numbers here is just noise. */}
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   <div className="flex flex-col gap-4">
-                    {acceptFirst ? (
-                      <div className="decision-pop flex flex-wrap items-center gap-3">
-                        <Button variant="primary" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
+                    {retailLocked ? (
+                      // Sent to SAP — read-only until SAP confirms.
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm tabular-nums">
+                          <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                          <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
+                          <span aria-hidden="true" className="text-gray-300">→</span>
+                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
+                        </div>
+                        <span className="text-xs font-medium text-gray-500">Locked</span>
+                      </div>
+                    ) : acceptFirst ? (
+                      <div className="decision-pop flex flex-wrap items-center gap-2">
+                        <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
                           Accept {fmt(recRetail)}
                         </Button>
-                        <Button variant="text-link" onClick={() => setChangingRetail(true)}>
+                        <Button variant="tertiary" size="sm" onClick={() => setChangingRetail(true)}>
                           Set a different price
                         </Button>
                       </div>
@@ -485,7 +513,18 @@ export function ItemEditDrawer({
                   Base price <span className="font-normal text-gray-400">· white shelf tag</span>
                 </h3>
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                  {showInput ? (
+                  {baseLocked ? (
+                    // Sent to SAP — read-only, no edit/revert until SAP confirms.
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm tabular-nums">
+                        <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                        <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                        <span aria-hidden="true" className="text-gray-300">→</span>
+                        <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
+                      </div>
+                      <span className="text-xs font-medium text-gray-500">Locked</span>
+                    </div>
+                  ) : showInput ? (
                     baseInputBlock()
                   ) : decided ? (
                     // Decided — a compact, popping confirmation of the new price.
@@ -509,6 +548,7 @@ export function ItemEditDrawer({
                     </div>
                   ) : showAccept ? (
                     // HQ rec awaiting a call — accept it, set your own, or keep current.
+                    // Buttons share one size (sm) with a clear primary→quiet hierarchy.
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
@@ -516,13 +556,13 @@ export function ItemEditDrawer({
                         <span className="font-semibold text-gray-900">HQ recommends {fmt(rec)}</span>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <Button variant="primary" iconLeft={Check} onClick={() => commitBase(rec)}>
+                        <Button variant="primary" size="sm" iconLeft={Check} onClick={() => commitBase(rec)}>
                           Accept {fmt(rec)}
                         </Button>
-                        <Button variant="text-link" onClick={() => setEditingBase(true)}>
+                        <Button variant="tertiary" size="sm" onClick={() => setEditingBase(true)}>
                           Set a different price
                         </Button>
-                        <Button variant="tertiary" onClick={keepCurrent}>
+                        <Button variant="text-link" size="sm" onClick={keepCurrent}>
                           Keep current
                         </Button>
                       </div>
@@ -556,6 +596,7 @@ export function ItemEditDrawer({
                   </h3>
                   <Switch
                     checked={baseActive}
+                    disabled={sending}
                     onCheckedChange={(on) => {
                       setShowBase(on);
                       if (!on && item.newBasePrice != null) revertField("base");
@@ -582,6 +623,7 @@ export function ItemEditDrawer({
                 <div className="flex flex-col gap-2">
                   <Switch
                     checked={fuelSaverActive}
+                    disabled={sending}
                     onCheckedChange={(on) => {
                       setShowFuelSaver(on);
                       if (!on) updateFuelSaver(item.id, null);
