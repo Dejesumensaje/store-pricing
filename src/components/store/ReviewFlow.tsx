@@ -198,7 +198,7 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
           <span className="text-sm text-gray-600">
             {selected.size > 0 ? `${selected.size} selected` : `Select`}
           </span>
-          <div className="w-40">
+          <div className="w-48">
             <Select
               size="sm"
               label="Sort"

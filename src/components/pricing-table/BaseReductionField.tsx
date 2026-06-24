@@ -18,12 +18,6 @@ const METHODS: { id: Method; label: string }[] = [
   { id: "exact", label: "Exact price" },
 ];
 
-// Open on "Exact price" if a price is already committed; otherwise default to
-// "$ off" (the typical EDLP markdown is expressed as a dollar cut).
-function initialMethod(value: number | null): Method {
-  return value != null ? "exact" : "amount";
-}
-
 // Progressive base-price control. % / $ off are computed off the current base
 // price; "Exact price" takes a price directly. Only the chosen input is mounted.
 export function BaseReductionField({
@@ -45,7 +39,9 @@ export function BaseReductionField({
   onCommit: (price: number | null) => void;
   ariaLabel?: string;
 }) {
-  const [method, setMethod] = useState<Method>(() => initialMethod(value));
+  // Open on "Exact price" — a base price is most naturally set by typing the new
+  // shelf price; % / $ off are there for directors who think in reductions.
+  const [method, setMethod] = useState<Method>("exact");
   const state = derivePriceState({ value, status, hasAlert });
 
   return (

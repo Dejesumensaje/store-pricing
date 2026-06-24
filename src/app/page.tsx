@@ -110,6 +110,10 @@ export default function StorePricingPage() {
     () => batches.filter((b) => b.status === "submitted" || b.status === "confirmed"),
     [batches]
   );
+  // Distinct items across a set of batches — so the To-send tabs all count the
+  // same unit (items), not a mix of items and batch records.
+  const itemsInBatches = (bs: typeof batches) =>
+    bs.reduce((n, b) => n + new Set(b.overrideIds.map((id) => id.split(":")[0])).size, 0);
   const activeBatch = openBatches.find((b) => b.id === activeBatchId) ?? null;
 
   // Keep an active batch selected: fall back to the most recent open batch when
@@ -452,9 +456,9 @@ export default function StorePricingPage() {
                     value={toSendSegment}
                     onValueChange={(v) => setToSendSegment(v as "pending" | "scheduled" | "sent")}
                     options={[
-                      { value: "pending", label: `Pending (${pendingItemIds.size + draftBatches.length})` },
-                      { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
-                      { value: "sent", label: `Sent (${sentBatches.length})` },
+                      { value: "pending", label: `Pending (${pendingItemIds.size + itemsInBatches(draftBatches)})` },
+                      { value: "scheduled", label: `Scheduled (${itemsInBatches(scheduledBatches)})` },
+                      { value: "sent", label: `Sent (${itemsInBatches(sentBatches)})` },
                     ]}
                   />
                 </div>
@@ -462,7 +466,7 @@ export default function StorePricingPage() {
             ) : (
               <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <h2 className="text-xl font-bold text-gray-900">
-                  All items <span className="ml-1 text-sm font-medium text-gray-400">{TOTAL_ITEM_COUNT.toLocaleString()}</span>
+                  All items <span className="ml-1 text-sm font-normal text-gray-400">{TOTAL_ITEM_COUNT.toLocaleString()}</span>
                 </h2>
                 <ItemsToolbar
                   search={search}
