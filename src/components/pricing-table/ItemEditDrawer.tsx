@@ -2,10 +2,9 @@
 
 import { useMemo, useState, useEffect, useId } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Drawer, Button, Badge, Select, Switch, Modal, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateField } from "../shared/DateField";
 import { usePricingStore } from "@/store/pricing-store";
-import { BatchSplitButton } from "../store/BatchSplitButton";
 import { PricingItem, PricingCategory, OverrideStatus, Batch } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { RetailReductionField } from "./RetailReductionField";
@@ -20,7 +19,7 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { ChevronLeft, ChevronRight, RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info } from "lucide-react";
+import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Plus, ArrowRight, Pencil, CalendarClock } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -33,14 +32,7 @@ type Props = {
   onAddToBatch: (batchId: string, overrideIds: string[]) => void;
   /** Start a new batch seeded with these override ids (owned by the page). */
   onNewBatch: (seedIds: string[]) => void;
-  /** Close the drawer and open the "To send" surface (owned by the page). */
-  onReviewTags: () => void;
   onClose: () => void;
-  /** Move to the previous / next item in the current list (undefined = none). */
-  onPrev?: () => void;
-  onNext?: () => void;
-  /** Position of the current item in the list, for the header "X / Y" nav. */
-  position?: { index: number; total: number };
 };
 
 // Price types a store director can assign by hand. Temporary allowances are
@@ -90,11 +82,7 @@ export function ItemEditDrawer({
   activeBatch,
   onAddToBatch,
   onNewBatch,
-  onReviewTags,
   onClose,
-  onPrev,
-  onNext,
-  position,
 }: Props) {
   const items = usePricingStore((s) => s.items);
   const batches = usePricingStore((s) => s.batches);
@@ -116,7 +104,6 @@ export function ItemEditDrawer({
   // change) — show it locked instead of an assignable Select.
   const typeLocked = isTemp || item?.category_type === "no_change";
   const isEdlp = item?.category_type === "everyday_low_price";
-  const isNewItem = item?.category_type === "new_discontinued" && item?.itemStatus === "new";
   // Per-type intent (labels + helper copy). New/discontinued is refined by itemStatus.
   const intent = item
     ? item.category_type === "new_discontinued"
@@ -130,18 +117,29 @@ export function ItemEditDrawer({
   // In a temporary allowance, changing the base (white-tag) price is optional —
   // this reveals the base section, mirroring the fuel-saver toggle.
   const [showBase, setShowBase] = useState(false);
+  // Conscious-edit: the editable price input only appears once the director
+  // deliberately chooses to set/change a price (vs. accepting or keeping). Until
+  // then the section shows the current price read-only — no premature input.
+  const [editingBase, setEditingBase] = useState(false);
   // Accept-first: a TA with an HQ rec opens on the recommendation; this flips to
   // the reduction-method chooser once the director chooses to set their own price.
   const [changingRetail, setChangingRetail] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState<"base" | "retail" | null>(null);
+  // On finishing with a pending change, ask where it should go (batch / new / later).
+  const [batchPromptOpen, setBatchPromptOpen] = useState(false);
   // Reset per-item UI reveals when navigating to another item.
   useEffect(() => {
     setShowFuelSaver(false);
     setShowBase(false);
+    setEditingBase(false);
     setChangingRetail(false);
-  }, [itemId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setBatchPromptOpen(false);
+  }, [itemId]);
 
-  const advance = () => (onNext ? onNext() : onClose());
+  // Editing auto-saves the moment a price commits; finishing simply closes the
+  // drawer and returns to the underlying flow. We deliberately don't jump to the
+  // next item — that hop added noise without helping the decide-then-send task.
+  const advance = () => onClose();
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const relatedItems = (item?.relatedItemIds ?? [])
@@ -181,13 +179,8 @@ export function ItemEditDrawer({
 
   const status = item ? deriveItemStatus(item, batches) : null;
   const fuelSaverActive = showFuelSaver || (item?.fuelSaver != null && item.fuelSaver > 0);
-  // Offer "Keep HQ price" only while the HQ rec is still awaiting review.
+  // An HQ rec still awaiting the store's decision.
   const showAccept = item != null && hqReviewNeeded(item);
-  // Don't auto-focus the price input when the change type is genuinely a choice
-  // (a fresh HQ review, a temporary allowance, or a new/discontinued item) — the
-  // eye starts at the top (the type + its helper) instead of jumping to the price.
-  // Plain base edits keep the fast path: focus lands on the input, ready to type.
-  const leadWithType = showAccept || isTemp || item?.category_type === "new_discontinued";
 
   // This item's not-yet-batched edits — the unit the footer batches or saves.
   const myPendingIds = item
@@ -197,18 +190,6 @@ export function ItemEditDrawer({
       ].filter((x): x is string => x != null)
     : [];
   const hasPendingOverride = myPendingIds.length > 0;
-
-  // Accept HQ's recommended price as the decision. This creates a pending change
-  // (current → recommended) the director then saves for later or adds to a batch —
-  // it does NOT auto-send. No advance: the footer flips to the save/batch options.
-  const acceptHqRec = () => {
-    if (!item) return;
-    if (item.category_type === "temporary_allowance") {
-      updateRetailPrice(item.id, 1, item.recommendedRetailPrice ?? item.currentRetailPrice ?? item.currentBasePrice);
-    } else {
-      commitBase(item.recommendedBasePrice);
-    }
-  };
 
   // Reject the recommendation — keep the current SAP price. Nothing is sent. Reversible.
   const keepCurrent = () => {
@@ -222,6 +203,75 @@ export function ItemEditDrawer({
     advance();
   };
 
+  // Finishing: a saved change isn't lost, but the director still owes one decision
+  // — which batch (or none) it goes in. Rather than a cramped footer split-button,
+  // ask in a small modal. No pending change → just close.
+  const handleDone = () => {
+    if (hasPendingOverride) setBatchPromptOpen(true);
+    else onClose();
+  };
+  const closeAfterBatch = () => {
+    setBatchPromptOpen(false);
+    onClose();
+  };
+
+  // The base (white-tag) price input — shown only once the director chooses to
+  // edit. Shared by plain base, EDLP, and new/discontinued items.
+  const baseInputBlock = () => {
+    if (!item) return null;
+    return (
+      <div className="flex flex-col gap-4">
+        {isEdlp && (
+          <Field label="Permanent reduction">
+            <ReductionInput
+              reference={item.currentBasePrice}
+              value={item.newBasePrice}
+              onCommit={commitBase}
+              defaultMode="amount"
+            />
+          </Field>
+        )}
+        <Field label={item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price"}>
+          <div className="flex items-center gap-2">
+            <PriceInputCell
+              autoFocus
+              ariaLabel={item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price"}
+              recommended={item.recommendedBasePrice}
+              value={item.newBasePrice}
+              state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
+              onCommit={commitBase}
+            />
+            {isEdlp && item.newBasePrice != null && item.currentBasePrice - item.newBasePrice > 0.005 && (
+              <span className="text-xs font-medium text-emerald-600">
+                −{fmt(item.currentBasePrice - item.newBasePrice)} (−{Math.round(((item.currentBasePrice - item.newBasePrice) / item.currentBasePrice) * 100)}%)
+              </span>
+            )}
+            {item.newBasePrice != null && (
+              <Button
+                variant="tertiary"
+                size="sm"
+                iconLeft={RotateCcw}
+                aria-label="Revert to current base price"
+                onClick={() => { revertField("base"); setEditingBase(false); }}
+              />
+            )}
+          </div>
+          {isHq && item.newBasePrice != null && (
+            <p className="text-xs text-gray-500">
+              HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
+              <span className="font-medium text-gray-700">{fmt(item.newBasePrice)}</span>
+            </p>
+          )}
+        </Field>
+        {lineItems.length > 0 && (
+          <p className="flex items-center gap-1.5 text-xs text-gray-500">
+            <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Applies to the whole line ({lineItems.length + 1} items)
+          </p>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
     <Drawer
@@ -232,67 +282,23 @@ export function ItemEditDrawer({
       title="Edit prices"
       size="md"
       className="max-md:!w-full"
-      headerActions={
-        <div className="flex items-center gap-2">
-          {status && <Badge tone={status.tone} size="sm">{status.label}</Badge>}
-          {position && (
-            <div className="flex items-center gap-0.5 text-xs text-gray-500">
-              <Button variant="tertiary" size="sm" iconLeft={ChevronLeft} aria-label="Previous item" disabled={!onPrev} onClick={onPrev} />
-              <span className="tabular-nums whitespace-nowrap">{position.index + 1} / {position.total}</span>
-              <Button variant="tertiary" size="sm" iconLeft={ChevronRight} aria-label="Next item" disabled={!onNext} onClick={onNext} />
-            </div>
-          )}
-        </div>
-      }
+      headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
       footer={
-        // Edits auto-save the instant they commit — the tag is "printed" and drops
-        // into the Tags-to-hang pile. The footer's job is to make that landing spot
-        // OBVIOUS (so the change never feels lost) and keep the queue moving. An
-        // undecided HQ rec still gets Accept / Keep current first.
-        <div className="flex items-center justify-between gap-2">
-          {showAccept ? (
-            <div className="ml-auto flex items-center gap-2">
-              <Button variant="secondary" onClick={keepCurrent}>
-                Keep current
-              </Button>
-              <Button variant="primary" iconLeft={Check} onClick={acceptHqRec}>
-                Accept HQ rec
-              </Button>
-            </div>
-          ) : hasPendingOverride ? (
-            <>
-              <button
-                type="button"
-                onClick={onReviewTags}
-                className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900"
-              >
-                <Check className="size-4 text-emerald-600" aria-hidden="true" />
-                Ready to send · <span className="text-brand">View</span>
-              </button>
-              <div className="flex items-center gap-2">
-                <BatchSplitButton
-                  size="sm"
-                  activeBatch={activeBatch}
-                  openBatches={openBatches}
-                  onAddToActive={() => { if (activeBatch) { onAddToBatch(activeBatch.id, myPendingIds); advance(); } }}
-                  onAddToBatch={(id) => { onAddToBatch(id, myPendingIds); advance(); }}
-                  onNewBatch={() => onNewBatch(myPendingIds)}
-                />
-                <Button variant="primary" iconRight={onNext ? ChevronRight : undefined} onClick={advance}>
-                  {onNext ? "Next" : "Done"}
-                </Button>
-              </div>
-            </>
+        // The decision (accept / set a price / keep current) lives in the body now,
+        // so the footer is just "Done". When a change is pending, Done asks where it
+        // should go (a small batch prompt) instead of a cramped split-button.
+        <div className="flex items-center justify-between gap-3">
+          {hasPendingOverride ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600">
+              <Check className="size-4 text-emerald-600" aria-hidden="true" />
+              Change saved · ready to send
+            </span>
           ) : (
-            <Button
-              className="ml-auto"
-              variant="primary"
-              iconRight={onNext ? ChevronRight : undefined}
-              onClick={advance}
-            >
-              {onNext ? "Next item" : "Done"}
-            </Button>
+            <span />
           )}
+          <Button variant="primary" onClick={handleDone}>
+            Done
+          </Button>
         </div>
       }
     >
@@ -372,7 +378,12 @@ export function ItemEditDrawer({
             // % / $ reductions are taken off the base (white-tag) price — the new
             // base if the director set one, otherwise the current base.
             const baseRef = item.newBasePrice ?? item.currentBasePrice;
-            const acceptFirst = showAccept && !changingRetail;
+            const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
+            const retailDecided = item.newRetailPrice != null;
+            // Accept-first only while an HQ rec is undecided; once decided or once
+            // the director opts to set their own price, show the reduction field.
+            const acceptFirst = showAccept && !changingRetail && !retailDecided;
+            const showField = changingRetail || retailDecided;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
@@ -384,12 +395,24 @@ export function ItemEditDrawer({
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   <div className="flex flex-col gap-4">
                     {acceptFirst ? (
-                      <div className="flex flex-wrap items-center gap-3">
+                      <div className="decision-pop flex flex-wrap items-center gap-3">
                         <Button variant="primary" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
                           Accept {fmt(recRetail)}
                         </Button>
                         <Button variant="text-link" onClick={() => setChangingRetail(true)}>
                           Set a different price
+                        </Button>
+                      </div>
+                    ) : !showField ? (
+                      // No HQ rec and no decision yet — show the live promo price
+                      // read-only; editing waits for a conscious "Set promo price".
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-baseline gap-2 tabular-nums">
+                          <span className="text-xs text-gray-500">Current</span>
+                          <span className="text-base font-semibold text-gray-900">{fmt(curRetail)}</span>
+                        </div>
+                        <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setChangingRetail(true)}>
+                          Set promo price
                         </Button>
                       </div>
                     ) : (
@@ -442,81 +465,106 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {/* Base price — the white-tag shelf price. Primary for base/EDLP/new
-              items; optional for a temporary allowance (like fuel saver), since a
-              promo usually leaves the regular price untouched. */}
-          {(() => {
-            const baseActive = !isTemp || showBase || item.newBasePrice != null;
+          {/* Base price — the white-tag shelf price. For base/EDLP items it's the
+              primary (conscious-edit) decision; for new/discontinued it must be set;
+              for a temporary allowance it's an optional toggle (promos usually leave
+              the regular price untouched). The editable input only appears after a
+              deliberate Accept / Set-a-price / Change — never up front. */}
+          {!isTemp && (() => {
+            const rec = item.recommendedBasePrice;
+            const decided = item.newBasePrice != null;
+            // New/discontinued items have no current price to keep — you must set one.
+            const mustSet = item.category_type === "new_discontinued";
+            const showInput = editingBase || (mustSet && !decided);
+            return (
+              <section className="flex flex-col gap-2">
+                <h3 className="text-sm font-semibold text-gray-700">
+                  Base price <span className="font-normal text-gray-400">· white shelf tag</span>
+                </h3>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  {showInput ? (
+                    baseInputBlock()
+                  ) : decided ? (
+                    // Decided — a compact, popping confirmation of the new price.
+                    <div className="decision-pop flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm tabular-nums">
+                        <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                        <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                        <span aria-hidden="true" className="text-gray-300">→</span>
+                        <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button variant="text-link" size="sm" onClick={() => setEditingBase(true)}>Change</Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          iconLeft={RotateCcw}
+                          aria-label="Revert to current base price"
+                          onClick={() => { revertField("base"); setEditingBase(false); }}
+                        />
+                      </div>
+                    </div>
+                  ) : showAccept ? (
+                    // HQ rec awaiting a call — accept it, set your own, or keep current.
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
+                        <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
+                        <span aria-hidden="true" className="text-gray-300">→</span>
+                        <span className="font-semibold text-gray-900">HQ recommends {fmt(rec)}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="primary" iconLeft={Check} onClick={() => commitBase(rec)}>
+                          Accept {fmt(rec)}
+                        </Button>
+                        <Button variant="text-link" onClick={() => setEditingBase(true)}>
+                          Set a different price
+                        </Button>
+                        <Button variant="tertiary" onClick={keepCurrent}>
+                          Keep current
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    // No change yet — show the live price; edit only on request.
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-baseline gap-2 tabular-nums">
+                        <span className="text-xs text-gray-500">Current price</span>
+                        <span className="text-base font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
+                      </div>
+                      <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingBase(true)}>
+                        Change price
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* Temporary allowance: base price is an optional change (Switch), since a
+              promo usually leaves the regular white-tag price untouched. */}
+          {isTemp && (() => {
+            const baseActive = showBase || item.newBasePrice != null;
             return (
               <section className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-gray-700">
                     Base price <span className="font-normal text-gray-400">· white shelf tag</span>
                   </h3>
-                  {isTemp && (
-                    <Switch
-                      checked={baseActive}
-                      onCheckedChange={(on) => {
-                        setShowBase(on);
-                        if (!on && item.newBasePrice != null) revertField("base");
-                      }}
-                      label="Change base price"
-                      labelPosition="left"
-                      size="sm"
-                    />
-                  )}
+                  <Switch
+                    checked={baseActive}
+                    onCheckedChange={(on) => {
+                      setShowBase(on);
+                      if (!on && item.newBasePrice != null) revertField("base");
+                    }}
+                    label="Change base price"
+                    labelPosition="left"
+                    size="sm"
+                  />
                 </div>
                 {baseActive && (
                   <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    <div className="flex flex-col gap-4">
-                      {isEdlp && (
-                        <Field label="Permanent reduction">
-                          <ReductionInput
-                            reference={item.currentBasePrice}
-                            value={item.newBasePrice}
-                            onCommit={commitBase}
-                            defaultMode="amount"
-                          />
-                        </Field>
-                      )}
-                      <Field label={item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price"}>
-                        <div className="flex items-center gap-2">
-                          <PriceInputCell
-                            autoFocus={!leadWithType}
-                            ariaLabel={item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price"}
-                            recommended={item.recommendedBasePrice}
-                            value={item.newBasePrice}
-                            state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
-                            onCommit={commitBase}
-                          />
-                          {isEdlp && item.newBasePrice != null && item.currentBasePrice - item.newBasePrice > 0.005 && (
-                            <span className="text-xs font-medium text-emerald-600">
-                              −{fmt(item.currentBasePrice - item.newBasePrice)} (−{Math.round(((item.currentBasePrice - item.newBasePrice) / item.currentBasePrice) * 100)}%)
-                            </span>
-                          )}
-                          {item.newBasePrice != null && (
-                            <Button
-                              variant="tertiary"
-                              size="sm"
-                              iconLeft={RotateCcw}
-                              aria-label="Revert to current base price"
-                              onClick={() => revertField("base")}
-                            />
-                          )}
-                        </div>
-                        {isHq && item.newBasePrice != null && (
-                          <p className="text-xs text-gray-500">
-                            HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
-                            <span className="font-medium text-gray-700">{fmt(item.newBasePrice)}</span>
-                          </p>
-                        )}
-                      </Field>
-                      {lineItems.length > 0 && (
-                        <p className="flex items-center gap-1.5 text-xs text-gray-500">
-                          <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Applies to the whole line ({lineItems.length + 1} items)
-                        </p>
-                      )}
-                    </div>
+                    {baseInputBlock()}
                   </div>
                 )}
               </section>
@@ -662,6 +710,74 @@ export function ItemEditDrawer({
         if (item && confirmRevert) removeFromLooseTray(`${item.id}:${confirmRevert}`);
       }}
     />
+
+    {/* Where should this change go? — asked on Done so the batch decision is a
+        deliberate step, not a confusing footer split-button. */}
+    <Modal
+      open={batchPromptOpen}
+      onOpenChange={(o) => { if (!o) setBatchPromptOpen(false); }}
+      title="Add this change to a batch?"
+      size="sm"
+      className="max-md:!max-w-[calc(100vw-1.5rem)]"
+    >
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-gray-600">
+          Your change is saved. Group it into a batch to control when it reaches SAP —
+          or leave it and sort it later from To send.
+        </p>
+
+        {openBatches.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs font-medium text-gray-500">Add to a batch</p>
+            {openBatches.map((b) => {
+              const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
+              const isActive = activeBatch?.id === b.id;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => { onAddToBatch(b.id, myPendingIds); closeAfterBatch(); }}
+                  className="group flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-brand/40 hover:bg-brand/5"
+                >
+                  <span className="flex min-w-0 items-center gap-2.5">
+                    <Package className="size-4 shrink-0 text-brand" aria-hidden="true" />
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-1.5">
+                        <span className="truncate text-sm font-medium text-gray-900">{b.name}</span>
+                        {isActive && <Badge tone="in-progress" size="sm">Active</Badge>}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs text-gray-500">
+                        {b.status === "scheduled" ? (
+                          <><CalendarClock className="size-3" aria-hidden="true" /> Scheduled</>
+                        ) : "Draft"}
+                        <span className="text-gray-300">·</span> {count} item{count !== 1 ? "s" : ""}
+                      </span>
+                    </span>
+                  </span>
+                  <ArrowRight className="size-4 shrink-0 text-gray-300 transition-colors group-hover:text-brand" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <Button
+          variant="secondary"
+          iconLeft={Plus}
+          onClick={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
+        >
+          Create a new batch
+        </Button>
+
+        <button
+          type="button"
+          onClick={closeAfterBatch}
+          className="text-sm font-medium text-gray-500 hover:text-gray-800"
+        >
+          Decide later in To send
+        </button>
+      </div>
+    </Modal>
     </>
   );
 }

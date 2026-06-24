@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Badge, Checkbox, Select, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Button, Badge, Checkbox, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { Check, X, ChevronRight, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 import { BatchSplitButton } from "./BatchSplitButton";
 import { usePricingStore } from "@/store/pricing-store";
@@ -222,9 +222,37 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
                 </span>
               )}
               <div className="flex shrink-0 items-center gap-1">
-                <Button variant="primary" size="sm" iconLeft={Check} aria-label={`Accept ${item.name}`} onClick={() => acceptOne(item)} />
-                <Button variant="tertiary" size="sm" iconLeft={X} aria-label={`Skip ${item.name}`} onClick={() => skipOne(item)} />
-                <Button variant="tertiary" size="sm" iconLeft={ChevronRight} aria-label={`Open ${item.name}`} onClick={() => onOpenItem(item.id)} />
+                {/* Tooltips name each icon-only action; the hover scale (Accept) /
+                    red tint (Skip = reject) keeps the interaction tactile. */}
+                <Tooltip content="Accept HQ rec">
+                  <span className="inline-flex">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      iconLeft={Check}
+                      aria-label={`Accept ${item.name}`}
+                      onClick={() => acceptOne(item)}
+                      className="transition-transform duration-150 hover:scale-110 motion-reduce:transition-none"
+                    />
+                  </span>
+                </Tooltip>
+                <Tooltip content="Skip — keep current price">
+                  <span className="inline-flex">
+                    <Button
+                      variant="tertiary"
+                      size="sm"
+                      iconLeft={X}
+                      aria-label={`Skip ${item.name}`}
+                      onClick={() => skipOne(item)}
+                      className="transition-all duration-150 hover:scale-110 hover:!bg-red-50 hover:!text-red-600 motion-reduce:transition-none"
+                    />
+                  </span>
+                </Tooltip>
+                <Tooltip content="Open details">
+                  <span className="inline-flex">
+                    <Button variant="tertiary" size="sm" iconLeft={ChevronRight} aria-label={`Open ${item.name}`} onClick={() => onOpenItem(item.id)} />
+                  </span>
+                </Tooltip>
               </div>
             </li>
           );

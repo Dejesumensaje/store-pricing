@@ -1,6 +1,6 @@
 "use client";
 
-import { Info } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { selectCol, itemCol, idCol, SelHandlers, DecisionCell } from "../pricing-table/columns/shared";
 import { derivePriceState } from "../pricing-table/PriceInputCell";
@@ -308,7 +308,14 @@ export function StatusCell({ item, batches }: { item: PricingItem; batches: Batc
   return (
     <span className="flex flex-col gap-0.5">
       <span className="inline-flex items-center gap-1.5">
-        <Badge tone={status.tone} size="sm">{status.label}</Badge>
+        <Badge tone={status.tone} size="sm">
+          <span className="inline-flex items-center gap-1">
+            {status.loading && (
+              <Loader2 aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />
+            )}
+            {status.label}
+          </span>
+        </Badge>
         {multi && (
           <Tooltip
             content={

@@ -2,7 +2,7 @@ import { Batch, OverrideStatus, PricingItem } from "@/types/pricing";
 
 type BadgeTone = "neutral" | "success" | "negative" | "warning" | "in-progress";
 
-export type ItemStatus = { label: string; tone: BadgeTone };
+export type ItemStatus = { label: string; tone: BadgeTone; loading?: boolean };
 
 const STATUS: Record<string, ItemStatus> = {
   live: { label: "Live", tone: "success" },
@@ -11,11 +11,12 @@ const STATUS: Record<string, ItemStatus> = {
   // decision (accept / override / keep current) is owed.
   review: { label: "Needs review", tone: "in-progress" },
   // Decided — ready to send to SAP.
-  edited: { label: "Ready", tone: "warning" },
+  edited: { label: "Ready to send", tone: "warning" },
   in_batch: { label: "Scheduled", tone: "in-progress" },
   scheduled: { label: "Scheduled", tone: "neutral" },
-  // Sent to SAP, not live until SAP confirms.
-  sent: { label: "Sending", tone: "warning" },
+  // Sent to SAP, not live until SAP confirms — a subtle spinner signals it's in
+  // flight.
+  sent: { label: "Sending", tone: "warning", loading: true },
   // SAP confirmed the change — the price is live.
   confirmed: { label: "Live", tone: "success" },
 };

@@ -11,10 +11,11 @@ import {
   ActionBarLeading,
   ActionBarActions,
   Modal,
+  ToggleGroup,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
 import { DateField, todayIso } from "@/components/shared/DateField";
-import { SearchX, ArrowLeft, Tags, ArrowRight, CheckCircle2, CalendarClock, Plus, Package } from "lucide-react";
+import { SearchX, ArrowLeft, Tags, ArrowRight, CheckCircle2, CalendarClock, Plus, Package, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { ReviewFlow } from "@/components/store/ReviewFlow";
@@ -32,7 +33,7 @@ import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/Fil
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
-import { PricingItem } from "@/types/pricing";
+import { PricingItem, Batch } from "@/types/pricing";
 import { pricingStrategyLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
 
@@ -47,7 +48,6 @@ export default function StorePricingPage() {
   const createBatch = usePricingStore((s) => s.createBatch);
   const addToBatch = usePricingStore((s) => s.addToBatch);
   const removeFromBatch = usePricingStore((s) => s.removeFromBatch);
-  const sendAllPending = usePricingStore((s) => s.sendAllPending);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
 
@@ -61,6 +61,9 @@ export default function StorePricingPage() {
   // The guided HQ review is a focused flow, not a passive tab — it swaps the
   // main content. All items stays the home for self-directed price management.
   const [reviewMode, setReviewMode] = useState(false);
+  // The To-send surface mirrors the old batch tray's lifecycle tabs: Pending
+  // (drafts + unbatched changes), Scheduled, and Sent.
+  const [toSendSegment, setToSendSegment] = useState<"pending" | "scheduled" | "sent">("pending");
   // Inline scheduling: pick a date for the selected changes (a "batch" is just a
   // scheduled group — no separate workshop).
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -76,6 +79,10 @@ export default function StorePricingPage() {
   const [scanOpen, setScanOpen] = useState(false);
   const [newBatch, setNewBatch] = useState<{ open: boolean; seedIds: string[] }>({ open: false, seedIds: [] });
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  // The batch a selection just landed in — drives a brief highlight on its row in
+  // the To-send list so the user sees exactly where their items went. The counter
+  // re-triggers the animation when the same batch is targeted twice in a row.
+  const [batchFlash, setBatchFlash] = useState<{ id: string; n: number } | null>(null);
 
   const trayCount = overrides.filter((o) => o.status === "pending" || o.status === "in_batch").length;
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
@@ -92,6 +99,13 @@ export default function StorePricingPage() {
   // Batches the user can still build into (one-click "active batch" target).
   const openBatches = useMemo(
     () => batches.filter((b) => b.status === "draft" || b.status === "scheduled"),
+    [batches]
+  );
+  // Lifecycle groupings for the To-send tabs.
+  const draftBatches = useMemo(() => batches.filter((b) => b.status === "draft"), [batches]);
+  const scheduledBatches = useMemo(() => batches.filter((b) => b.status === "scheduled"), [batches]);
+  const sentBatches = useMemo(
+    () => batches.filter((b) => b.status === "submitted" || b.status === "confirmed"),
     [batches]
   );
   const activeBatch = openBatches.find((b) => b.id === activeBatchId) ?? null;
@@ -224,12 +238,6 @@ export default function StorePricingPage() {
       return next;
     });
 
-  // ── Drawer navigation across the current list ─────────────────────────────
-  const rowIds = rows.map((r) => r.id);
-  const drawerIdx = drawerItemId ? rowIds.indexOf(drawerItemId) : -1;
-  const onPrev = drawerIdx > 0 ? () => setDrawerItemId(rowIds[drawerIdx - 1]) : undefined;
-  const onNext = drawerIdx >= 0 && drawerIdx < rowIds.length - 1 ? () => setDrawerItemId(rowIds[drawerIdx + 1]) : undefined;
-
   // Override ids for the selected items that are still pending (batchable).
   const selectedPendingIds = useMemo(
     () => overrides.filter((o) => selected.has(o.itemId) && o.status === "pending").map((o) => o.id),
@@ -237,18 +245,6 @@ export default function StorePricingPage() {
   );
 
   const openNewBatch = (seedIds: string[]) => setNewBatch({ open: true, seedIds });
-
-  // Send every ready change to SAP. The lens stays on and flips to its cleared
-  // state — the satisfying "done".
-  const hangAll = () => {
-    const n = pendingItemIds.size;
-    if (n === 0) return;
-    sendAllPending();
-    setSelected(new Set());
-    toast.success(`${n} ${n === 1 ? "change" : "changes"} sent to SAP`, {
-      description: "Live once SAP confirms.",
-    });
-  };
 
   const shortDate = (iso: string) =>
     new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -259,6 +255,7 @@ export default function StorePricingPage() {
     if (ids.length === 0) return;
     addToBatch(batchId, ids);
     setActiveBatchId(batchId);
+    setBatchFlash((prev) => ({ id: batchId, n: (prev?.n ?? 0) + 1 }));
     const name = usePricingStore.getState().batches.find((b) => b.id === batchId)?.name ?? "batch";
     const items = new Set(ids.map((id) => id.split(":")[0])).size;
     toast.success(`Added ${items} to ${name}`, {
@@ -298,6 +295,71 @@ export default function StorePricingPage() {
     setScheduleOpen(true);
   };
 
+  // A draft/scheduled batch row — name + schedule state + count, plus per-batch
+  // Schedule / Send now. Flashes briefly when a selection just landed in it.
+  const renderOpenBatchRow = (b: Batch) => {
+    const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
+    const isScheduled = b.status === "scheduled";
+    const flashing = batchFlash?.id === b.id;
+    return (
+      <div
+        // Re-key while flashing so the highlight animation restarts even when the
+        // same batch is targeted twice.
+        key={flashing ? `${b.id}-flash-${batchFlash.n}` : b.id}
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 ${flashing ? "batch-flash" : ""}`}
+      >
+        <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
+          <Package className="size-5 shrink-0 text-brand" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
+            <p className="flex items-center gap-1.5 text-xs text-gray-500">
+              {isScheduled ? (
+                <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? shortDate(b.scheduledAt) : "scheduled"}</>
+              ) : (
+                "Not scheduled"
+              )}
+              <span className="text-gray-300">·</span> {count} item{count !== 1 ? "s" : ""}
+            </p>
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Badge tone={isScheduled ? "neutral" : "warning"} size="sm">{isScheduled ? "Scheduled" : "Draft"}</Badge>
+          <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={() => openScheduleBatch(b.id, b.scheduledAt)}>
+            {isScheduled ? "Reschedule" : "Schedule"}
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => submitBatch(b.id)}>Send now</Button>
+        </div>
+      </div>
+    );
+  };
+
+  // A sent batch row — read-only, shows SAP status (Sending → Live). Opens the
+  // detail drawer for a preview.
+  const renderSentBatchRow = (b: Batch) => {
+    const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
+    const live = b.status === "confirmed";
+    return (
+      <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+        <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
+          <Package className="size-5 shrink-0 text-brand" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
+            <p className="text-xs text-gray-500">{count} item{count !== 1 ? "s" : ""}</p>
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Badge tone={live ? "success" : "warning"} size="sm">
+            <span className="inline-flex items-center gap-1">
+              {!live && <Loader2 aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />}
+              {live ? "Live" : "Sending"}
+            </span>
+          </Badge>
+          <Button variant="tertiary" size="sm" onClick={() => setManageBatchId(b.id)}>Preview</Button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
       <AppHeader
@@ -315,23 +377,40 @@ export default function StorePricingPage() {
         {view === "items" && (
           <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <StorePricingHeader />
+            {/* The To-send button is hidden on the To-send surface itself — the
+                lens header (All items · To send · tabs) already owns that nav, so
+                a second button here is redundant. */}
+            {!hangLensOn && (
             <div className="relative order-2 ml-auto inline-flex md:order-3">
-              <Button
-                // A lens over All items: focus on the printed tags waiting to go
-                // on the shelf. Always visible so edits never feel like they
-                // vanished; gains emphasis once tags are waiting.
-                variant={hangLensOn ? "primary" : pendingItemIds.size > 0 ? "secondary" : "tertiary"}
-                iconLeft={Tags}
-                onClick={() => setHangLensOn((on) => !on)}
-              >
-                To send
-              </Button>
+              {/* Re-keyed on each increment so the whole button bounces (the
+                  badge alone was easy to miss). */}
+              <span key={`bump-${trayPulse}`} className="send-bump inline-flex">
+                <Button
+                  // A lens over All items: focus on the printed tags waiting to go
+                  // on the shelf. Always visible so edits never feel like they
+                  // vanished; gains emphasis once tags are waiting. From the HQ
+                  // review flow it jumps straight to the To-send surface.
+                  variant={hangLensOn ? "primary" : pendingItemIds.size > 0 ? "secondary" : "tertiary"}
+                  iconLeft={Tags}
+                  onClick={() => {
+                    if (reviewMode) {
+                      setReviewMode(false);
+                      setHangLensOn(true);
+                    } else {
+                      setHangLensOn((on) => !on);
+                    }
+                  }}
+                >
+                  To send
+                </Button>
+              </span>
               {pendingItemIds.size > 0 && (
-                <span key={trayPulse} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
+                <span key={`badge-${trayPulse}`} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
                   <CountBadge count={pendingItemIds.size} tone="warning" />
                 </span>
               )}
             </div>
+            )}
           </div>
         )}
 
@@ -367,14 +446,28 @@ export default function StorePricingPage() {
           <>
             {hangLensOn ? (
               // Lens header — this is still All items, focused on the ready tags.
-              <div className="mt-6 flex items-center gap-3">
-                <Button variant="tertiary" size="sm" iconLeft={ArrowLeft} onClick={() => setHangLensOn(false)}>
-                  All items
-                </Button>
-                <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900">
-                  <Tags className="size-5 text-brand" aria-hidden="true" /> To send
-                  {pendingItemIds.size > 0 && <span className="text-gray-400">({pendingItemIds.size})</span>}
-                </h2>
+              // Lifecycle tabs (Pending / Scheduled / Sent) pin to the right.
+              <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                  <Button variant="tertiary" size="sm" iconLeft={ArrowLeft} onClick={() => setHangLensOn(false)}>
+                    All items
+                  </Button>
+                  <h2 className="flex items-center gap-2 text-xl font-bold text-gray-900">
+                    <Tags className="size-5 text-brand" aria-hidden="true" /> To send
+                  </h2>
+                </div>
+                <div className="-mx-1 overflow-x-auto px-1 md:mx-0 md:px-0">
+                  <ToggleGroup
+                    aria-label="Batch lifecycle"
+                    value={toSendSegment}
+                    onValueChange={(v) => setToSendSegment(v as "pending" | "scheduled" | "sent")}
+                    options={[
+                      { value: "pending", label: `Pending (${pendingItemIds.size + draftBatches.length})` },
+                      { value: "scheduled", label: `Scheduled (${scheduledBatches.length})` },
+                      { value: "sent", label: `Sent (${sentBatches.length})` },
+                    ]}
+                  />
+                </div>
               </div>
             ) : (
               <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -418,8 +511,9 @@ export default function StorePricingPage() {
               )}
               {/* Your batches — the control panel. Multiple concurrent batches,
                   each scheduled independently, so the send to SAP is dosed (and
-                  doesn't overload printing/control). This is the central object. */}
-              {hangLensOn && (
+                  doesn't overload printing/control). The lifecycle tabs split
+                  them into Pending (drafts + loose changes) / Scheduled / Sent. */}
+              {hangLensOn && toSendSegment === "pending" && (
                 <div className="mb-5">
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-sm font-semibold text-gray-700">Your batches</p>
@@ -427,69 +521,67 @@ export default function StorePricingPage() {
                       New batch
                     </Button>
                   </div>
-                  {openBatches.length === 0 ? (
+                  {draftBatches.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-sm text-gray-500">
-                      No batches yet. Select changes below and add them to a new batch to control when they send.
+                      No draft batches yet. Select changes below and add them to a batch to control when they send.
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-2">
-                      {openBatches.map((b) => {
-                        const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
-                        const isScheduled = b.status === "scheduled";
-                        return (
-                          <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-                            <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
-                              <Package className="size-5 shrink-0 text-brand" aria-hidden="true" />
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
-                                <p className="flex items-center gap-1.5 text-xs text-gray-500">
-                                  {isScheduled ? (
-                                    <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? shortDate(b.scheduledAt) : "scheduled"}</>
-                                  ) : (
-                                    "Not scheduled"
-                                  )}
-                                  <span className="text-gray-300">·</span> {count} item{count !== 1 ? "s" : ""}
-                                </p>
-                              </div>
-                            </button>
-                            <div className="flex shrink-0 items-center gap-1.5">
-                              <Badge tone={isScheduled ? "neutral" : "warning"} size="sm">{isScheduled ? "Scheduled" : "Draft"}</Badge>
-                              <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={() => openScheduleBatch(b.id, b.scheduledAt)}>
-                                {isScheduled ? "Reschedule" : "Schedule"}
-                              </Button>
-                              <Button variant="secondary" size="sm" onClick={() => submitBatch(b.id)}>Send now</Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                    <div className="flex flex-col gap-2">{draftBatches.map(renderOpenBatchRow)}</div>
                   )}
                 </div>
               )}
-              {/* Unassigned inbox — new changes waiting to be sorted into a batch. */}
-              {hangLensOn && pendingItemIds.size > 0 && (
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-gray-700">
-                    Unassigned <span className="text-gray-400">({pendingItemIds.size})</span>
-                    <span className="ml-2 text-xs font-normal text-gray-500">not in a batch yet — select and add to one</span>
-                  </p>
-                  <Button variant="text-link" size="sm" onClick={hangAll}>Send all now</Button>
-                </div>
+              {hangLensOn && toSendSegment === "scheduled" && (
+                scheduledBatches.length === 0 ? (
+                  <EmptyState
+                    icon={CalendarClock}
+                    title="No scheduled batches"
+                    hint="Scheduled batches wait here until their send date — then go to SAP automatically."
+                    className="py-16"
+                  />
+                ) : (
+                  <div className="flex flex-col gap-2">{scheduledBatches.map(renderOpenBatchRow)}</div>
+                )
               )}
-              {hangLensOn && pendingItemIds.size === 0 && openBatches.length === 0 && (
-                // Cleared lens — the mission-accomplished moment.
-                <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+              {hangLensOn && toSendSegment === "sent" && (
+                sentBatches.length === 0 ? (
+                  <EmptyState
+                    icon={CheckCircle2}
+                    title="No batches sent yet"
+                    hint="Sent batches show up here with their SAP status (Sending → Live)."
+                    className="py-16"
+                  />
+                ) : (
+                  <div className="flex flex-col gap-2">{sentBatches.map(renderSentBatchRow)}</div>
+                )
+              )}
+              {/* Pending tab cleared of loose changes — the satisfying "done". */}
+              {hangLensOn && toSendSegment === "pending" && pendingItemIds.size === 0 && (
+                <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
                   <CheckCircle2 className="size-12 text-emerald-500" aria-hidden="true" />
-                  <p className="text-base font-semibold text-gray-900">All caught up</p>
-                  <p className="max-w-[280px] text-sm text-gray-500">
-                    Nothing pending to send. Edits you make will show up here.
+                  <p className="text-base font-semibold text-gray-900">
+                    {draftBatches.length > 0 ? "Everything's in a batch" : "All caught up"}
                   </p>
-                  <Button variant="secondary" size="sm" onClick={() => setHangLensOn(false)}>
-                    Back to all items
-                  </Button>
+                  <p className="max-w-[300px] text-sm text-gray-500">
+                    {draftBatches.length > 0
+                      ? "No loose changes left to sort. Schedule or send your batches above."
+                      : "Nothing pending to send. Edits you make will show up here."}
+                  </p>
+                  {draftBatches.length === 0 && (
+                    <Button variant="secondary" size="sm" onClick={() => setHangLensOn(false)}>
+                      Back to all items
+                    </Button>
+                  )}
                 </div>
               )}
-              {!(hangLensOn && pendingItemIds.size === 0) && (rows.length === 0 ? (
+              {/* Heading for the loose-changes inbox — the changes that have been
+                  decided but aren't sorted into a batch yet. */}
+              {hangLensOn && toSendSegment === "pending" && pendingItemIds.size > 0 && (
+                <div className="mb-2 flex items-baseline gap-2">
+                  <p className="text-sm font-semibold text-gray-700">Not in a batch yet</p>
+                  <span className="text-xs text-gray-400">{pendingItemIds.size} change{pendingItemIds.size !== 1 ? "s" : ""} · select to add to a batch</span>
+                </div>
+              )}
+              {(!hangLensOn || (toSendSegment === "pending" && pendingItemIds.size > 0)) && (rows.length === 0 ? (
                 <EmptyState
                   icon={SearchX}
                   title="No items match"
@@ -573,11 +665,7 @@ export default function StorePricingPage() {
         activeBatch={activeBatch}
         onAddToBatch={addOverridesToBatch}
         onNewBatch={openNewBatch}
-        onReviewTags={() => { setDrawerItemId(null); setHangLensOn(true); }}
         onClose={() => setDrawerItemId(null)}
-        onPrev={onPrev}
-        onNext={onNext}
-        position={drawerIdx >= 0 ? { index: drawerIdx, total: rowIds.length } : undefined}
       />
 
       <NewBatchModal
@@ -587,9 +675,11 @@ export default function StorePricingPage() {
         initialSelectedIds={newBatch.seedIds}
         onCreate={(name, ids) => {
           createBatch(name, ids);
-          // The new batch is appended last; make it the active one.
+          // The new batch is appended last; make it the active one and flash it.
           const all = usePricingStore.getState().batches;
-          setActiveBatchId(all[all.length - 1]?.id ?? null);
+          const newId = all[all.length - 1]?.id ?? null;
+          setActiveBatchId(newId);
+          if (newId) setBatchFlash((prev) => ({ id: newId, n: (prev?.n ?? 0) + 1 }));
           toast.success(`Batch "${name}" created`, {
             description: `${ids.length} price change${ids.length !== 1 ? "s" : ""} grouped`,
           });
@@ -597,7 +687,7 @@ export default function StorePricingPage() {
         }}
       />
 
-      {selected.size > 0 && view === "items" && (
+      {selected.size > 0 && view === "items" && (!hangLensOn || toSendSegment === "pending") && (
         <ActionBar
           aria-label="Bulk item actions"
           position="bottom-center"
