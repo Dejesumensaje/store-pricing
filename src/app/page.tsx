@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Button,
@@ -27,7 +27,7 @@ import { MobileItemList } from "@/components/store/MobileItemList";
 import { ScanOverlay } from "@/components/store/ScanOverlay";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { DataTable } from "@/components/pricing-table/DataTable";
-import { buildStoreColumns, STORE_OPTIONAL_COLUMNS } from "@/components/store/buildStoreColumns";
+import { buildStoreColumns, STORE_OPTIONAL_COLUMNS, shelfTagKind, SHELF_TAG_META } from "@/components/store/buildStoreColumns";
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
 import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/FilterDrawer";
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
@@ -114,6 +114,14 @@ export default function StorePricingPage() {
   // same unit (items), not a mix of items and batch records.
   const itemsInBatches = (bs: typeof batches) =>
     bs.reduce((n, b) => n + new Set(b.overrideIds.map((id) => id.split(":")[0])).size, 0);
+
+  // The distinct items inside a batch — used to show a glanceable tag-swatch
+  // preview + count so a batch isn't an opaque "N items".
+  const itemsById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const batchItems = (b: Batch): PricingItem[] =>
+    [...new Set(b.overrideIds.map((id) => id.split(":")[0]))]
+      .map((id) => itemsById.get(id))
+      .filter((i): i is PricingItem => i != null);
   const activeBatch = openBatches.find((b) => b.id === activeBatchId) ?? null;
 
   // Keep an active batch selected: fall back to the most recent open batch when
@@ -289,10 +297,45 @@ export default function StorePricingPage() {
     setScheduleOpen(true);
   };
 
-  // A draft/scheduled batch row — name + schedule state + count, plus per-batch
+  // The clickable identity of a batch: an icon with a numeric badge of its item
+  // count + a row of tag-color swatches so a director can see WHAT's inside at a
+  // glance (a wall of yellow = this week's promos) instead of an opaque "N items".
+  const renderBatchIdentity = (b: Batch, subtext: ReactNode) => {
+    const bItems = batchItems(b);
+    const count = bItems.length;
+    return (
+      <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
+        <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10">
+          <Package className="size-5 text-brand" aria-hidden="true" />
+          {count > 0 && (
+            <span className="absolute -top-1.5 -right-1.5">
+              <CountBadge count={count} tone="neutral" />
+            </span>
+          )}
+        </span>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
+          {subtext && <p className="flex items-center gap-1.5 text-xs text-gray-500">{subtext}</p>}
+          {count > 0 && (
+            <div className="mt-1 flex items-center gap-1" aria-label={`${count} item${count !== 1 ? "s" : ""} in this batch`}>
+              {bItems.slice(0, 8).map((it) => (
+                <span
+                  key={it.id}
+                  title={it.name}
+                  className={`size-3 rounded-[3px] border ${SHELF_TAG_META[shelfTagKind(it)].swatch}`}
+                />
+              ))}
+              {count > 8 && <span className="text-xs text-gray-400">+{count - 8}</span>}
+            </div>
+          )}
+        </div>
+      </button>
+    );
+  };
+
+  // A draft/scheduled batch row — identity + schedule state, plus per-batch
   // Schedule / Send now. Flashes briefly when a selection just landed in it.
   const renderOpenBatchRow = (b: Batch) => {
-    const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
     const isScheduled = b.status === "scheduled";
     const flashing = batchFlash?.id === b.id;
     return (
@@ -302,20 +345,14 @@ export default function StorePricingPage() {
         key={flashing ? `${b.id}-flash-${batchFlash.n}` : b.id}
         className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 ${flashing ? "batch-flash" : ""}`}
       >
-        <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
-          <Package className="size-5 shrink-0 text-brand" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
-            <p className="flex items-center gap-1.5 text-xs text-gray-500">
-              {isScheduled ? (
-                <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? shortDate(b.scheduledAt) : "scheduled"}</>
-              ) : (
-                "Not scheduled"
-              )}
-              <span className="text-gray-300">·</span> {count} item{count !== 1 ? "s" : ""}
-            </p>
-          </div>
-        </button>
+        {renderBatchIdentity(
+          b,
+          isScheduled ? (
+            <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? shortDate(b.scheduledAt) : "scheduled"}</>
+          ) : (
+            "Not scheduled"
+          )
+        )}
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge tone={isScheduled ? "neutral" : "warning"} size="sm">{isScheduled ? "Scheduled" : "Draft"}</Badge>
           <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={() => openScheduleBatch(b.id, b.scheduledAt)}>
@@ -330,17 +367,10 @@ export default function StorePricingPage() {
   // A sent batch row — read-only, shows SAP status (Sending → Live). Opens the
   // detail drawer for a preview.
   const renderSentBatchRow = (b: Batch) => {
-    const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
     const live = b.status === "confirmed";
     return (
       <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
-        <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
-          <Package className="size-5 shrink-0 text-brand" aria-hidden="true" />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
-            <p className="text-xs text-gray-500">{count} item{count !== 1 ? "s" : ""}</p>
-          </div>
-        </button>
+        {renderBatchIdentity(b, null)}
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge tone={live ? "success" : "warning"} size="sm">
             <span className="inline-flex items-center gap-1">

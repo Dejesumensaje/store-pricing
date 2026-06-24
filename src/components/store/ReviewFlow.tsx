@@ -267,16 +267,20 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
                     />
                   </span>
                 </Tooltip>
-                <Tooltip content="Keep current price (reject)">
+                <Tooltip content="Keep the current price — reject HQ's proposal">
                   <span className="inline-flex">
+                    {/* Labeled (not a bare ✕, which read as "delete/dismiss") and
+                        neutral — keeping the current price is a valid choice, not
+                        a destructive one. */}
                     <Button
                       variant="tertiary"
                       size="sm"
-                      iconLeft={X}
                       aria-label={`Keep current price for ${item.name}`}
                       onClick={() => skipOne(item)}
-                      className="transition-all duration-150 hover:scale-110 hover:!bg-red-50 hover:!text-red-600 motion-reduce:transition-none"
-                    />
+                      className="transition-transform duration-150 hover:scale-105 motion-reduce:transition-none"
+                    >
+                      Keep
+                    </Button>
                   </span>
                 </Tooltip>
                 <Tooltip content="Open details">
