@@ -21,7 +21,7 @@ import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { ReviewFlow } from "@/components/store/ReviewFlow";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
 import { BatchTrayView } from "@/components/store/BatchTrayView";
-import { BatchSplitButton } from "@/components/store/BatchSplitButton";
+import { BatchPickerModal } from "@/components/store/BatchPickerModal";
 import { BatchDetailDrawer } from "@/components/batches/BatchDetailDrawer";
 import { MobileItemList } from "@/components/store/MobileItemList";
 import { ScanOverlay } from "@/components/store/ScanOverlay";
@@ -83,6 +83,8 @@ export default function StorePricingPage() {
   // the To-send list so the user sees exactly where their items went. The counter
   // re-triggers the animation when the same batch is targeted twice in a row.
   const [batchFlash, setBatchFlash] = useState<{ id: string; n: number } | null>(null);
+  // Bulk "Add to batch" opens the shared batch picker (same modal as the drawer).
+  const [batchPickerOpen, setBatchPickerOpen] = useState(false);
 
   const trayCount = overrides.filter((o) => o.status === "pending" || o.status === "in_batch").length;
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
@@ -565,8 +567,10 @@ export default function StorePricingPage() {
                   decided but aren't sorted into a batch yet. */}
               {hangLensOn && toSendSegment === "pending" && pendingItemIds.size > 0 && (
                 <div className="mb-2 flex items-baseline gap-2">
-                  <p className="text-sm font-semibold text-gray-700">Not in a batch yet</p>
-                  <span className="text-xs text-gray-400">{pendingItemIds.size} change{pendingItemIds.size !== 1 ? "s" : ""} · select to add to a batch</span>
+                  <p className="text-sm font-semibold text-gray-700">
+                    Ready to send <span className="font-normal text-gray-400">({pendingItemIds.size})</span>
+                  </p>
+                  <span className="text-xs text-gray-400">not in a batch yet — select to add to a batch</span>
                 </div>
               )}
               {(!hangLensOn || (toSendSegment === "pending" && pendingItemIds.size > 0)) && (rows.length === 0 ? (
@@ -689,19 +693,29 @@ export default function StorePricingPage() {
           </ActionBarLeading>
           <ActionBarActions>
             {/* Batches are the only send path (they dose the SAP load), so the bulk
-                bar sorts into a batch — no irreversible "send straight to SAP now". */}
-            <BatchSplitButton
+                bar sorts into a batch — via the same picker the drawer uses. */}
+            <Button
+              variant="secondary"
               size="sm"
-              activeBatch={activeBatch}
-              openBatches={openBatches}
-              onAddToActive={() => activeBatch && addSelectedToBatch(activeBatch.id)}
-              onAddToBatch={(id) => { setActiveBatchId(id); addSelectedToBatch(id); }}
-              onNewBatch={() => openNewBatch(selectedPendingIds)}
+              iconLeft={Package}
               disabled={selectedPendingIds.length === 0}
-            />
+              onClick={() => setBatchPickerOpen(true)}
+            >
+              Add to batch
+            </Button>
           </ActionBarActions>
         </ActionBar>
       )}
+
+      <BatchPickerModal
+        open={batchPickerOpen}
+        onOpenChange={setBatchPickerOpen}
+        openBatches={openBatches}
+        activeBatch={activeBatch}
+        count={selected.size}
+        onAddToBatch={(id) => { setActiveBatchId(id); addSelectedToBatch(id); setBatchPickerOpen(false); }}
+        onNewBatch={() => { openNewBatch(selectedPendingIds); setBatchPickerOpen(false); }}
+      />
 
       <Modal
         open={scheduleOpen}

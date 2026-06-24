@@ -2,14 +2,15 @@
 
 import { useMemo, useState, useEffect, useId } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select, Switch, Modal, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Drawer, Button, Badge, Select, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateField } from "../shared/DateField";
 import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, PricingCategory, OverrideStatus, Batch } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { RetailReductionField } from "./RetailReductionField";
+import { BaseReductionField } from "./BaseReductionField";
+import { BatchPickerModal } from "../store/BatchPickerModal";
 import { ShelfTagPreview } from "./ShelfTagPreview";
-import { ReductionInput } from "./ReductionInput";
 import { FUEL_SAVER_OPTIONS } from "./columns/tempColumns";
 import { ImpactBreakdown } from "./columns/shared";
 import { hqRecRationale } from "@/lib/hq-rec";
@@ -19,7 +20,7 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Plus, ArrowRight, Pencil, CalendarClock } from "lucide-react";
+import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Pencil } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -219,48 +220,50 @@ export function ItemEditDrawer({
   // edit. Shared by plain base, EDLP, and new/discontinued items.
   const baseInputBlock = () => {
     if (!item) return null;
+    const priceLabel = item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price";
+    // Revert always lives in the field's top-right action slot (consistent with
+    // the retail field), not crowding the input row.
+    const revertAction = item.newBasePrice != null ? (
+      <Button
+        variant="tertiary"
+        size="sm"
+        iconLeft={RotateCcw}
+        aria-label="Revert to current base price"
+        onClick={() => { revertField("base"); setEditingBase(false); }}
+      />
+    ) : undefined;
     return (
       <div className="flex flex-col gap-4">
-        {isEdlp && (
-          <Field label="Permanent reduction">
-            <ReductionInput
+        <Field label={priceLabel} action={revertAction}>
+          {isEdlp ? (
+            // EDLP is a markdown decision — like a temporary allowance, the
+            // director picks HOW to apply it (% off / $ off / exact).
+            <BaseReductionField
               reference={item.currentBasePrice}
-              value={item.newBasePrice}
-              onCommit={commitBase}
-              defaultMode="amount"
-            />
-          </Field>
-        )}
-        <Field label={item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price"}>
-          <div className="flex items-center gap-2">
-            <PriceInputCell
-              autoFocus
-              ariaLabel={item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price"}
               recommended={item.recommendedBasePrice}
               value={item.newBasePrice}
-              state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
+              status={item.baseOverrideStatus}
+              hasAlert={item.hasAlert}
+              ariaLabel={priceLabel}
               onCommit={commitBase}
             />
-            {isEdlp && item.newBasePrice != null && item.currentBasePrice - item.newBasePrice > 0.005 && (
-              <span className="text-xs font-medium tabular-nums text-emerald-600">
-                −{fmt(item.currentBasePrice - item.newBasePrice)} (−{Math.round(((item.currentBasePrice - item.newBasePrice) / item.currentBasePrice) * 100)}%)
-              </span>
-            )}
-            {item.newBasePrice != null && (
-              <Button
-                variant="tertiary"
-                size="sm"
-                iconLeft={RotateCcw}
-                aria-label="Revert to current base price"
-                onClick={() => { revertField("base"); setEditingBase(false); }}
+          ) : (
+            <>
+              <PriceInputCell
+                autoFocus
+                ariaLabel={priceLabel}
+                recommended={item.recommendedBasePrice}
+                value={item.newBasePrice}
+                state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
+                onCommit={commitBase}
               />
-            )}
-          </div>
-          {isHq && item.newBasePrice != null && (
-            <p className="text-xs tabular-nums text-gray-500">
-              HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
-              <span className="font-medium text-gray-700">{fmt(item.newBasePrice)}</span>
-            </p>
+              {isHq && item.newBasePrice != null && (
+                <p className="mt-1.5 text-xs tabular-nums text-gray-500">
+                  HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
+                  <span className="font-medium text-gray-700">{fmt(item.newBasePrice)}</span>
+                </p>
+              )}
+            </>
           )}
         </Field>
         {lineItems.length > 0 && (
@@ -712,68 +715,19 @@ export function ItemEditDrawer({
     />
 
     {/* Where should this change go? — asked on Done so the batch decision is a
-        deliberate step, not a confusing footer split-button. */}
-    <Modal
+        deliberate step, not a confusing footer split-button. Same modal the bulk
+        bar and the Review worklist use. */}
+    <BatchPickerModal
       open={batchPromptOpen}
       onOpenChange={(o) => { if (!o) setBatchPromptOpen(false); }}
-      title="Add this change to a batch?"
-      size="sm"
-      className="max-md:!max-w-[calc(100vw-1.5rem)]"
-    >
-      <div className="flex flex-col gap-4">
-        <p className="text-sm text-gray-600">
-          Your change is saved. Group it into a batch to control when it reaches SAP —
-          or leave it and sort it later from To send.
-        </p>
-
-        {openBatches.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            <p className="text-xs font-medium text-gray-500">Add to a batch</p>
-            {openBatches.map((b) => {
-              const count = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
-              const isActive = activeBatch?.id === b.id;
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => { onAddToBatch(b.id, myPendingIds); closeAfterBatch(); }}
-                  className="group flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-brand/40 hover:bg-brand/5"
-                >
-                  <span className="flex min-w-0 items-center gap-2.5">
-                    <Package className="size-4 shrink-0 text-brand" aria-hidden="true" />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium text-gray-900">{b.name}</span>
-                        {isActive && <Badge tone="in-progress" size="sm">Active</Badge>}
-                      </span>
-                      <span className="flex items-center gap-1 text-xs text-gray-500">
-                        {b.status === "scheduled" ? (
-                          <><CalendarClock className="size-3" aria-hidden="true" /> Scheduled</>
-                        ) : "Draft"}
-                        <span className="text-gray-300">·</span> {count} item{count !== 1 ? "s" : ""}
-                      </span>
-                    </span>
-                  </span>
-                  <ArrowRight className="size-4 shrink-0 text-gray-300 transition-colors group-hover:text-brand" aria-hidden="true" />
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <Button
-          variant="secondary"
-          iconLeft={Plus}
-          onClick={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
-        >
-          Create a new batch
-        </Button>
-
-        <Button variant="tertiary" onClick={closeAfterBatch}>
-          Leave it — sort later in To send
-        </Button>
-      </div>
-    </Modal>
+      description="Your change is saved. Group it into a batch to control when it reaches SAP — or leave it and sort it later from To send."
+      openBatches={openBatches}
+      activeBatch={activeBatch}
+      count={new Set(myPendingIds.map((id) => id.split(":")[0])).size}
+      onAddToBatch={(id) => { onAddToBatch(id, myPendingIds); closeAfterBatch(); }}
+      onNewBatch={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
+      onLater={closeAfterBatch}
+    />
     </>
   );
 }

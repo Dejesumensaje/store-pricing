@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Button, Badge, Checkbox, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { Check, X, ChevronRight, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
-import { BatchSplitButton } from "./BatchSplitButton";
+import { Check, X, ChevronRight, CheckCircle2, AlertTriangle, ArrowRight, Package } from "lucide-react";
+import { BatchPickerModal } from "./BatchPickerModal";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { usePricingStore } from "@/store/pricing-store";
 import { hqReviewNeeded } from "@/lib/item-status";
@@ -57,6 +57,8 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
   const [sort, setSort] = useState<SortKey>("attention");
   // Confirm a bulk-accept that includes flagged proposals (big swings / alerts).
   const [confirmAcceptAll, setConfirmAcceptAll] = useState(false);
+  // Accept-and-batch the selection via the shared batch picker.
+  const [batchPickerOpen, setBatchPickerOpen] = useState(false);
 
   // The override id an accept produces (retail for a promo, base otherwise).
   const overrideIdFor = (item: PricingItem) =>
@@ -213,14 +215,9 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
             <>
-              <BatchSplitButton
-                size="sm"
-                activeBatch={activeBatch}
-                openBatches={openBatches}
-                onAddToActive={() => activeBatch && acceptSelectedToBatch(activeBatch.id)}
-                onAddToBatch={(id) => acceptSelectedToBatch(id)}
-                onNewBatch={() => { acceptMany(queue.filter((i) => selected.has(i.id))); onGoToSend(); }}
-              />
+              <Button variant="secondary" size="sm" iconLeft={Package} onClick={() => setBatchPickerOpen(true)}>
+                Accept &amp; batch
+              </Button>
               <Button variant="secondary" size="sm" iconLeft={Check} onClick={() => acceptMany(queue.filter((i) => selected.has(i.id)))}>
                 Accept ({selected.size})
               </Button>
@@ -300,6 +297,18 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
         description={`${flaggedInQueue} ${flaggedInQueue === 1 ? "is" : "are"} flagged for a closer look (a big swing or an alert). You can still Undo from the toast.`}
         confirmLabel={`Accept all ${queue.length}`}
         onConfirm={() => acceptMany(queue)}
+      />
+
+      <BatchPickerModal
+        open={batchPickerOpen}
+        onOpenChange={setBatchPickerOpen}
+        title={`Accept ${selected.size} & add to a batch`}
+        description="The selected recommendations are accepted and dropped straight into the batch you pick — ready to schedule or send."
+        openBatches={openBatches}
+        activeBatch={activeBatch}
+        count={selected.size}
+        onAddToBatch={(id) => { acceptSelectedToBatch(id); setBatchPickerOpen(false); }}
+        onNewBatch={() => { acceptMany(queue.filter((i) => selected.has(i.id))); setBatchPickerOpen(false); onGoToSend(); }}
       />
     </div>
   );
