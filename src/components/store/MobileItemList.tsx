@@ -1,10 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { Badge, Checkbox } from "@dejesumensaje/converge-ds-experimental";
+import { Checkbox } from "@dejesumensaje/converge-ds-experimental";
 import { PricingItem, Batch } from "@/types/pricing";
-import { pricingStrategyLabel } from "@/lib/change-summary";
-import { CurrentSapCell, HqRecCell, YourPriceCell, StatusCell } from "./buildStoreColumns";
+import { PriceMoveCell, ShelfTagCell, StatusCell } from "./buildStoreColumns";
 
 type Props = {
   rows: PricingItem[];
@@ -64,28 +63,14 @@ export function MobileItemList({ rows, batches, isSelected, isSelectable, toggle
                 <p className="mt-0.5 truncate text-xs text-gray-500">
                   {item.id} · {item.category}
                 </p>
-                <div className="mt-2 flex flex-wrap items-start gap-x-6 gap-y-2">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Current SAP</p>
-                    <div className="mt-0.5">
-                      <CurrentSapCell item={item} />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">HQ rec</p>
-                    <div className="mt-0.5">
-                      <HqRecCell item={item} />
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Your price</p>
-                    <div className="mt-0.5">
-                      <YourPriceCell item={item} />
-                    </div>
+                <div className="mt-2">
+                  <p className="text-[10px] uppercase tracking-wide text-gray-400">Price</p>
+                  <div className="mt-0.5">
+                    <PriceMoveCell item={item} />
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <Badge tone="neutral" size="sm">{pricingStrategyLabel(item)}</Badge>
+                  <ShelfTagCell item={item} />
                   <StatusCell item={item} batches={batches} />
                 </div>
               </div>

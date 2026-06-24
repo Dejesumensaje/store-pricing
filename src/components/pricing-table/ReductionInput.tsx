@@ -15,20 +15,28 @@ function reductionFor(mode: Mode, reference: number, value: number | null): stri
 // Reduction off a reference price, in dollars ($) or percent (%). Computes the
 // resulting price so the user doesn't do the math. Commits on blur/Enter; an
 // empty input commits null (clears the override). Used for permanent EDLP cuts
-// (off current base) and temporary-allowance promos (off current retail).
+// (off current base) and temporary-allowance promos (off the base/white-tag
+// price). The $/% mode can be self-managed (internal toggle) or driven from a
+// parent — pass `mode` to control it and `hideToggle` to drop the inline toggle.
 export function ReductionInput({
   reference,
   value,
   onCommit,
   defaultMode = "amount",
+  mode: modeProp,
+  hideToggle = false,
 }: {
   reference: number;
   value: number | null | undefined;
   onCommit: (price: number | null) => void;
   defaultMode?: Mode;
+  mode?: Mode;
+  hideToggle?: boolean;
 }) {
-  const [mode, setMode] = useState<Mode>(defaultMode);
-  const [raw, setRaw] = useState(() => reductionFor(defaultMode, reference, value ?? null));
+  const [internalMode, setInternalMode] = useState<Mode>(defaultMode);
+  const mode = modeProp ?? internalMode;
+  const setMode = setInternalMode;
+  const [raw, setRaw] = useState(() => reductionFor(modeProp ?? defaultMode, reference, value ?? null));
 
   // Resync when the committed price or the mode changes. `value` only moves on
   // commit (not while typing), so this never clobbers in-progress input.
@@ -52,21 +60,23 @@ export function ReductionInput({
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex overflow-hidden rounded-md border border-gray-300">
-        {(["amount", "pct"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            aria-pressed={mode === m}
-            className={`px-2.5 py-1.5 text-sm font-medium ${
-              mode === m ? "bg-brand text-white" : "bg-white text-gray-500 hover:bg-gray-50"
-            }`}
-          >
-            {m === "amount" ? "$" : "%"}
-          </button>
-        ))}
-      </div>
+      {!hideToggle && (
+        <div className="flex overflow-hidden rounded-md border border-gray-300">
+          {(["amount", "pct"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              aria-pressed={mode === m}
+              className={`px-2.5 py-1.5 text-sm font-medium ${
+                mode === m ? "bg-brand text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+              }`}
+            >
+              {m === "amount" ? "$" : "%"}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="relative w-[90px]">
         <input
           type="text"

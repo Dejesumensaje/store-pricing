@@ -67,7 +67,7 @@ function upsertOverride(
   if (existing && isActive(existing.status)) {
     return {
       overrides: state.overrides.map((o) =>
-        o.id === id ? { ...o, newPrice, qty: normalizedQty } : o
+        o.id === id ? { ...o, newPrice, qty: normalizedQty, updatedAt: Date.now() } : o
       ),
       batches: state.batches,
       status: existing.status,
@@ -85,6 +85,7 @@ function upsertOverride(
     newPrice,
     qty: normalizedQty,
     status: "pending",
+    updatedAt: Date.now(),
   };
   return {
     overrides: [...state.overrides.filter((o) => o.id !== id), fresh],
@@ -141,6 +142,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
         items: state.items.map((item) => {
           if (!groupIds.includes(item.id)) return item;
           let next: PricingItem = { ...item, newBasePrice: newPrice, baseOverrideStatus: statusById[item.id] };
+          // Deciding on an HQ rec (accept or override) reviews it for good — it
+          // must not return to the queue when the override later goes submitted.
+          if (newPrice != null && item.hqReviewPending) next.reviewed = true;
           if (newPrice != null && item.category_type === "no_change") {
             // Editing a "no change" item IS a base price change — promote it,
             // remembering the original type so we can revert if the edit is cleared.
@@ -166,7 +170,14 @@ export const usePricingStore = create<PricingStore>((set) => ({
       return {
         items: state.items.map((item) =>
           item.id === itemId
-            ? withOverrideFlags({ ...item, newRetailQty: normQty, newRetailPrice: price, retailOverrideStatus: status })
+            ? withOverrideFlags({
+                ...item,
+                newRetailQty: normQty,
+                newRetailPrice: price,
+                retailOverrideStatus: status,
+                // Deciding on an HQ rec reviews it for good (see updateBasePrice).
+                reviewed: price != null && item.hqReviewPending ? true : item.reviewed,
+              })
             : item
         ),
         overrides,

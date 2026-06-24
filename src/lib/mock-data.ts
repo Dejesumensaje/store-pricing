@@ -162,6 +162,37 @@ const baseMockItems: PricingItem[] = [
   },
   {
     ...baseItem,
+    id: "RBCS5-9",
+    name: "Pepperidge Farm Goldfish 6.6oz",
+    brand: "Pepperidge Farm",
+    subcategory: "Crackers",
+    packSize: "6.6oz",
+    keyAttributes: ["Cheddar", "Baked"],
+    itemRole: "Traffic driver",
+    category_type: "temporary_allowance",
+    currentBasePrice: 3.19,
+    cost: 1.95,
+    recommendedBasePrice: 3.19,
+    // A NEW allowance HQ is PROPOSING (no current promo: retail = base). Awaiting
+    // the director's decision — accept / set your own / keep current. No override,
+    // so it surfaces in the HQ Recommendations queue and previews as "proposed".
+    currentRetailPrice: 3.19,
+    recommendedRetailPrice: 2.5,
+    allowanceStartDate: "2026-06-24",
+    allowanceEndDate: "2026-06-30",
+  },
+  // A batch of clean HQ proposals (no overrides) so the review worklist shows
+  // real scale + a mix of routine vs. flagged (big swings / alerts) decisions.
+  { ...baseItem, id: "HQ-101", name: "Triscuit Original 8.5oz", brand: "Nabisco", subcategory: "Crackers", packSize: "8.5oz", currentBasePrice: 3.49, cost: 2.1, recommendedBasePrice: 3.69 },
+  { ...baseItem, id: "HQ-102", name: "Wheat Thins Original 8oz", brand: "Nabisco", subcategory: "Crackers", packSize: "8oz", currentBasePrice: 3.99, cost: 2.45, recommendedBasePrice: 4.19 },
+  { ...baseItem, id: "HQ-103", name: "Pop Secret Butter 6ct", brand: "Pop Secret", subcategory: "Popcorn", packSize: "6ct", currentBasePrice: 4.29, cost: 2.6, recommendedBasePrice: 3.99 },
+  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.49, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
+  { ...baseItem, id: "HQ-105", name: "Planters Peanuts 16oz", brand: "Planters", subcategory: "Nuts", packSize: "16oz", currentBasePrice: 5.99, cost: 3.8, recommendedBasePrice: 7.49, itemRole: "Margin driver" },
+  { ...baseItem, id: "HQ-106", name: "Jack Link's Jerky 5oz", brand: "Jack Link's", subcategory: "Jerky", packSize: "5oz", currentBasePrice: 8.99, cost: 6.2, recommendedBasePrice: 7.49, sensitivity: "H", hasAlert: true },
+  { ...baseItem, id: "HQ-107", name: "SkinnyPop Original 4.4oz", brand: "SkinnyPop", subcategory: "Popcorn", packSize: "4.4oz", category_type: "temporary_allowance", currentBasePrice: 3.29, cost: 1.9, recommendedBasePrice: 3.29, currentRetailPrice: 3.29, recommendedRetailPrice: 2.5, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
+  { ...baseItem, id: "HQ-108", name: "Rold Gold Pretzels 16oz", brand: "Rold Gold", subcategory: "Pretzels", packSize: "16oz", currentBasePrice: 3.79, cost: 2.2, recommendedBasePrice: 3.89 },
+  {
+    ...baseItem,
     id: "RBCS5-5",
     name: "Tostitos Scoops 10oz",
     packSize: "10oz",
@@ -418,7 +449,10 @@ const newDiscontinuedCatalog: PricingItem[] = [
 // NOT live in SAP — `currentBasePrice` stays the live (old) price and
 // `recommendedBasePrice` carries HQ's proposal, so the director can compare the
 // two and decide (accept / override / keep current) before anything is sent.
-const HQ_REVIEW_IDS = new Set(["RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4"]);
+const HQ_REVIEW_IDS = new Set([
+  "RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4", "RBCS5-9",
+  "HQ-101", "HQ-102", "HQ-103", "HQ-104", "HQ-105", "HQ-106", "HQ-107", "HQ-108",
+]);
 
 function applyHqReview(item: PricingItem): PricingItem {
   if (!HQ_REVIEW_IDS.has(item.id)) return item;

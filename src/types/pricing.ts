@@ -118,6 +118,8 @@ export type Override = {
   sequence?: string;
   status: OverrideStatus;
   batchId?: string;
+  /** Last time this edit was touched — drives recent-first ordering in All items. */
+  updatedAt?: number;
 };
 
 export type Batch = {

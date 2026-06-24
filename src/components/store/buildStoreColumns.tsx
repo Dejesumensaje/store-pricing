@@ -6,18 +6,18 @@ import { selectCol, itemCol, idCol, SelHandlers, DecisionCell } from "../pricing
 import { derivePriceState } from "../pricing-table/PriceInputCell";
 import { PricingItem, Batch } from "@/types/pricing";
 import { deriveItemStatus } from "@/lib/item-status";
-import {
-  deriveDecision,
-  DECISION_META,
-  pricingStrategyLabel,
-  pricingStrategyFullLabel,
-  changeEntries,
-} from "@/lib/change-summary";
+import { deriveDecision, DECISION_META, changeEntries } from "@/lib/change-summary";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 
-// Optional columns the gear/settings menu can toggle on (off by default).
+// Optional columns the gear/settings menu can toggle on (off by default). The
+// default table stays minimal (ID, item, category, status) so it scans cleanly;
+// the decision columns (change type + the three prices) lead the opt-in list for
+// directors who want to triage without opening each row.
 export const STORE_OPTIONAL_COLUMNS: { id: string; label: string }[] = [
+  { id: "currentSap", label: "Current SAP" },
+  { id: "hqRec", label: "HQ rec" },
+  { id: "yourPrice", label: "New price" },
   { id: "aisle", label: "Aisle" },
   { id: "subcategory", label: "Subcategory" },
   { id: "brand", label: "Brand" },
@@ -45,6 +45,35 @@ const textCol = (
 });
 
 const OPTIONAL_DEFS: Record<string, DataColumn<PricingItem>> = {
+  // Decision columns — opt-in triage info (off by default; the decision itself
+  // happens in the drawer). "New price" is the director's committed price.
+  currentSap: {
+    id: "currentSap",
+    group: "item",
+    width: 130,
+    header: "Current SAP",
+    sortable: true,
+    sortAccessor: (r) => r.currentBasePrice,
+    cell: (r) => <CurrentSapCell item={r} />,
+  },
+  hqRec: {
+    id: "hqRec",
+    group: "item",
+    width: 130,
+    header: "HQ rec",
+    sortable: true,
+    sortAccessor: (r) => displayPrice(r).recommended ?? Number.NEGATIVE_INFINITY,
+    cell: (r) => <HqRecCell item={r} />,
+  },
+  yourPrice: {
+    id: "yourPrice",
+    group: "item",
+    width: 130,
+    header: "New price",
+    sortable: true,
+    sortAccessor: (r) => displayPrice(r).decided ?? Number.NEGATIVE_INFINITY,
+    cell: (r) => <YourPriceCell item={r} />,
+  },
   aisle: textCol("aisle", "Aisle", (r) => r.aisle),
   subcategory: textCol("subcategory", "Subcategory", (r) => r.subcategory, 130),
   brand: textCol("brand", "Brand", (r) => r.brand, 110),
@@ -153,6 +182,112 @@ export function YourPriceCell({ item }: { item: PricingItem }) {
   );
 }
 
+// The physical shelf tag a price change maps to, so the table reads like the
+// aisle: temporary allowances are the yellow promo tags, base/no-change are the
+// white shelf tags, EDLP is a permanent reduction (white family, but its own
+// program), new items get a fresh tag, discontinued ones go to clearance.
+export type ShelfTagKind = "yellow" | "white" | "edlp" | "new" | "clearance";
+
+export function shelfTagKind(item: PricingItem): ShelfTagKind {
+  switch (item.category_type) {
+    case "temporary_allowance":
+      return "yellow";
+    case "everyday_low_price":
+      return "edlp";
+    case "new_discontinued":
+      return item.itemStatus === "discontinued" ? "clearance" : "new";
+    default:
+      return "white"; // base + no_change
+  }
+}
+
+// Store-grounded tag colors. `swatch` paints the little tag chip; `pill` tints
+// the target price so promos/lifecycle pop in the Price column ("a wall of
+// yellow" = this week's deals) while routine white-tag changes stay calm.
+export const SHELF_TAG_META: Record<ShelfTagKind, { label: string; swatch: string; text: string; pill: string }> = {
+  yellow: { label: "Yellow tag", swatch: "bg-amber-300 border-amber-400", text: "text-amber-900", pill: "bg-amber-100 text-amber-900" },
+  white: { label: "White tag", swatch: "bg-white border-gray-300", text: "text-gray-600", pill: "" },
+  edlp: { label: "EDLP", swatch: "bg-white border-gray-300", text: "text-gray-600", pill: "" },
+  new: { label: "New", swatch: "bg-emerald-300 border-emerald-400", text: "text-emerald-800", pill: "bg-emerald-100 text-emerald-800" },
+  clearance: { label: "Clearance", swatch: "bg-rose-300 border-rose-400", text: "text-rose-800", pill: "bg-rose-100 text-rose-800" },
+};
+
+export function fmtShortDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// The shelf-tag chip: a colored tag swatch + label. The lens a director scans on
+// — which etiqueta am I touching, and what should I prioritize.
+export function ShelfTagCell({ item }: { item: PricingItem }) {
+  const meta = SHELF_TAG_META[shelfTagKind(item)];
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span aria-hidden="true" className={`size-3 shrink-0 rounded-[3px] border ${meta.swatch}`} />
+      <span className={`text-xs font-medium ${meta.text}`}>{meta.label}</span>
+    </span>
+  );
+}
+
+// The one number a director triages on: where the price is moving. Resolves the
+// row's target — the director's decision wins, else HQ's pending proposal, else
+// the price holds — and the per-unit % move off the current price (a multi-unit
+// deal divides across its quantity).
+function priceMove(item: PricingItem) {
+  const { current, recommended, decided } = displayPrice(item);
+  const qty = item.category_type === "temporary_allowance" ? item.newRetailQty ?? 1 : 1;
+  const target = decided ?? recommended;
+  const unit = target == null ? current : decided != null ? target / Math.max(1, qty) : target;
+  const pct = current > 0 && target != null ? ((unit - current) / current) * 100 : 0;
+  return { current, target, qty, decided, pct };
+}
+
+// Adaptive price cell: "current → target" with direction + magnitude when a
+// change is in flight; a muted current price when nothing's moving. The target
+// is tinted to its shelf tag (yellow promo / clearance / new), and a yellow tag
+// surfaces its end date — so the Price column previews the actual shelf.
+export function PriceMoveCell({ item }: { item: PricingItem }) {
+  const { current, target, qty, decided, pct } = priceMove(item);
+  const meta = SHELF_TAG_META[shelfTagKind(item)];
+  const isNew = item.category_type === "new_discontinued" && item.itemStatus === "new";
+  const endsOn = item.category_type === "temporary_allowance" ? fmtShortDate(item.allowanceEndDate) : null;
+
+  if (target == null) {
+    return <span className="text-sm tabular-nums text-gray-400">{fmt(current)}</span>;
+  }
+
+  const targetDisplay = decided != null && qty > 1 ? fmtQtyPrice(qty, target) : fmt(target);
+  const rounded = Math.round(pct);
+  // The tinted target chip — the visual echo of the shelf tag.
+  const targetChip = (
+    <span className={`rounded px-1.5 py-0.5 font-semibold text-gray-900 ${meta.pill}`}>{targetDisplay}</span>
+  );
+
+  return (
+    <span className="flex items-center gap-1.5 text-sm tabular-nums">
+      {isNew ? (
+        <>
+          <span className="text-gray-400">Set</span>
+          {targetChip}
+        </>
+      ) : (
+        <>
+          <span className="text-gray-400">{fmt(current)}</span>
+          <span aria-hidden="true" className="text-gray-300">→</span>
+          {targetChip}
+          {rounded !== 0 && (
+            <span className="text-xs text-gray-500">
+              {rounded < 0 ? "↓" : "↑"}
+              {Math.abs(rounded)}%
+            </span>
+          )}
+        </>
+      )}
+      {endsOn && <span className="text-xs text-amber-700">· ends {endsOn}</span>}
+    </span>
+  );
+}
+
 // Workflow status + the director's decision, merged into one column. The colored
 // badge is the workflow stage (the scanning signal: Live / Needs review / Edited
 // / In batch / Pending SAP). The HQ-relative decision (Accepted / Overridden /
@@ -211,53 +346,28 @@ export function buildStoreColumns(
     idCol,
     itemCol(),
     textCol("category", "Category", (r) => r.category, 140),
-    ...optional,
     {
-      id: "changeType",
+      id: "tag",
       group: "item",
       width: 120,
-      header: "Change type",
+      header: "Tag",
       sortable: true,
-      sortAccessor: (r) => pricingStrategyLabel(r),
-      // The kind of change being made (HQ's recommended type, or the director's
-      // override) — not a standing property. DS Badge pill in neutral tone; color
-      // is reserved for the Decision and Status columns. The short label (TA/EDLP)
-      // reveals its full name on hover.
-      cell: (r) => (
-        <Tooltip content={pricingStrategyFullLabel(r)}>
-          <span className="inline-flex">
-            <Badge tone="neutral" size="sm">{pricingStrategyLabel(r)}</Badge>
-          </span>
-        </Tooltip>
-      ),
+      // Sort groups the shelf by tag family (yellow promos together, etc.).
+      sortAccessor: (r) => SHELF_TAG_META[shelfTagKind(r)].label,
+      cell: (r) => <ShelfTagCell item={r} />,
     },
     {
-      id: "currentSap",
+      id: "price",
       group: "item",
-      width: 130,
-      header: "Current SAP",
+      width: 190,
+      header: "Price",
       sortable: true,
-      sortAccessor: (r) => r.currentBasePrice,
-      cell: (r) => <CurrentSapCell item={r} />,
+      // Sort by magnitude of the move so a click surfaces the biggest changes
+      // (calm, no-change rows settle together at the bottom).
+      sortAccessor: (r) => Math.abs(priceMove(r).pct),
+      cell: (r) => <PriceMoveCell item={r} />,
     },
-    {
-      id: "hqRec",
-      group: "item",
-      width: 130,
-      header: "HQ rec",
-      sortable: true,
-      sortAccessor: (r) => displayPrice(r).recommended ?? Number.NEGATIVE_INFINITY,
-      cell: (r) => <HqRecCell item={r} />,
-    },
-    {
-      id: "yourPrice",
-      group: "item",
-      width: 130,
-      header: "Your price",
-      sortable: true,
-      sortAccessor: (r) => displayPrice(r).decided ?? Number.NEGATIVE_INFINITY,
-      cell: (r) => <YourPriceCell item={r} />,
-    },
+    ...optional,
     {
       id: "status",
       group: "item",

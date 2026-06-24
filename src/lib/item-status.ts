@@ -10,12 +10,13 @@ const STATUS: Record<string, ItemStatus> = {
   // live — the item still carries its current SAP price; this flags that a
   // decision (accept / override / keep current) is owed.
   review: { label: "Needs review", tone: "in-progress" },
-  edited: { label: "Edited", tone: "warning" },
-  in_batch: { label: "In batch", tone: "in-progress" },
+  // Decided — ready to send to SAP.
+  edited: { label: "Ready", tone: "warning" },
+  in_batch: { label: "Scheduled", tone: "in-progress" },
   scheduled: { label: "Scheduled", tone: "neutral" },
-  // Sent to SAP but not yet acknowledged — not live until SAP confirms.
-  sent: { label: "Pending SAP", tone: "warning" },
-  // SAP confirmed the change — the price is now live.
+  // Sent to SAP, not live until SAP confirms.
+  sent: { label: "Sending", tone: "warning" },
+  // SAP confirmed the change — the price is live.
   confirmed: { label: "Live", tone: "success" },
 };
 
