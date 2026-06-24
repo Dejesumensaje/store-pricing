@@ -12,7 +12,9 @@ const STATUS: Record<string, ItemStatus> = {
   review: { label: "Needs review", tone: "in-progress" },
   // Decided — ready to send to SAP.
   edited: { label: "Ready to send", tone: "warning" },
-  in_batch: { label: "Scheduled", tone: "in-progress" },
+  // Sorted into a batch but not yet scheduled — don't claim "Scheduled" (a draft
+  // batch has no send date yet).
+  in_batch: { label: "In a batch", tone: "in-progress" },
   scheduled: { label: "Scheduled", tone: "neutral" },
   // Sent to SAP, not live until SAP confirms — a subtle spinner signals it's in
   // flight.

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Button, Badge, Checkbox, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { Check, X, ChevronRight, CheckCircle2, AlertTriangle, ArrowRight } from "lucide-react";
 import { BatchSplitButton } from "./BatchSplitButton";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { usePricingStore } from "@/store/pricing-store";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { hqRecRationale } from "@/lib/hq-rec";
@@ -47,11 +48,15 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
+  const setReviewed = usePricingStore((s) => s.setReviewed);
+  const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const toast = useToast();
 
   const [totalAtEntry] = useState(() => items.filter(hqReviewNeeded).length);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sort, setSort] = useState<SortKey>("attention");
+  // Confirm a bulk-accept that includes flagged proposals (big swings / alerts).
+  const [confirmAcceptAll, setConfirmAcceptAll] = useState(false);
 
   // The override id an accept produces (retail for a promo, base otherwise).
   const overrideIdFor = (item: PricingItem) =>
@@ -84,10 +89,26 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
       updateBasePrice(item.id, item.recommendedBasePrice);
     }
   };
+  // Put an accepted item back into the queue (drop its pending change + un-review).
+  const undoAccept = (item: PricingItem) => {
+    removeFromLooseTray(overrideIdFor(item));
+    setReviewed(item.id, false);
+  };
+  // Single-row accept — toasts with Undo so a stray tap on the icon trio is
+  // recoverable without leaving Review.
+  const acceptRow = (item: PricingItem) => {
+    acceptOne(item);
+    toast.success("Accepted — in To send", {
+      action: { label: "Undo", onClick: () => undoAccept(item) },
+    });
+  };
   const acceptMany = (list: PricingItem[]) => {
     list.forEach(acceptOne);
     setSelected(new Set());
-    toast.success(`${list.length} accepted`, { description: "Added to To send." });
+    toast.success(`${list.length} accepted`, {
+      description: "Added to To send.",
+      action: { label: "Undo", onClick: () => list.forEach(undoAccept) },
+    });
   };
   // Accept the selected recs AND drop them straight into a batch — for directors
   // who sort as they review (the alternative to batching later on To send).
@@ -97,7 +118,20 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
     onAddToBatch(batchId, list.map(overrideIdFor));
     setSelected(new Set());
   };
-  const skipOne = (item: PricingItem) => acceptNoChange(item.id);
+  // "Skip" rejects the rec and keeps the current price — permanent, so it's
+  // Undoable too.
+  const skipOne = (item: PricingItem) => {
+    acceptNoChange(item.id);
+    toast.success("Kept current price", {
+      action: { label: "Undo", onClick: () => setReviewed(item.id, false) },
+    });
+  };
+  // Accept-all, guarded: if any flagged proposals are in the set, confirm first.
+  const flaggedInQueue = useMemo(() => queue.filter((i) => proposal(i).flagged).length, [queue]);
+  const acceptAll = () => {
+    if (flaggedInQueue > 0) setConfirmAcceptAll(true);
+    else acceptMany(queue);
+  };
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -110,7 +144,7 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
   if (queue.length === 0) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-20 text-center">
-        <CheckCircle2 className="size-14 text-emerald-500" aria-hidden="true" />
+        <CheckCircle2 className="size-12 text-emerald-500" aria-hidden="true" />
         <h2 className="text-xl font-bold text-gray-900">
           {totalAtEntry === 0 ? "No recommendations to review" : "All reviewed"}
         </h2>
@@ -192,7 +226,7 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
               </Button>
             </>
           )}
-          <Button variant="primary" size="sm" iconLeft={Check} onClick={() => acceptMany(queue)}>
+          <Button variant="primary" size="sm" iconLeft={Check} onClick={acceptAll}>
             Accept all {queue.length}
           </Button>
         </div>
@@ -231,18 +265,18 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
                       size="sm"
                       iconLeft={Check}
                       aria-label={`Accept ${item.name}`}
-                      onClick={() => acceptOne(item)}
+                      onClick={() => acceptRow(item)}
                       className="transition-transform duration-150 hover:scale-110 motion-reduce:transition-none"
                     />
                   </span>
                 </Tooltip>
-                <Tooltip content="Skip — keep current price">
+                <Tooltip content="Keep current price (reject)">
                   <span className="inline-flex">
                     <Button
                       variant="tertiary"
                       size="sm"
                       iconLeft={X}
-                      aria-label={`Skip ${item.name}`}
+                      aria-label={`Keep current price for ${item.name}`}
                       onClick={() => skipOne(item)}
                       className="transition-all duration-150 hover:scale-110 hover:!bg-red-50 hover:!text-red-600 motion-reduce:transition-none"
                     />
@@ -258,6 +292,15 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
           );
         })}
       </ul>
+
+      <ConfirmDialog
+        open={confirmAcceptAll}
+        onOpenChange={(o) => { if (!o) setConfirmAcceptAll(false); }}
+        headline={`Accept all ${queue.length} recommendations?`}
+        description={`${flaggedInQueue} ${flaggedInQueue === 1 ? "is" : "are"} flagged for a closer look (a big swing or an alert). You can still Undo from the toast.`}
+        confirmLabel={`Accept all ${queue.length}`}
+        onConfirm={() => acceptMany(queue)}
+      />
     </div>
   );
 }

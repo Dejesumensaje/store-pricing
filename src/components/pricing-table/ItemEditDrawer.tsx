@@ -242,7 +242,7 @@ export function ItemEditDrawer({
               onCommit={commitBase}
             />
             {isEdlp && item.newBasePrice != null && item.currentBasePrice - item.newBasePrice > 0.005 && (
-              <span className="text-xs font-medium text-emerald-600">
+              <span className="text-xs font-medium tabular-nums text-emerald-600">
                 −{fmt(item.currentBasePrice - item.newBasePrice)} (−{Math.round(((item.currentBasePrice - item.newBasePrice) / item.currentBasePrice) * 100)}%)
               </span>
             )}
@@ -257,7 +257,7 @@ export function ItemEditDrawer({
             )}
           </div>
           {isHq && item.newBasePrice != null && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs tabular-nums text-gray-500">
               HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
               <span className="font-medium text-gray-700">{fmt(item.newBasePrice)}</span>
             </p>
@@ -321,7 +321,7 @@ export function ItemEditDrawer({
               </p>
               <div className="mt-1.5 flex flex-wrap items-center gap-1">
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
-                {item.linePriceGroup && <Badge tone="in-progress" size="sm">Line price</Badge>}
+                {item.linePriceGroup && <Badge tone="neutral" size="sm">Line price</Badge>}
               </div>
             </div>
           </div>
@@ -649,7 +649,7 @@ export function ItemEditDrawer({
                         <p className="text-xs text-gray-500">{ri.id}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        {lineIds.has(ri.id) && <Badge tone="in-progress" size="sm">Line</Badge>}
+                        {lineIds.has(ri.id) && <Badge tone="neutral" size="sm">Line</Badge>}
                         <span className="text-sm tabular-nums text-gray-500">{fmt(ri.newBasePrice ?? ri.currentBasePrice)}</span>
                       </div>
                     </div>
@@ -769,13 +769,9 @@ export function ItemEditDrawer({
           Create a new batch
         </Button>
 
-        <button
-          type="button"
-          onClick={closeAfterBatch}
-          className="text-sm font-medium text-gray-500 hover:text-gray-800"
-        >
-          Decide later in To send
-        </button>
+        <Button variant="tertiary" onClick={closeAfterBatch}>
+          Leave it — sort later in To send
+        </Button>
       </div>
     </Modal>
     </>
@@ -805,9 +801,9 @@ function CollapsibleSection({
         aria-controls={panelId}
         className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left"
       >
-        <span className="text-sm font-medium text-gray-700">
+        <span className="text-sm font-semibold text-gray-700">
           {title}
-          {count != null && <span className="ml-1 text-gray-400">({count})</span>}
+          {count != null && <span className="ml-1 font-normal text-gray-400">({count})</span>}
         </span>
         <ChevronDown
           aria-hidden="true"

@@ -267,18 +267,6 @@ export default function StorePricingPage() {
     setSelected(new Set());
   };
 
-  // Send the selected changes straight to SAP now (skips batching — kept for the
-  // odd urgent change; batches are the controlled default).
-  const sendSelectedNow = () => {
-    const ids = selectedPendingIds;
-    if (ids.length === 0) return;
-    createBatch(`Sent · ${shortDate(todayIso())}`, ids);
-    const batch = usePricingStore.getState().batches.at(-1);
-    if (batch) submitBatch(batch.id);
-    setSelected(new Set());
-    toast.success(`${selected.size} sent to SAP`, { description: "Live once SAP confirms." });
-  };
-
   // Schedule a specific batch for a date — it sends to SAP automatically then.
   const confirmScheduleBatch = () => {
     if (!scheduleBatchId || !scheduleDate) return;
@@ -700,15 +688,8 @@ export default function StorePricingPage() {
             </span>
           </ActionBarLeading>
           <ActionBarActions>
-            <Button
-              variant="tertiary"
-              size="sm"
-              className="!text-white"
-              disabled={selectedPendingIds.length === 0}
-              onClick={sendSelectedNow}
-            >
-              Send now
-            </Button>
+            {/* Batches are the only send path (they dose the SAP load), so the bulk
+                bar sorts into a batch — no irreversible "send straight to SAP now". */}
             <BatchSplitButton
               size="sm"
               activeBatch={activeBatch}
