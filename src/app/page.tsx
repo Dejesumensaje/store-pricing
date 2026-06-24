@@ -300,7 +300,7 @@ export default function StorePricingPage() {
   // The clickable identity of a batch: an icon with a numeric badge of its item
   // count + a row of tag-color swatches so a director can see WHAT's inside at a
   // glance (a wall of yellow = this week's promos) instead of an opaque "N items".
-  const renderBatchIdentity = (b: Batch, subtext: ReactNode) => {
+  const renderBatchIdentity = (b: Batch, subtext: ReactNode, bump = false) => {
     const bItems = batchItems(b);
     const count = bItems.length;
     return (
@@ -308,7 +308,8 @@ export default function StorePricingPage() {
         <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10">
           <Package className="size-5 text-brand" aria-hidden="true" />
           {count > 0 && (
-            <span className="absolute -top-1.5 -right-1.5">
+            // Pops when the count grows, mirroring the To-send button's badge.
+            <span className={`absolute -top-1.5 -right-1.5 ${bump ? "badge-pop" : ""}`}>
               <CountBadge count={count} tone="neutral" />
             </span>
           )}
@@ -317,12 +318,14 @@ export default function StorePricingPage() {
           <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
           {subtext && <p className="flex items-center gap-1.5 text-xs text-gray-500">{subtext}</p>}
           {count > 0 && (
+            // Tag-shaped chips (wider than tall) so a lone white one doesn't read
+            // as an empty checkbox — these are shelf tags, scanned for composition.
             <div className="mt-1 flex items-center gap-1" aria-label={`${count} item${count !== 1 ? "s" : ""} in this batch`}>
               {bItems.slice(0, 8).map((it) => (
                 <span
                   key={it.id}
                   title={it.name}
-                  className={`size-3 rounded-[3px] border ${SHELF_TAG_META[shelfTagKind(it)].swatch}`}
+                  className={`h-2.5 w-4 rounded-[2px] border ${SHELF_TAG_META[shelfTagKind(it)].swatch}`}
                 />
               ))}
               {count > 8 && <span className="text-xs text-gray-400">+{count - 8}</span>}
@@ -341,9 +344,11 @@ export default function StorePricingPage() {
     return (
       <div
         // Re-key while flashing so the highlight animation restarts even when the
-        // same batch is targeted twice.
+        // same batch is targeted twice. The row bounces (send-bump) + highlights
+        // (batch-flash) when items land — the same satisfying motion as the
+        // To-send button.
         key={flashing ? `${b.id}-flash-${batchFlash.n}` : b.id}
-        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 ${flashing ? "batch-flash" : ""}`}
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 ${flashing ? "batch-flash send-bump" : ""}`}
       >
         {renderBatchIdentity(
           b,
@@ -351,7 +356,8 @@ export default function StorePricingPage() {
             <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? shortDate(b.scheduledAt) : "scheduled"}</>
           ) : (
             "Not scheduled"
-          )
+          ),
+          flashing
         )}
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge tone={isScheduled ? "neutral" : "warning"} size="sm">{isScheduled ? "Scheduled" : "Draft"}</Badge>
@@ -727,13 +733,16 @@ export default function StorePricingPage() {
           </ActionBarLeading>
           <ActionBarActions>
             {/* Batches are the only send path (they dose the SAP load), so the bulk
-                bar sorts into a batch — via the same picker the drawer uses. */}
+                bar sorts into a batch — via the same picker the drawer uses. Filled
+                white so it reads clearly on the dark ActionBar (the default
+                secondary outline nearly disappears against it). */}
             <Button
               variant="secondary"
               size="sm"
               iconLeft={Package}
               disabled={selectedPendingIds.length === 0}
               onClick={() => setBatchPickerOpen(true)}
+              className="!border-transparent !bg-white !text-gray-900 hover:!bg-gray-100"
             >
               Add to batch
             </Button>
