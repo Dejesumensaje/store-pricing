@@ -403,7 +403,6 @@ export function ItemEditDrawer({
             // Accept-first only while an HQ rec is undecided; once decided or once
             // the director opts to set their own price, show the reduction field.
             const acceptFirst = showAccept && !changingRetail && !retailDecided;
-            const showField = changingRetail || retailDecided;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
@@ -434,7 +433,29 @@ export function ItemEditDrawer({
                           Set a different price
                         </Button>
                       </div>
-                    ) : !showField ? (
+                    ) : retailDecided && !changingRetail ? (
+                      // Decided — show the promo price as the director left it
+                      // (accepted or set), not the editable chooser. The input
+                      // returns only on an explicit "Change". Mirrors base.
+                      <div className="decision-pop flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm tabular-nums">
+                          <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                          <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
+                          <span aria-hidden="true" className="text-gray-300">→</span>
+                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button variant="text-link" size="sm" onClick={() => setChangingRetail(true)}>Change</Button>
+                          <Button
+                            variant="tertiary"
+                            size="sm"
+                            iconLeft={RotateCcw}
+                            aria-label="Revert to current retail price"
+                            onClick={() => revertField("retail")}
+                          />
+                        </div>
+                      </div>
+                    ) : !changingRetail ? (
                       // No HQ rec and no decision yet — show the live promo price
                       // read-only; editing waits for a conscious "Set promo price".
                       <div className="flex items-center justify-between gap-3">
@@ -608,7 +629,39 @@ export function ItemEditDrawer({
                 </div>
                 {baseActive && (
                   <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    {baseInputBlock()}
+                    {baseLocked ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm tabular-nums">
+                          <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                          <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                          <span aria-hidden="true" className="text-gray-300">→</span>
+                          <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
+                        </div>
+                        <span className="text-xs font-medium text-gray-500">Locked</span>
+                      </div>
+                    ) : item.newBasePrice != null && !editingBase ? (
+                      // Decided — show the new base price as left, not the input.
+                      <div className="decision-pop flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-sm tabular-nums">
+                          <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                          <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                          <span aria-hidden="true" className="text-gray-300">→</span>
+                          <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button variant="text-link" size="sm" onClick={() => setEditingBase(true)}>Change</Button>
+                          <Button
+                            variant="tertiary"
+                            size="sm"
+                            iconLeft={RotateCcw}
+                            aria-label="Revert to current base price"
+                            onClick={() => { revertField("base"); setShowBase(false); setEditingBase(false); }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      baseInputBlock()
+                    )}
                   </div>
                 )}
               </section>
