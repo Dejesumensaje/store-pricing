@@ -105,6 +105,9 @@ export function ItemEditDrawer({
   // change) — show it locked instead of an assignable Select.
   const typeLocked = isTemp || item?.category_type === "no_change";
   const isEdlp = item?.category_type === "everyday_low_price";
+  // A brand-new item has no current price to keep — it gets a "set opening price"
+  // prompt instead of a read-only "current price" row.
+  const isNewItem = item?.category_type === "new_discontinued" && item?.itemStatus === "new";
   // Sent to SAP, not yet confirmed: the change is in flight and nothing can be
   // altered until SAP accepts it. The whole drawer goes read-only/disabled — the
   // Live view, but locked. Tracked per field; `sending` locks shared controls.
@@ -429,7 +432,7 @@ export function ItemEditDrawer({
                         <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
                           Accept {fmt(recRetail)}
                         </Button>
-                        <Button variant="tertiary" size="sm" onClick={() => setChangingRetail(true)}>
+                        <Button variant="secondary" size="sm" onClick={() => setChangingRetail(true)}>
                           Set a different price
                         </Button>
                       </div>
@@ -525,9 +528,10 @@ export function ItemEditDrawer({
           {!isTemp && (() => {
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
-            // New/discontinued items have no current price to keep — you must set one.
-            const mustSet = item.category_type === "new_discontinued";
-            const showInput = editingBase || (mustSet && !decided);
+            // The editable input appears only on a deliberate Change — never up
+            // front. A discontinued item with an HQ rec gets the accept-first block
+            // like any base; a brand-new item gets a "Set opening price" prompt.
+            const showInput = editingBase;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
@@ -549,11 +553,16 @@ export function ItemEditDrawer({
                     baseInputBlock()
                   ) : decided ? (
                     // Decided — a compact, popping confirmation of the new price.
+                    // New items have no "current" to strike through — just the price.
                     <div className="decision-pop flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-sm tabular-nums">
                         <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                        <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-                        <span aria-hidden="true" className="text-gray-300">→</span>
+                        {!isNewItem && (
+                          <>
+                            <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                            <span aria-hidden="true" className="text-gray-300">→</span>
+                          </>
+                        )}
                         <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
                       </div>
                       <div className="flex items-center gap-1">
@@ -569,7 +578,7 @@ export function ItemEditDrawer({
                     </div>
                   ) : showAccept ? (
                     // HQ rec awaiting a call — accept it, set your own, or keep current.
-                    // Buttons share one size (sm) with a clear primary→quiet hierarchy.
+                    // All three are DS buttons at one size (sm), primary + two secondary.
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
@@ -580,23 +589,28 @@ export function ItemEditDrawer({
                         <Button variant="primary" size="sm" iconLeft={Check} onClick={() => commitBase(rec)}>
                           Accept {fmt(rec)}
                         </Button>
-                        <Button variant="tertiary" size="sm" onClick={() => setEditingBase(true)}>
+                        <Button variant="secondary" size="sm" onClick={() => setEditingBase(true)}>
                           Set a different price
                         </Button>
-                        <Button variant="text-link" size="sm" onClick={keepCurrent}>
+                        <Button variant="secondary" size="sm" onClick={keepCurrent}>
                           Keep current
                         </Button>
                       </div>
                     </div>
                   ) : (
-                    // No change yet — show the live price; edit only on request.
+                    // No change yet — show the live price (or a new-item prompt);
+                    // the input only appears on a deliberate Set price / Change.
                     <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-baseline gap-2 tabular-nums">
-                        <span className="text-xs text-gray-500">Current price</span>
-                        <span className="text-base font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
-                      </div>
+                      {isNewItem ? (
+                        <span className="text-sm text-gray-600">{intent?.helper ?? "Set the opening price."}</span>
+                      ) : (
+                        <div className="flex items-baseline gap-2 tabular-nums">
+                          <span className="text-xs text-gray-500">Current price</span>
+                          <span className="text-base font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
+                        </div>
+                      )}
                       <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingBase(true)}>
-                        Change price
+                        {isNewItem ? "Set price" : "Change price"}
                       </Button>
                     </div>
                   )}
