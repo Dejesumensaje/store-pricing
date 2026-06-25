@@ -18,14 +18,6 @@ export type TempColumnVisibility = {
   dates: boolean;
 };
 
-export const FUEL_SAVER_OPTIONS = [
-  { label: "None", value: "0" },
-  { label: "$0.10", value: "0.10" },
-  { label: "$0.25", value: "0.25" },
-  { label: "$0.50", value: "0.50" },
-  { label: "$1.00", value: "1.00" },
-];
-
 // TA rows expose BOTH editable prices: the regular base price (regular cost)
 // and the allowance retail price (net allowance cost). Start/end dates are
 // informative-only in v1.0.

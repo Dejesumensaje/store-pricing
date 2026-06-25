@@ -33,6 +33,12 @@ export type PricingItem = {
   nationalVsStore: NationalVsStore;
   itemRole: ItemRole;
   sensitivity: Sensitivity;
+  /** Supplier/vendor of record (distinct from the consumer brand). */
+  vendorName?: string;
+  /** Known Value Item — a price shoppers watch closely. Drives a drawer badge. */
+  isKvi?: boolean;
+  /** Display name of the price family this item belongs to (e.g. "Reg Chips 11.5 oz"). */
+  priceFamilyName?: string;
   // Base price fields
   currentBasePrice: number;
   cost: number;
@@ -46,7 +52,15 @@ export type PricingItem = {
   /** Total price for `newRetailQty` units. qty 1 (or null) = single-unit price. */
   newRetailPrice?: number | null;
   newRetailQty?: number | null;
+  /** Fuel saver currently live on the shelf (the "before" in the table column). */
+  currentFuelSaver?: number | null;
+  /** HQ-proposed fuel saver, when one is recommended (renders as an HQ pill). */
+  recommendedFuelSaver?: number | null;
+  /** The director's chosen fuel saver (the "after"). null/0 = none. */
   fuelSaver?: number | null;
+  /** The window the fuel saver runs (independent of the allowance window). */
+  fuelSaverStartDate?: string | null;
+  fuelSaverEndDate?: string | null;
   allowanceStartDate?: string | null;
   allowanceEndDate?: string | null;
   // New / discontinued
@@ -85,6 +99,11 @@ export type PricingItem = {
    * The queue clears the item once it's decided.
    */
   hqReviewPending?: boolean;
+  /**
+   * Demo-only: the last send to SAP failed. Renders a "Failed" status badge.
+   * Visual state only — no real retry/timed-revert is wired.
+   */
+  sendFailed?: boolean;
   category_type: PricingCategory;
   /**
    * The pricing strategy currently live in SAP. `category_type` is the strategy
@@ -128,7 +147,10 @@ export type Batch = {
   status: BatchStatus;
   overrideIds: string[];
   createdAt: string;
-  /** Future send date/time (ISO). Set when the batch is scheduled instead of sent now. */
+  /**
+   * Future send date/time (ISO, `YYYY-MM-DDTHH:mm:00`). Required in practice —
+   * every batch is created already scheduled (date + time); SAP sends then.
+   */
   scheduledAt?: string;
   /** Set when the batch is sent to SAP. */
   submittedAt?: string;

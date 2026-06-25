@@ -1,8 +1,9 @@
 "use client";
 
-import { Modal, Button, Badge } from "@dejesumensaje/converge-ds-experimental";
+import { Modal, Button } from "@dejesumensaje/converge-ds-experimental";
 import { Package, ArrowRight, Plus, CalendarClock } from "lucide-react";
 import { Batch } from "@/types/pricing";
+import { fmtDateTime } from "@/lib/format";
 
 // One batch-assignment surface, shared by every entry point (the item drawer's
 // Done, the bulk ActionBar, and the Review worklist) so "add to a batch" looks
@@ -12,28 +13,23 @@ export function BatchPickerModal({
   open,
   onOpenChange,
   openBatches,
-  activeBatch,
   count,
   title = "Add to a batch?",
   description,
   onAddToBatch,
   onNewBatch,
-  onLater,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   openBatches: Batch[];
-  activeBatch?: Batch | null;
   /** How many item changes are being assigned (for the copy). */
   count: number;
   title?: string;
   description?: string;
   /** Assign to an existing batch. The caller closes the modal. */
   onAddToBatch: (batchId: string) => void;
-  /** Start a new batch seeded with these changes. The caller closes the modal. */
+  /** Start a new (scheduled) batch seeded with these changes. The caller closes. */
   onNewBatch: () => void;
-  /** Optional escape ("leave it for later"). Omit to hide it. */
-  onLater?: () => void;
 }) {
   const noun = count === 1 ? "this change" : `these ${count} changes`;
   return (
@@ -46,8 +42,7 @@ export function BatchPickerModal({
     >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-gray-600">
-          {description ??
-            `Group ${noun} into a batch to control when it reaches SAP — or leave it and sort it later from To send.`}
+          {description ?? `Add ${noun} to a scheduled batch to control when it reaches SAP.`}
         </p>
 
         {openBatches.length > 0 && (
@@ -55,7 +50,6 @@ export function BatchPickerModal({
             <p className="text-xs font-medium text-gray-500">Add to a batch</p>
             {openBatches.map((b) => {
               const items = new Set(b.overrideIds.map((id) => id.split(":")[0])).size;
-              const isActive = activeBatch?.id === b.id;
               return (
                 <button
                   key={b.id}
@@ -66,14 +60,10 @@ export function BatchPickerModal({
                   <span className="flex min-w-0 items-center gap-2.5">
                     <Package className="size-4 shrink-0 text-brand" aria-hidden="true" />
                     <span className="min-w-0">
-                      <span className="flex items-center gap-1.5">
-                        <span className="truncate text-sm font-medium text-gray-900">{b.name}</span>
-                        {isActive && <Badge tone="in-progress" size="sm">Active</Badge>}
-                      </span>
+                      <span className="truncate text-sm font-medium text-gray-900">{b.name}</span>
                       <span className="flex items-center gap-1 text-xs text-gray-500">
-                        {b.status === "scheduled" ? (
-                          <><CalendarClock className="size-3" aria-hidden="true" /> Scheduled</>
-                        ) : "Draft"}
+                        <CalendarClock className="size-3" aria-hidden="true" />
+                        {b.scheduledAt ? fmtDateTime(b.scheduledAt) : "Scheduled"}
                         <span className="text-gray-300">·</span> {items} item{items !== 1 ? "s" : ""}
                       </span>
                     </span>
@@ -88,12 +78,6 @@ export function BatchPickerModal({
         <Button variant="secondary" iconLeft={Plus} onClick={onNewBatch}>
           Create a new batch
         </Button>
-
-        {onLater && (
-          <Button variant="tertiary" onClick={onLater}>
-            Leave it — sort later in To send
-          </Button>
-        )}
       </div>
     </Modal>
   );

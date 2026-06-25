@@ -1,10 +1,10 @@
 "use client";
 
 import { Drawer, Button, Badge, Select, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { ArrowLeft, Trash2, Send, Inbox } from "lucide-react";
+import { Trash2, Send, Inbox, CalendarClock } from "lucide-react";
 import { usePricingStore } from "@/store/pricing-store";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { fmt, fmtQtyPrice, fmtDate } from "@/lib/format";
+import { fmt, fmtQtyPrice, fmtDate, fmtDateTime } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
 
 type Props = {
@@ -16,17 +16,17 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
   const toast = useToast();
   const batches = usePricingStore((s) => s.batches);
   const overrides = usePricingStore((s) => s.overrides);
-  const removeFromBatch = usePricingStore((s) => s.removeFromBatch);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
 
   const batch = batches.find((b) => b.id === batchId) ?? null;
   const batchOverrides = overrides.filter((o) => o.batchId === batchId);
-  const isDraft = batch?.status === "draft";
+  // Scheduled batches are still editable (not yet sent to SAP).
+  const isScheduled = batch?.status === "scheduled";
 
-  // Other draft batches this override could be moved into.
-  const otherDraftBatches = batches.filter((b) => b.id !== batchId && b.status === "draft");
+  // Other scheduled batches this change could be moved into.
+  const otherScheduledBatches = batches.filter((b) => b.id !== batchId && b.status === "scheduled");
 
   return (
     <Drawer
@@ -38,7 +38,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
       headerActions={
         batch ? (
           <Badge tone={batch.status === "confirmed" ? "success" : batch.status === "submitted" ? "warning" : "neutral"} size="sm">
-            {batch.status === "confirmed" ? "Confirmed" : batch.status === "submitted" ? "Submitted" : "Draft"}
+            {batch.status === "confirmed" ? "Live" : batch.status === "submitted" ? "Sending" : "Scheduled"}
           </Badge>
         ) : undefined
       }
@@ -47,7 +47,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
           <div className="flex items-center gap-2">
             <Button variant="tertiary" onClick={() => onOpenChange(false)}>Close</Button>
             <div className="flex-1" />
-            {batch.status === "draft" && (
+            {isScheduled && (
               <Button
                 variant="primary"
                 iconLeft={Send}
@@ -55,9 +55,10 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                 onClick={() => {
                   submitBatch(batch.id);
                   toast.success(`Batch "${batch.name}" sent to SAP`);
+                  onOpenChange(false);
                 }}
               >
-                Send to SAP ({batchOverrides.length})
+                Send to SAP now ({batchOverrides.length})
               </Button>
             )}
           </div>
@@ -66,8 +67,15 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
     >
       {!batch ? null : (
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>Created {fmtDate(batch.createdAt)}</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+            <span className="inline-flex items-center gap-3">
+              <span>Created {fmtDate(batch.createdAt)}</span>
+              {batch.scheduledAt && (
+                <span className="inline-flex items-center gap-1 text-gray-600">
+                  <CalendarClock className="size-3.5" aria-hidden="true" /> Sends {fmtDateTime(batch.scheduledAt)}
+                </span>
+              )}
+            </span>
             {batch.sapReference && (
               <span>SAP ref <span className="font-medium text-gray-600">{batch.sapReference}</span></span>
             )}
@@ -96,17 +104,14 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                     </div>
                   </div>
 
-                  {isDraft && (
+                  {isScheduled && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Button variant="tertiary" size="sm" iconLeft={ArrowLeft} onClick={() => removeFromBatch(ov.id)}>
-                        Move to pending
-                      </Button>
-                      {otherDraftBatches.length > 0 && (
+                      {otherScheduledBatches.length > 0 && (
                         <div className="w-48">
                           <Select
                             label="Move to another batch"
                             size="sm"
-                            options={otherDraftBatches.map((b) => ({ label: b.name, value: b.id }))}
+                            options={otherScheduledBatches.map((b) => ({ label: b.name, value: b.id }))}
                             value=""
                             onChange={(v) => moveOverrideToBatch(ov.id, v as string)}
                             placeholder="Move to batch…"
@@ -114,13 +119,16 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                         </div>
                       )}
                       <div className="flex-1" />
+                      {/* No loose state to fall back to — removing reverts the change. */}
                       <Button
                         variant="tertiary"
                         size="sm"
                         iconLeft={Trash2}
-                        aria-label={`Discard ${ov.itemName}`}
+                        aria-label={`Remove ${ov.itemName} (reverts the change)`}
                         onClick={() => removeFromLooseTray(ov.id)}
-                      />
+                      >
+                        Remove
+                      </Button>
                     </div>
                   )}
                 </li>

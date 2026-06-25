@@ -5,6 +5,8 @@ import { Button, Modal, Checkbox, Input, SearchInput } from "@dejesumensaje/conv
 import { Override } from "@/types/pricing";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
+import { DateField, todayIso } from "@/components/shared/DateField";
+import { TimeField, DEFAULT_SEND_TIME } from "@/components/shared/TimeField";
 
 export function toggleSetItem(
   prev: Set<string>,
@@ -23,7 +25,8 @@ type Props = {
   candidates: Override[];
   /** Override ids pre-checked when the modal opens. */
   initialSelectedIds?: string[];
-  onCreate: (name: string, overrideIds: string[]) => void;
+  /** Every batch is scheduled at creation — `scheduledAt` is `YYYY-MM-DDTHH:mm:00`. */
+  onCreate: (name: string, overrideIds: string[], scheduledAt: string) => void;
 };
 
 // Shared by the pending-changes drawer and the Loose Tray page.
@@ -31,12 +34,17 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  // A batch must be scheduled (date + time) — both required to create.
+  const [date, setDate] = useState<string | null>(null);
+  const [time, setTime] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setName("");
       setSearch("");
       setChecked(new Set(initialSelectedIds ?? []));
+      setDate(todayIso());
+      setTime(DEFAULT_SEND_TIME);
     }
   }, [open, initialSelectedIds]);
 
@@ -46,9 +54,10 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
     return candidates.filter((o) => o.itemName.toLowerCase().includes(q));
   }, [candidates, search]);
 
+  const canCreate = !!name.trim() && checked.size > 0 && !!date && !!time;
   const handleCreate = () => {
-    if (!name.trim() || checked.size === 0) return;
-    onCreate(name.trim(), Array.from(checked));
+    if (!canCreate) return;
+    onCreate(name.trim(), Array.from(checked), `${date}T${time}:00`);
     onOpenChange(false);
   };
 
@@ -64,7 +73,7 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={handleCreate} disabled={!name.trim() || checked.size === 0}>
+          <Button variant="primary" onClick={handleCreate} disabled={!canCreate}>
             Create batch ({checked.size} item{checked.size !== 1 ? "s" : ""})
           </Button>
         </div>
@@ -78,6 +87,15 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
           placeholder="e.g. Tuesday, ad prep"
           onKeyDown={(e) => e.key === "Enter" && handleCreate()}
         />
+
+        <div className="flex flex-col gap-1.5">
+          <p className="text-sm font-medium text-gray-700">Send schedule</p>
+          <div className="flex items-center gap-2">
+            <DateField value={date} onChange={setDate} min={todayIso()} aria-label="Send date" />
+            <TimeField value={time} onChange={setTime} aria-label="Send time" />
+          </div>
+          <p className="text-xs text-gray-500">The batch sends to SAP automatically at this date and time.</p>
+        </div>
 
         <div>
           <p className="text-sm font-medium text-gray-700 mb-2">Select items to include</p>

@@ -13,6 +13,7 @@ type PricingStore = {
   updateBasePrice: (itemId: string, newPrice: number | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
+  updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
   updatePriceType: (itemId: string, type: PricingCategory) => void;
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
   // Accept an item as-is (no price change) — clears it from the HQ queue.
@@ -24,12 +25,10 @@ type PricingStore = {
   removeFromBatch: (overrideId: string) => void;
   addToBatch: (batchId: string, overrideIds: string[]) => void;
   moveOverrideToBatch: (overrideId: string, targetBatchId: string) => void;
-  createBatch: (name: string, overrideIds: string[]) => void;
+  // Every batch is born scheduled — date + time is required, no draft state.
+  createBatch: (name: string, overrideIds: string[], scheduledAt: string) => void;
   scheduleBatch: (batchId: string, scheduledAt: string) => void;
   submitBatch: (batchId: string) => void;
-  // Send every unbatched (pending) edit straight to SAP — no batch ceremony.
-  // Still groups them into one auto-named submitted batch so the send is traceable.
-  sendAllPending: () => void;
   confirmBatch: (batchId: string) => void;
 };
 
@@ -51,6 +50,10 @@ function upsertOverride(
 ): { overrides: Override[]; batches: Batch[]; status: OverrideStatus | undefined } {
   const id = `${item.id}:${field}`;
   const existing = state.overrides.find((o) => o.id === id);
+
+  // A price of $0 (or negative) isn't a valid shelf price — treat it as "no
+  // decision" so an empty field or a 100%-off reduction never commits "→ $0.00".
+  if (newPrice != null && newPrice <= 0) newPrice = null;
 
   if (newPrice == null) {
     return {
@@ -167,6 +170,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
       if (!source) return {};
       const normQty = price == null ? null : Math.max(1, Math.floor(qty) || 1);
       const { overrides, batches, status } = upsertOverride(state, source, "retail", price, normQty ?? undefined);
+      // A promo MUST have a start + end window — default to a one-week run if the
+      // item doesn't already carry one.
+      const today = new Date();
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const weekOut = new Date(today.getTime() + 6 * 86400000);
       return {
         items: state.items.map((item) =>
           item.id === itemId
@@ -177,6 +185,8 @@ export const usePricingStore = create<PricingStore>((set) => ({
                 retailOverrideStatus: status,
                 // Deciding on an HQ rec reviews it for good (see updateBasePrice).
                 reviewed: price != null && item.hqReviewPending ? true : item.reviewed,
+                allowanceStartDate: price != null ? item.allowanceStartDate ?? iso(today) : item.allowanceStartDate,
+                allowanceEndDate: price != null ? item.allowanceEndDate ?? iso(weekOut) : item.allowanceEndDate,
               })
             : item
         ),
@@ -187,7 +197,30 @@ export const usePricingStore = create<PricingStore>((set) => ({
 
   updateFuelSaver: (itemId, value) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, fuelSaver: value } : item)),
+      items: state.items.map((item) => {
+        if (item.id !== itemId) return item;
+        // Clearing the fuel saver clears its dates too; setting one defaults the
+        // window to a one-week run if none is set yet.
+        if (value == null || value <= 0) {
+          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null };
+        }
+        const today = new Date();
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+        const weekOut = new Date(today.getTime() + 6 * 86400000);
+        return {
+          ...item,
+          fuelSaver: value,
+          fuelSaverStartDate: item.fuelSaverStartDate ?? iso(today),
+          fuelSaverEndDate: item.fuelSaverEndDate ?? iso(weekOut),
+        };
+      }),
+    })),
+
+  updateFuelSaverDates: (itemId, start, end) =>
+    set((state) => ({
+      items: state.items.map((item) =>
+        item.id === itemId ? { ...item, fuelSaverStartDate: start, fuelSaverEndDate: end } : item
+      ),
     })),
 
   // Switching an item's price type. Moving to a temporary allowance ensures the
@@ -198,6 +231,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
         if (item.id !== itemId) return item;
         // Picking a type by hand is an explicit choice — drop the auto-switch memory.
         if (type === "temporary_allowance") {
+          // Default the promo window to a one-week run starting today so the
+          // yellow tag has dates the moment a plain item is converted.
+          const today = new Date();
+          const iso = (d: Date) => d.toISOString().slice(0, 10);
+          const weekOut = new Date(today.getTime() + 6 * 86400000);
           return {
             ...item,
             category_type: type,
@@ -205,6 +243,8 @@ export const usePricingStore = create<PricingStore>((set) => ({
             currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
             allowanceCost: item.allowanceCost ?? Math.round(item.cost * 0.8 * 100) / 100,
             recommendedRetailPrice: item.recommendedRetailPrice ?? Math.round(item.currentBasePrice * 0.85 * 100) / 100,
+            allowanceStartDate: item.allowanceStartDate ?? iso(today),
+            allowanceEndDate: item.allowanceEndDate ?? iso(weekOut),
           };
         }
         return { ...item, category_type: type, autoTypedFrom: null };
@@ -297,14 +337,15 @@ export const usePricingStore = create<PricingStore>((set) => ({
       }),
     })),
 
-  createBatch: (name, overrideIds) =>
+  createBatch: (name, overrideIds, scheduledAt) =>
     set((state) => {
       const newBatch: Batch = {
         id: `batch-${Date.now()}`,
         name,
-        status: "draft",
+        status: "scheduled",
         overrideIds,
         createdAt: new Date().toISOString(),
+        scheduledAt,
       };
       const affected = state.overrides.filter((o) => overrideIds.includes(o.id));
       return {
@@ -332,29 +373,6 @@ export const usePricingStore = create<PricingStore>((set) => ({
           b.id === batchId ? { ...b, status: "submitted", submittedAt: new Date().toISOString() } : b
         ),
         overrides: state.overrides.map((o) => (o.batchId === batchId ? { ...o, status: "submitted" } : o)),
-        items: applyStatusToItems(state.items, affected, "submitted"),
-      };
-    }),
-
-  sendAllPending: () =>
-    set((state) => {
-      const pendingIds = state.overrides.filter((o) => o.status === "pending").map((o) => o.id);
-      if (pendingIds.length === 0) return {};
-      const now = new Date().toISOString();
-      const batch: Batch = {
-        id: `batch-${Date.now()}`,
-        name: `Direct send · ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`,
-        status: "submitted",
-        overrideIds: pendingIds,
-        createdAt: now,
-        submittedAt: now,
-      };
-      const affected = state.overrides.filter((o) => pendingIds.includes(o.id));
-      return {
-        batches: [...state.batches, batch],
-        overrides: state.overrides.map((o) =>
-          pendingIds.includes(o.id) ? { ...o, status: "submitted", batchId: batch.id } : o
-        ),
         items: applyStatusToItems(state.items, affected, "submitted"),
       };
     }),

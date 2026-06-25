@@ -54,6 +54,24 @@ export function RetailReductionField({
   const unit = price != null ? price / Math.max(1, qty ?? 1) : null;
   const state = derivePriceState({ value: price, status });
 
+  // Switching methods must preserve the PER-UNIT price, not the deal total, so a
+  // discount survives the jump into (and out of) multi-unit. Example: $5 → 10% =
+  // $4.50/unit; entering Multi-unit seeds "2 for $9.00" (4.50 × 2), not "2 for
+  // $4.50". Leaving multi-unit collapses the deal total back to the per-unit price.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const selectMethod = (m: Method) => {
+    if (m === method) return;
+    const dealQty = qty ?? 1;
+    if (price != null) {
+      if (m === "multi" && dealQty <= 1) {
+        onCommit(2, round2(price * 2));
+      } else if (m !== "multi" && dealQty > 1) {
+        onCommit(1, round2(price / dealQty));
+      }
+    }
+    setMethod(m);
+  };
+
   return (
     <div className="flex flex-col gap-3">
       {/* How do you want to discount? — one path at a time. */}
@@ -62,7 +80,7 @@ export function RetailReductionField({
           <button
             key={m.id}
             type="button"
-            onClick={() => setMethod(m.id)}
+            onClick={() => selectMethod(m.id)}
             aria-pressed={method === m.id}
             className={`border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
               method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"

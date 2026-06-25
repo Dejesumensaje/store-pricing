@@ -42,23 +42,10 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
   const livePrice = parseFloat(draftPrice);
   const isDeal = multi && !isNaN(livePrice) && livePrice > 0;
 
-  // When the toggle flips, re-commit with the right quantity (single = 1, multi
-  // defaults to 2) so the stored deal matches the visible control — but only
-  // once a price exists, since an empty field is still "no decision".
-  const prevMulti = useRef(multi);
-  useEffect(() => {
-    if (prevMulti.current === multi) return;
-    prevMulti.current = multi;
-    const p = parseFloat(draftPrice);
-    if (multi) {
-      const nextQty = parseInt(draftQty, 10) >= 2 ? parseInt(draftQty, 10) : 2;
-      setDraftQty(String(nextQty));
-      if (!isNaN(p)) onCommit(nextQty, p);
-    } else {
-      setDraftQty("");
-      if (!isNaN(p)) onCommit(1, p);
-    }
-  }, [multi]); // eslint-disable-line react-hooks/exhaustive-deps
+  // NOTE: the per-unit-preserving math for switching into/out of multi-unit lives
+  // in RetailReductionField.selectMethod (the single owner of method transitions),
+  // so the stored deal stays consistent (e.g. $4.50/unit → "2 for $9.00"). This
+  // input just reflects the qty/price props it's given.
 
   const commit = () => {
     if (isNaN(livePrice)) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Badge, Checkbox, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Button, Checkbox, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { Check, X, ChevronRight, CheckCircle2, AlertTriangle, ArrowRight, Package } from "lucide-react";
 import { BatchPickerModal } from "./BatchPickerModal";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -13,19 +13,18 @@ import { PricingItem, Batch } from "@/types/pricing";
 import { fmt } from "@/lib/format";
 
 // HQ can send a lot — so review is a scannable WORKLIST, not a 1-by-1 march:
-// see everything at once (context + patterns), accept/skip inline, accept in
+// see everything at once (context + patterns), accept/keep inline, accept in
 // bulk, and dive into the full card only for the ones that need a closer look.
-// Accepting feeds the "To send" queue — review decides prices; batching (which
-// SAP send group, when) happens on the To-send surface this hands off to.
+// Accepting a rec ALWAYS drops it into a batch (existing or new) — there is no
+// loose "to send" state; review decides the price + which batch it ships in.
 type Props = {
   onExit: () => void;
   /** Open an item's full proposal card (the drawer) for a closer look. */
   onOpenItem: (id: string) => void;
-  /** Go to the To-send surface to sort the accepted changes into batches. */
+  /** Jump to the Batches surface to schedule/send. */
   onGoToSend: () => void;
   openBatches: Batch[];
-  activeBatch: Batch | null;
-  /** Assign override ids to a batch (owned by the page). */
+  /** Accept + assign override ids to a batch (owned by the page; toasts w/ Undo). */
   onAddToBatch: (batchId: string, overrideIds: string[]) => void;
   onNewBatch: (seedIds: string[]) => void;
 };
@@ -43,13 +42,12 @@ function proposal(item: PricingItem) {
   return { current, proposed, pct, flagged };
 }
 
-export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, activeBatch, onAddToBatch, onNewBatch }: Props) {
+export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, onAddToBatch, onNewBatch }: Props) {
   const items = usePricingStore((s) => s.items);
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
   const setReviewed = usePricingStore((s) => s.setReviewed);
-  const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const toast = useToast();
 
   const [totalAtEntry] = useState(() => items.filter(hqReviewNeeded).length);
@@ -57,8 +55,10 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
   const [sort, setSort] = useState<SortKey>("attention");
   // Confirm a bulk-accept that includes flagged proposals (big swings / alerts).
   const [confirmAcceptAll, setConfirmAcceptAll] = useState(false);
-  // Accept-and-batch the selection via the shared batch picker.
-  const [batchPickerOpen, setBatchPickerOpen] = useState(false);
+  // Items queued for the batch picker — accept + drop into the chosen/new batch.
+  const [pendingCommit, setPendingCommit] = useState<PricingItem[] | null>(null);
+  // How many changes were accepted into a batch this session (drives the handoff).
+  const [sentToBatch, setSentToBatch] = useState(0);
 
   // The override id an accept produces (retail for a promo, base otherwise).
   const overrideIdFor = (item: PricingItem) =>
@@ -79,10 +79,6 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
   }, [items, sort]);
 
   const decided = totalAtEntry - queue.length;
-  const readyCount = useMemo(
-    () => items.filter((i) => i.baseOverrideStatus === "pending" || i.retailOverrideStatus === "pending").length,
-    [items]
-  );
 
   const acceptOne = (item: PricingItem) => {
     if (item.category_type === "temporary_allowance") {
@@ -91,48 +87,30 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
       updateBasePrice(item.id, item.recommendedBasePrice);
     }
   };
-  // Put an accepted item back into the queue (drop its pending change + un-review).
-  const undoAccept = (item: PricingItem) => {
-    removeFromLooseTray(overrideIdFor(item));
-    setReviewed(item.id, false);
-  };
-  // Single-row accept — toasts with Undo so a stray tap on the icon trio is
-  // recoverable without leaving Review.
-  const acceptRow = (item: PricingItem) => {
-    acceptOne(item);
-    toast.success("Accepted — in To send", {
-      action: { label: "Undo", onClick: () => undoAccept(item) },
-    });
-  };
-  const acceptMany = (list: PricingItem[]) => {
-    list.forEach(acceptOne);
-    setSelected(new Set());
-    toast.success(`${list.length} accepted`, {
-      description: "Added to To send.",
-      action: { label: "Undo", onClick: () => list.forEach(undoAccept) },
-    });
-  };
-  // Accept the selected recs AND drop them straight into a batch — for directors
-  // who sort as they review (the alternative to batching later on To send).
-  const acceptSelectedToBatch = (batchId: string) => {
-    const list = queue.filter((i) => selected.has(i.id));
+  // Accept a set AND drop it into an existing batch (the page toasts with Undo).
+  const acceptInto = (list: PricingItem[], batchId: string) => {
+    if (list.length === 0) return;
     list.forEach(acceptOne);
     onAddToBatch(batchId, list.map(overrideIdFor));
+    setSentToBatch((n) => n + list.length);
     setSelected(new Set());
   };
-  // "Skip" rejects the rec and keeps the current price — permanent, so it's
-  // Undoable too.
+  // Single-row accept — every change must land in a batch the director chooses
+  // (or creates). There is no implicit "active" batch; always open the picker.
+  const acceptRow = (item: PricingItem) => setPendingCommit([item]);
+  // "Keep" rejects the rec and keeps the current price — permanent, so Undoable.
   const skipOne = (item: PricingItem) => {
     acceptNoChange(item.id);
     toast.success("Kept current price", {
       action: { label: "Undo", onClick: () => setReviewed(item.id, false) },
     });
   };
-  // Accept-all, guarded: if any flagged proposals are in the set, confirm first.
+  // Accept-all / accept-selected always go through the picker — a deliberate batch
+  // choice for a big set. Accept-all confirms first if flagged proposals exist.
   const flaggedInQueue = useMemo(() => queue.filter((i) => proposal(i).flagged).length, [queue]);
   const acceptAll = () => {
     if (flaggedInQueue > 0) setConfirmAcceptAll(true);
-    else acceptMany(queue);
+    else setPendingCommit(queue);
   };
 
   const toggle = (id: string) =>
@@ -142,7 +120,7 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
       return next;
     });
 
-  // ── End of the queue: hand off to To send (where batching happens) ──────────
+  // ── End of the queue: hand off to Batches (schedule/send) ───────────────────
   if (queue.length === 0) {
     return (
       <div className="mx-auto flex max-w-md flex-col items-center gap-4 py-20 text-center">
@@ -151,13 +129,13 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
           {totalAtEntry === 0 ? "No recommendations to review" : "All reviewed"}
         </h2>
         <p className="max-w-[320px] text-sm text-gray-500">
-          {readyCount > 0
-            ? `${readyCount} ${readyCount === 1 ? "change is" : "changes are"} now in To send. Sort them into batches to control when they reach SAP.`
+          {sentToBatch > 0
+            ? `${sentToBatch} ${sentToBatch === 1 ? "change is" : "changes are"} in your batches. Schedule or send them when you're ready.`
             : "Nothing was accepted — nothing to send."}
         </p>
-        {readyCount > 0 && (
+        {sentToBatch > 0 && (
           <Button variant="primary" iconRight={ArrowRight} onClick={onGoToSend} className="mt-1">
-            Go to To send
+            Go to Batches
           </Button>
         )}
         <Button variant="tertiary" onClick={onExit}>Back to all items</Button>
@@ -179,9 +157,9 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {readyCount > 0 && (
+          {sentToBatch > 0 && (
             <button type="button" onClick={onGoToSend} className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
-              <Check className="size-4" aria-hidden="true" /> {readyCount} in To send
+              <Check className="size-4" aria-hidden="true" /> {sentToBatch} in Batches
             </button>
           )}
           <Button variant="tertiary" size="sm" iconLeft={X} onClick={onExit}>Exit review</Button>
@@ -214,14 +192,9 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
         </div>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
-            <>
-              <Button variant="secondary" size="sm" iconLeft={Package} onClick={() => setBatchPickerOpen(true)}>
-                Accept &amp; batch
-              </Button>
-              <Button variant="secondary" size="sm" iconLeft={Check} onClick={() => acceptMany(queue.filter((i) => selected.has(i.id)))}>
-                Accept ({selected.size})
-              </Button>
-            </>
+            <Button variant="secondary" size="sm" iconLeft={Package} onClick={() => setPendingCommit(queue.filter((i) => selected.has(i.id)))}>
+              Accept &amp; batch ({selected.size})
+            </Button>
           )}
           <Button variant="primary" size="sm" iconLeft={Check} onClick={acceptAll}>
             Accept all {queue.length}
@@ -255,7 +228,7 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
               <div className="flex shrink-0 items-center gap-1">
                 {/* Tooltips name each icon-only action; the hover scale (Accept) /
                     red tint (Skip = reject) keeps the interaction tactile. */}
-                <Tooltip content="Accept HQ rec">
+                <Tooltip content="Accept & add to a batch">
                   <span className="inline-flex">
                     <Button
                       variant="primary"
@@ -298,21 +271,30 @@ export function ReviewFlow({ onExit, onOpenItem, onGoToSend, openBatches, active
         open={confirmAcceptAll}
         onOpenChange={(o) => { if (!o) setConfirmAcceptAll(false); }}
         headline={`Accept all ${queue.length} recommendations?`}
-        description={`${flaggedInQueue} ${flaggedInQueue === 1 ? "is" : "are"} flagged for a closer look (a big swing or an alert). You can still Undo from the toast.`}
+        description={`${flaggedInQueue} ${flaggedInQueue === 1 ? "is" : "are"} flagged for a closer look (a big swing or an alert). You'll pick the batch they ship in next.`}
         confirmLabel={`Accept all ${queue.length}`}
-        onConfirm={() => acceptMany(queue)}
+        onConfirm={() => setPendingCommit(queue)}
       />
 
+      {/* Accepting forces a batch — pick an existing one or create a new (scheduled)
+          one. There is no loose "to send" state. */}
       <BatchPickerModal
-        open={batchPickerOpen}
-        onOpenChange={setBatchPickerOpen}
-        title={`Accept ${selected.size} & add to a batch`}
-        description="The selected recommendations are accepted and dropped straight into the batch you pick — ready to schedule or send."
+        open={pendingCommit != null}
+        onOpenChange={(o) => { if (!o) setPendingCommit(null); }}
+        title={`Accept ${pendingCommit?.length ?? 0} & add to a batch`}
+        description="The accepted recommendations drop straight into the batch you pick — ready to schedule or send."
         openBatches={openBatches}
-        activeBatch={activeBatch}
-        count={selected.size}
-        onAddToBatch={(id) => { acceptSelectedToBatch(id); setBatchPickerOpen(false); }}
-        onNewBatch={() => { acceptMany(queue.filter((i) => selected.has(i.id))); setBatchPickerOpen(false); onGoToSend(); }}
+        count={pendingCommit?.length ?? 0}
+        onAddToBatch={(id) => { if (pendingCommit) acceptInto(pendingCommit, id); setPendingCommit(null); }}
+        onNewBatch={() => {
+          if (pendingCommit) {
+            pendingCommit.forEach(acceptOne);
+            setSentToBatch((n) => n + pendingCommit.length);
+            onNewBatch(pendingCommit.map(overrideIdFor));
+            setSelected(new Set());
+          }
+          setPendingCommit(null);
+        }}
       />
     </div>
   );

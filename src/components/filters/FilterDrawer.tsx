@@ -72,38 +72,32 @@ function FacetSection({
 
   return (
     <div className="py-1.5">
-      {/* Header: label + selected count + a Clear action right beside the pill,
-          then the expand/collapse chevron on the far right. */}
-      <div className="flex items-center gap-2 py-1.5">
+      {/* The WHOLE header row toggles open/closed (not just the chevron). "Clear"
+          is a separate button overlaid on the right so it stays its own action. */}
+      <div className="relative py-1.5">
         <button
           type="button"
           onClick={onToggleOpen}
           aria-expanded={open}
-          className="flex items-center gap-2 text-left"
+          aria-label={`${open ? "Collapse" : "Expand"} ${facet.label}`}
+          className="flex w-full items-center gap-2 text-left"
         >
           <span className="text-sm font-semibold text-gray-700">{facet.label}</span>
           {selected.length > 0 && <Badge tone="in-progress" size="sm">{selected.length}</Badge>}
+          <ChevronDown
+            aria-hidden
+            className={`ml-auto size-4 shrink-0 text-gray-500 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+          />
         </button>
         {selected.length > 0 && (
           <button
             type="button"
             onClick={() => onChange([])}
-            className="text-xs font-medium text-brand hover:underline"
+            className="absolute right-7 top-1/2 -translate-y-1/2 text-xs font-medium text-brand hover:underline"
           >
             Clear
           </button>
         )}
-        <button
-          type="button"
-          onClick={onToggleOpen}
-          aria-label={`${open ? "Collapse" : "Expand"} ${facet.label}`}
-          className="ml-auto inline-flex"
-        >
-          <ChevronDown
-            aria-hidden
-            className={`size-4 shrink-0 text-gray-500 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
-          />
-        </button>
       </div>
 
       {open && (

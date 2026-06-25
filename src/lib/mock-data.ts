@@ -10,6 +10,11 @@ const LINE_PRICE_GROUPS: Record<string, string> = {
   "RBCS5-8": "fl-tortilla",
 };
 
+// Display names for line-price groups — shown in the drawer as the price family.
+const PRICE_FAMILY_NAMES: Record<string, string> = {
+  "fl-tortilla": "Reg Tortilla Chips 9–11 oz",
+};
+
 // A few hand-picked "frequently priced together" relationships.
 const RELATED_ITEMS: Record<string, string[]> = {
   "W7BESS": ["RBCS5-1", "RBCS5-2", "RBCS5-8"],
@@ -29,20 +34,31 @@ function enrichItemContext(item: PricingItem): PricingItem {
     { name: "Target", price: round2(base * 1.04), distanceMi: 3.4 },
     { name: "Aldi", price: round2(base * 0.89), distanceMi: 5.2 },
   ];
+  const lineGroup = LINE_PRICE_GROUPS[item.id];
   return {
     ...item,
     competitors,
     relatedItemIds: RELATED_ITEMS[item.id],
-    linePriceGroup: LINE_PRICE_GROUPS[item.id],
+    linePriceGroup: lineGroup,
+    // Identity context shown in the drawer's item-info block.
+    vendorName: item.vendorName ?? `${item.brand} Distribution`,
+    // High-sensitivity SKUs are the prices shoppers watch — flag them KVI.
+    isKvi: item.isKvi ?? item.sensitivity === "H",
+    priceFamilyName: item.priceFamilyName ?? (lineGroup ? PRICE_FAMILY_NAMES[lineGroup] : undefined),
     // Temp-allowance defaults (retail overrides are seeded explicitly below).
     currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
     allowanceCost: item.allowanceCost ?? round2(item.cost * 0.8),
     recommendedRetailPrice: item.recommendedRetailPrice ?? round2(item.currentBasePrice * 0.85),
     newRetailPrice: item.newRetailPrice ?? null,
     newRetailQty: item.newRetailQty ?? null,
+    currentFuelSaver: item.currentFuelSaver ?? null,
     fuelSaver: item.fuelSaver ?? null,
-    allowanceStartDate: item.allowanceStartDate ?? null,
-    allowanceEndDate: item.allowanceEndDate ?? null,
+    // Give any seeded fuel saver a one-week run so the table date tooltip has data.
+    fuelSaverStartDate: item.fuelSaverStartDate ?? (item.fuelSaver ? "2026-06-24" : null),
+    fuelSaverEndDate: item.fuelSaverEndDate ?? (item.fuelSaver ? "2026-06-30" : null),
+    // Every promo (temporary allowance) MUST have a start + end window.
+    allowanceStartDate: item.allowanceStartDate ?? (item.category_type === "temporary_allowance" ? "2026-06-24" : null),
+    allowanceEndDate: item.allowanceEndDate ?? (item.category_type === "temporary_allowance" ? "2026-06-30" : null),
   };
 }
 
@@ -89,8 +105,11 @@ const baseMockItems: PricingItem[] = [
     currentRetailPrice: 3.99,
     newRetailQty: 1,
     newRetailPrice: 3.49,
-    retailOverrideStatus: "pending",
+    retailOverrideStatus: "in_batch",
     hasOverride: true,
+    // A fuel saver already live on the shelf — the table shows it steady (no change).
+    currentFuelSaver: 0.1,
+    fuelSaver: 0.1,
   },
   {
     ...baseItem,
@@ -104,10 +123,14 @@ const baseMockItems: PricingItem[] = [
     // increase, the 3-for-$12 multi-unit deal, and a fuel saver. See the matching
     // RBCS5-1:base / RBCS5-1:retail seeds in mockOverrides.
     newBasePrice: 5.79,
-    baseOverrideStatus: "pending",
+    baseOverrideStatus: "in_batch",
     newRetailQty: 3,
     newRetailPrice: 12.0,
-    retailOverrideStatus: "pending",
+    retailOverrideStatus: "in_batch",
+    // A 3-week promo — long enough that the yellow tag reads "Sale price", not
+    // "Savings this week".
+    allowanceStartDate: "2026-06-24",
+    allowanceEndDate: "2026-07-14",
     fuelSaver: 0.1,
     hasOverride: true,
     impactSalesValue: 1.4,
@@ -137,7 +160,7 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 5.29,
     newBasePrice: 5.99,
     hasOverride: true,
-    baseOverrideStatus: "pending",
+    baseOverrideStatus: "in_batch",
     hasAlert: true,
     impactConfidence: "Low",
     impactSalesValue: -0.6,
@@ -155,10 +178,12 @@ const baseMockItems: PricingItem[] = [
     cost: 1.55,
     recommendedBasePrice: 2.49,
     itemRole: "Convenience",
-    // Seeded retail (temp allowance) — see mockOverrides RBCS5-4:retail.
+    // Seeded retail (temp allowance) — see mockOverrides RBCS5-4:retail. The last
+    // send to SAP failed → demoes the "Failed" status badge (visual only).
     newRetailQty: 1,
     newRetailPrice: 1.99,
     retailOverrideStatus: "submitted",
+    sendFailed: true,
   },
   {
     ...baseItem,
@@ -275,7 +300,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.99,
     newPrice: 5.99,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "RBCS5-5:base",
@@ -307,7 +333,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 5.49,
     newPrice: 5.79,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "EDLP-2:base",
@@ -317,7 +344,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 1.98,
     newPrice: 1.88,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "W7BESS:retail",
@@ -327,7 +355,8 @@ export const mockOverrides: Override[] = [
     priceField: "retail",
     currentPrice: 3.99,
     newPrice: 3.49,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "RBCS5-1:retail",
@@ -338,7 +367,8 @@ export const mockOverrides: Override[] = [
     currentPrice: 5.49,
     newPrice: 12.0,
     qty: 3,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "RBCS5-4:retail",
@@ -356,16 +386,26 @@ export const mockBatches: Batch[] = [
   {
     id: "batch-1",
     name: "Tuesday, ad prep",
-    status: "draft",
+    status: "scheduled",
     overrideIds: ["RBCS5-5:base"],
     createdAt: "2026-06-10T09:00:00Z",
+    scheduledAt: "2026-06-30T06:00:00",
   },
   {
     id: "batch-2",
     name: "Friday endcap reset",
-    status: "draft",
+    status: "scheduled",
     overrideIds: ["RBCS5-6:base"],
     createdAt: "2026-06-10T14:00:00Z",
+    scheduledAt: "2026-07-03T05:00:00",
+  },
+  {
+    id: "batch-3",
+    name: "This week's promos",
+    status: "scheduled",
+    overrideIds: ["RBCS5-3:base", "RBCS5-1:base", "RBCS5-1:retail", "EDLP-2:base", "W7BESS:retail"],
+    createdAt: "2026-06-24T08:00:00Z",
+    scheduledAt: "2026-06-26T06:00:00",
   },
 ];
 
@@ -398,7 +438,7 @@ const edlpCatalog: PricingItem[] = [
   // Price" (an EDLP conversion is demoed separately on RBCS5-5). See EDLP-2:base.
   .map((it) =>
     it.id === "EDLP-2"
-      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "pending" as const, hasOverride: true }
+      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "in_batch" as const, hasOverride: true }
       : it
   );
 

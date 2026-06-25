@@ -5,17 +5,16 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateField } from "../shared/DateField";
 import { usePricingStore } from "@/store/pricing-store";
-import { PricingItem, PricingCategory, OverrideStatus, Batch } from "@/types/pricing";
+import { PricingItem, OverrideStatus, Batch } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BatchPickerModal } from "../store/BatchPickerModal";
 import { ShelfTagPreview } from "./ShelfTagPreview";
-import { FUEL_SAVER_OPTIONS } from "./columns/tempColumns";
 import { ImpactBreakdown } from "./columns/shared";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { PRICE_TYPE_META, PRICE_TYPE_INTENT } from "@/lib/pricing-meta";
+import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
@@ -28,22 +27,12 @@ type Props = {
   flow: "all" | "hq";
   /** Open batches the per-item "Add to batch" menu can target. */
   openBatches: Batch[];
-  activeBatch: Batch | null;
   /** Assign this item's pending change(s) to a batch (owned by the page). */
   onAddToBatch: (batchId: string, overrideIds: string[]) => void;
   /** Start a new batch seeded with these override ids (owned by the page). */
   onNewBatch: (seedIds: string[]) => void;
   onClose: () => void;
 };
-
-// Price types a store director can assign by hand. Temporary allowances are
-// vendor-funded (HQ-only: the store overrides the price, not the type) and
-// "no change" is a system state — both are excluded here.
-const STORE_ASSIGNABLE_TYPES: PricingCategory[] = ["base", "everyday_low_price", "new_discontinued"];
-const PRICE_TYPE_OPTIONS = STORE_ASSIGNABLE_TYPES.map((key) => ({
-  label: PRICE_TYPE_META[key].label,
-  value: key,
-}));
 
 function Field({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -80,7 +69,6 @@ export function ItemEditDrawer({
   itemId,
   flow,
   openBatches,
-  activeBatch,
   onAddToBatch,
   onNewBatch,
   onClose,
@@ -90,6 +78,7 @@ export function ItemEditDrawer({
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
   const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const updateFuelSaver = usePricingStore((s) => s.updateFuelSaver);
+  const updateFuelSaverDates = usePricingStore((s) => s.updateFuelSaverDates);
   const updatePriceType = usePricingStore((s) => s.updatePriceType);
   const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
@@ -101,19 +90,18 @@ export function ItemEditDrawer({
   const isTemp = item?.category_type === "temporary_allowance";
   // HQ pushed this price (already live). Frames the reference grid + identity note.
   const isHq = item?.hqReviewPending === true;
-  // The price type is HQ-owned (vendor-funded allowance) or a system state (no
-  // change) — show it locked instead of an assignable Select.
-  const typeLocked = isTemp || item?.category_type === "no_change";
   const isEdlp = item?.category_type === "everyday_low_price";
   // A brand-new item has no current price to keep — it gets a "set opening price"
   // prompt instead of a read-only "current price" row.
   const isNewItem = item?.category_type === "new_discontinued" && item?.itemStatus === "new";
   // Sent to SAP, not yet confirmed: the change is in flight and nothing can be
-  // altered until SAP accepts it. The whole drawer goes read-only/disabled — the
-  // Live view, but locked. Tracked per field; `sending` locks shared controls.
-  const baseLocked = item?.baseOverrideStatus === "submitted";
-  const retailLocked = item?.retailOverrideStatus === "submitted";
-  const sending = baseLocked || retailLocked;
+  // altered until SAP accepts it. An item that's Sending (any submitted field) is
+  // FULLY locked — base, retail AND fuel saver, regardless of which field is the
+  // one in flight. So a single `sending` flag locks every section.
+  const sending =
+    item?.baseOverrideStatus === "submitted" || item?.retailOverrideStatus === "submitted";
+  const baseLocked = sending;
+  const retailLocked = sending;
   // Per-type intent (labels + helper copy). New/discontinued is refined by itemStatus.
   const intent = item
     ? item.category_type === "new_discontinued"
@@ -124,9 +112,6 @@ export function ItemEditDrawer({
     : null;
 
   const [showFuelSaver, setShowFuelSaver] = useState(false);
-  // In a temporary allowance, changing the base (white-tag) price is optional —
-  // this reveals the base section, mirroring the fuel-saver toggle.
-  const [showBase, setShowBase] = useState(false);
   // Conscious-edit: the editable price input only appears once the director
   // deliberately chooses to set/change a price (vs. accepting or keeping). Until
   // then the section shows the current price read-only — no premature input.
@@ -140,7 +125,6 @@ export function ItemEditDrawer({
   // Reset per-item UI reveals when navigating to another item.
   useEffect(() => {
     setShowFuelSaver(false);
-    setShowBase(false);
     setEditingBase(false);
     setChangingRetail(false);
     setBatchPromptOpen(false);
@@ -241,6 +225,11 @@ export function ItemEditDrawer({
         onClick={() => { revertField("base"); setEditingBase(false); }}
       />
     ) : undefined;
+    // The input's ghost placeholder = the value you'd most likely type: HQ's
+    // proposal when one is pending (or a new item's suggested opening price),
+    // otherwise the CURRENT price — never a stray recommendation the director
+    // isn't acting on (which read as a confusing "$4.49" on a $4.29 item).
+    const basePlaceholder = isNewItem || hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice;
     return (
       <div className="flex flex-col gap-4">
         <Field label={priceLabel} action={revertAction}>
@@ -249,7 +238,7 @@ export function ItemEditDrawer({
             // director picks HOW to apply it (% off / $ off / exact).
             <BaseReductionField
               reference={item.currentBasePrice}
-              recommended={item.recommendedBasePrice}
+              recommended={basePlaceholder}
               value={item.newBasePrice}
               status={item.baseOverrideStatus}
               hasAlert={item.hasAlert}
@@ -261,7 +250,7 @@ export function ItemEditDrawer({
               <PriceInputCell
                 autoFocus
                 ariaLabel={priceLabel}
-                recommended={item.recommendedBasePrice}
+                recommended={basePlaceholder}
                 value={item.newBasePrice}
                 state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
                 onCommit={commitBase}
@@ -291,7 +280,7 @@ export function ItemEditDrawer({
       onOpenChange={(o) => {
         if (!o) onClose();
       }}
-      title={sending ? "Price details" : "Edit prices"}
+      title={item?.name ?? "Item"}
       size="md"
       className="max-md:!w-full"
       headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
@@ -316,8 +305,9 @@ export function ItemEditDrawer({
     >
       {item && (
         <div key={item.id} className="flex flex-col gap-5">
-          {/* Item identity */}
-          <div className="flex items-center gap-3">
+          {/* Item identity — the drawer header already carries the name, so this is
+              the second-level reference info: SKU, vendor, cost + role/program badges. */}
+          <div className="flex items-start gap-3">
             <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
               {item.image ? (
                 <Image src={item.image} alt={item.name} width={64} height={64} className="object-cover" />
@@ -325,15 +315,28 @@ export function ItemEditDrawer({
                 <Package className="size-6 text-gray-300" aria-hidden="true" />
               )}
             </div>
-            <div className="min-w-0">
-              <p className="text-base font-semibold text-gray-900">{item.name}</p>
-              <p className="text-xs text-gray-500 mt-0.5">
-                {item.id} · {item.aisle} · {item.brand} · Cost {fmt(item.cost)}
-                {isTemp && ` · Allowance cost ${fmt(item.allowanceCost ?? item.cost)}`}
-              </p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            <div className="min-w-0 flex flex-col gap-1.5">
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                <dt className="text-gray-400">SKU ID</dt>
+                <dd className="font-medium tabular-nums text-gray-700">{item.id}</dd>
+                <dt className="text-gray-400">Vendor</dt>
+                <dd className="text-gray-700">{item.vendorName ?? item.brand}</dd>
+                <dt className="text-gray-400">Unit cost</dt>
+                <dd className="tabular-nums text-gray-700">
+                  {fmt(item.cost)}
+                  {isTemp && <span className="text-gray-400"> · allowance {fmt(item.allowanceCost ?? item.cost)}</span>}
+                </dd>
+                {item.priceFamilyName && (
+                  <>
+                    <dt className="text-gray-400">Price family</dt>
+                    <dd className="text-gray-700">{item.priceFamilyName}</dd>
+                  </>
+                )}
+              </dl>
+              <div className="flex flex-wrap items-center gap-1">
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
-                {item.linePriceGroup && <Badge tone="neutral" size="sm">Line price</Badge>}
+                {isEdlp && <Badge tone="success" size="sm">EDLP</Badge>}
+                {item.isKvi && <Badge tone="warning" size="sm">KVI</Badge>}
               </div>
             </div>
           </div>
@@ -363,175 +366,15 @@ export function ItemEditDrawer({
             </div>
           )}
 
-          {/* Price type — assignable types use a Select; HQ-owned (vendor-funded
-              allowance) and system ("no change") types are locked and demoted to a
-              quiet one-line caption instead of a titled, non-actionable block. */}
-          {typeLocked || sending ? (
-            <p className="-mt-2 flex items-center gap-1.5 text-xs text-gray-500">
-              <Lock className="size-3.5 shrink-0 text-gray-400" aria-hidden="true" />
-              <span>
-                <span className="font-medium text-gray-600">{PRICE_TYPE_META[item.category_type].label}</span>
-                {/* Don't claim "editable" once it's sent. */}
-                {isTemp && !sending && " · price & dates editable, type set by HQ"}
-              </span>
-            </p>
-          ) : (
-            <div>
-              <Select
-                options={PRICE_TYPE_OPTIONS}
-                value={item.category_type}
-                onChange={(v) => updatePriceType(item.id, v as PricingCategory)}
-                label="Price type"
-                size="sm"
-              />
-              {intent && <p className="mt-1.5 text-xs text-gray-500">{intent.helper}</p>}
-              {item.autoTypedFrom === "no_change" && (
-                <p className="mt-1 flex items-center gap-1 text-xs font-medium text-brand">
-                  <Check className="size-3.5" aria-hidden="true" /> Changed to Base price
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Retail price (temporary allowance) — the primary decision: the
-              yellow-tag promo price. Accept-first: when HQ has a rec, the section
-              opens on it; "Set a different price" reveals the reduction chooser. */}
-          {isTemp && (() => {
-            const recRetail = item.recommendedRetailPrice ?? item.currentBasePrice;
-            // % / $ reductions are taken off the base (white-tag) price — the new
-            // base if the director set one, otherwise the current base.
-            const baseRef = item.newBasePrice ?? item.currentBasePrice;
-            const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
-            const retailDecided = item.newRetailPrice != null;
-            // Accept-first only while an HQ rec is undecided; once decided or once
-            // the director opts to set their own price, show the reduction field.
-            const acceptFirst = showAccept && !changingRetail && !retailDecided;
-            return (
-              <section className="flex flex-col gap-2">
-                <h3 className="text-sm font-semibold text-gray-700">
-                  Retail price <span className="font-normal text-gray-400">· yellow promo tag</span>
-                </h3>
-                {/* Reference prices (current + HQ rec) intentionally omitted — the
-                    shelf preview above already shows the crossed white tag + the
-                    yellow tag, so repeating the numbers here is just noise. */}
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                  <div className="flex flex-col gap-4">
-                    {retailLocked ? (
-                      // Sent to SAP — read-only until SAP confirms.
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm tabular-nums">
-                          <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                          <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
-                          <span aria-hidden="true" className="text-gray-300">→</span>
-                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
-                        </div>
-                        <span className="text-xs font-medium text-gray-500">Locked</span>
-                      </div>
-                    ) : acceptFirst ? (
-                      <div className="decision-pop flex flex-wrap items-center gap-2">
-                        <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
-                          Accept {fmt(recRetail)}
-                        </Button>
-                        <Button variant="secondary" size="sm" onClick={() => setChangingRetail(true)}>
-                          Set a different price
-                        </Button>
-                      </div>
-                    ) : retailDecided && !changingRetail ? (
-                      // Decided — show the promo price as the director left it
-                      // (accepted or set), not the editable chooser. The input
-                      // returns only on an explicit "Change". Mirrors base.
-                      <div className="decision-pop flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm tabular-nums">
-                          <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                          <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
-                          <span aria-hidden="true" className="text-gray-300">→</span>
-                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Button variant="text-link" size="sm" onClick={() => setChangingRetail(true)}>Change</Button>
-                          <Button
-                            variant="tertiary"
-                            size="sm"
-                            iconLeft={RotateCcw}
-                            aria-label="Revert to current retail price"
-                            onClick={() => revertField("retail")}
-                          />
-                        </div>
-                      </div>
-                    ) : !changingRetail ? (
-                      // No HQ rec and no decision yet — show the live promo price
-                      // read-only; editing waits for a conscious "Set promo price".
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-baseline gap-2 tabular-nums">
-                          <span className="text-xs text-gray-500">Current</span>
-                          <span className="text-base font-semibold text-gray-900">{fmt(curRetail)}</span>
-                        </div>
-                        <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setChangingRetail(true)}>
-                          Set promo price
-                        </Button>
-                      </div>
-                    ) : (
-                      <>
-                        <Field
-                          label="New retail price"
-                          action={
-                            item.newRetailPrice != null && (
-                              <Button
-                                variant="tertiary"
-                                size="sm"
-                                iconLeft={RotateCcw}
-                                aria-label="Revert to current retail price"
-                                onClick={() => revertField("retail")}
-                              />
-                            )
-                          }
-                        >
-                          <RetailReductionField
-                            baseReference={baseRef}
-                            recommendedPrice={recRetail}
-                            qty={item.newRetailQty ?? null}
-                            price={item.newRetailPrice ?? null}
-                            status={item.retailOverrideStatus}
-                            onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
-                          />
-                        </Field>
-
-                        <Field label="Allowance period">
-                          <div className="flex items-center gap-2">
-                            <DateField
-                              value={item.allowanceStartDate}
-                              onChange={(v) => updateAllowanceDates(item.id, v, item.allowanceEndDate ?? null)}
-                              aria-label="Allowance start date"
-                            />
-                            <span aria-hidden="true" className="text-gray-300">–</span>
-                            <DateField
-                              value={item.allowanceEndDate}
-                              onChange={(v) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, v)}
-                              aria-label="Allowance end date"
-                            />
-                          </div>
-                        </Field>
-                        {/* Margin moved to "Projected impact" (consolidated financials). */}
-                      </>
-                    )}
-                  </div>
-                </div>
-              </section>
-            );
-          })()}
-
-          {/* Base price — the white-tag shelf price. For base/EDLP items it's the
-              primary (conscious-edit) decision; for new/discontinued it must be set;
-              for a temporary allowance it's an optional toggle (promos usually leave
-              the regular price untouched). The editable input only appears after a
-              deliberate Accept / Set-a-price / Change — never up front. */}
-          {!isTemp && (() => {
+          {/* Base price — the white-tag shelf price, shown for EVERY item.
+              Conscious-edit: the editable input appears only after a deliberate
+              Accept / Set / Change. HQ recs for a temporary allowance live on the
+              retail promo, so accept-first shows here only when HQ proposes a
+              different BASE price. */}
+          {(() => {
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
-            // The editable input appears only on a deliberate Change — never up
-            // front. A discontinued item with an HQ rec gets the accept-first block
-            // like any base; a brand-new item gets a "Set opening price" prompt.
-            const showInput = editingBase;
+            const baseHasRec = showAccept && Math.abs(rec - item.currentBasePrice) > 0.005;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
@@ -539,17 +382,24 @@ export function ItemEditDrawer({
                 </h3>
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   {baseLocked ? (
-                    // Sent to SAP — read-only, no edit/revert until SAP confirms.
+                    // Sent to SAP — read-only until SAP confirms. Show the change if
+                    // there is one, otherwise just the (unchanged) current price.
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-sm tabular-nums">
                         <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                        <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-                        <span aria-hidden="true" className="text-gray-300">→</span>
-                        <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
+                        {item.newBasePrice != null ? (
+                          <>
+                            <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                            <span aria-hidden="true" className="text-gray-300">→</span>
+                            <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice)}</span>
+                          </>
+                        ) : (
+                          <span className="text-base font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
+                        )}
                       </div>
                       <span className="text-xs font-medium text-gray-500">Locked</span>
                     </div>
-                  ) : showInput ? (
+                  ) : editingBase ? (
                     baseInputBlock()
                   ) : decided ? (
                     // Decided — a compact, popping confirmation of the new price.
@@ -565,20 +415,20 @@ export function ItemEditDrawer({
                         )}
                         <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button variant="text-link" size="sm" onClick={() => setEditingBase(true)}>Change</Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingBase(true)}>Change</Button>
                         <Button
                           variant="tertiary"
                           size="sm"
                           iconLeft={RotateCcw}
-                          aria-label="Revert to current base price"
                           onClick={() => { revertField("base"); setEditingBase(false); }}
-                        />
+                        >
+                          Revert
+                        </Button>
                       </div>
                     </div>
-                  ) : showAccept ? (
+                  ) : baseHasRec ? (
                     // HQ rec awaiting a call — accept it, set your own, or keep current.
-                    // All three are DS buttons at one size (sm), primary + two secondary.
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
@@ -619,78 +469,161 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {/* Temporary allowance: base price is an optional change (Switch), since a
-              promo usually leaves the regular white-tag price untouched. */}
-          {isTemp && (() => {
-            const baseActive = showBase || item.newBasePrice != null;
+          {/* Retail price (promo) — shown for EVERY item. A plain item has no promo
+              yet; "Set promo price" converts it to a temporary allowance (yellow
+              tag). When HQ proposes a promo, the section opens accept-first. */}
+          {(() => {
+            const recRetail = item.recommendedRetailPrice ?? item.currentBasePrice;
+            // % / $ reductions are taken off the base (white-tag) price — the new
+            // base if the director set one, otherwise the current base.
+            const baseRef = item.newBasePrice ?? item.currentBasePrice;
+            const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
+            const retailDecided = item.newRetailPrice != null;
+            // Accept-first only for a TA whose HQ promo rec is still undecided.
+            const retailHasRec = isTemp && showAccept && item.recommendedRetailPrice != null;
+            const acceptFirst = retailHasRec && !changingRetail && !retailDecided;
+            // A plain item gets converted to a TA the moment a promo is set.
+            const startPromo = () => {
+              if (!isTemp) updatePriceType(item.id, "temporary_allowance");
+              setChangingRetail(true);
+            };
             return (
               <section className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-gray-700">
-                    Base price <span className="font-normal text-gray-400">· white shelf tag</span>
-                  </h3>
-                  <Switch
-                    checked={baseActive}
-                    disabled={sending}
-                    onCheckedChange={(on) => {
-                      setShowBase(on);
-                      if (!on && item.newBasePrice != null) revertField("base");
-                    }}
-                    label="Change base price"
-                    labelPosition="left"
-                    size="sm"
-                  />
-                </div>
-                {baseActive && (
-                  <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-                    {baseLocked ? (
+                <h3 className="text-sm font-semibold text-gray-700">
+                  Retail price <span className="font-normal text-gray-400">· yellow promo tag</span>
+                </h3>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  <div className="flex flex-col gap-4">
+                    {retailLocked ? (
+                      // Sent to SAP — read-only until SAP confirms. Show the promo if
+                      // there is one, otherwise just "No promo".
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-sm tabular-nums">
                           <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                          <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-                          <span aria-hidden="true" className="text-gray-300">→</span>
-                          <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
+                          {item.newRetailPrice != null ? (
+                            <>
+                              <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
+                              <span aria-hidden="true" className="text-gray-300">→</span>
+                              <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice)}</span>
+                            </>
+                          ) : (
+                            <span className="text-base font-semibold text-gray-900">{isTemp ? fmt(curRetail) : "No promo"}</span>
+                          )}
                         </div>
                         <span className="text-xs font-medium text-gray-500">Locked</span>
                       </div>
-                    ) : item.newBasePrice != null && !editingBase ? (
-                      // Decided — show the new base price as left, not the input.
+                    ) : acceptFirst ? (
+                      <div className="decision-pop flex flex-wrap items-center gap-2">
+                        <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
+                          Accept {fmt(recRetail)}
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => setChangingRetail(true)}>
+                          Set a different price
+                        </Button>
+                      </div>
+                    ) : retailDecided && !changingRetail ? (
+                      // Decided — show the promo price as the director left it.
                       <div className="decision-pop flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-sm tabular-nums">
                           <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                          <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                          <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
                           <span aria-hidden="true" className="text-gray-300">→</span>
-                          <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice)}</span>
+                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Button variant="text-link" size="sm" onClick={() => setEditingBase(true)}>Change</Button>
+                        <div className="flex items-center gap-1.5">
+                          <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setChangingRetail(true)}>Change</Button>
                           <Button
                             variant="tertiary"
                             size="sm"
                             iconLeft={RotateCcw}
-                            aria-label="Revert to current base price"
-                            onClick={() => { revertField("base"); setShowBase(false); setEditingBase(false); }}
-                          />
+                            onClick={() => revertField("retail")}
+                          >
+                            Revert
+                          </Button>
                         </div>
                       </div>
+                    ) : !changingRetail ? (
+                      // No promo yet — read-only, with a conscious "Set promo price".
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-baseline gap-2 tabular-nums">
+                          <span className="text-xs text-gray-500">{isTemp ? "Current" : "No promo"}</span>
+                          <span className="text-base font-semibold text-gray-900">{isTemp ? fmt(curRetail) : "—"}</span>
+                        </div>
+                        <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={startPromo}>
+                          Set promo price
+                        </Button>
+                      </div>
                     ) : (
-                      baseInputBlock()
+                      <>
+                        <Field
+                          label="New retail price"
+                          action={
+                            item.newRetailPrice != null && (
+                              <Button
+                                variant="tertiary"
+                                size="sm"
+                                iconLeft={RotateCcw}
+                                aria-label="Revert to current retail price"
+                                onClick={() => revertField("retail")}
+                              />
+                            )
+                          }
+                        >
+                          <RetailReductionField
+                            baseReference={baseRef}
+                            recommendedPrice={retailHasRec ? recRetail : curRetail}
+                            qty={item.newRetailQty ?? null}
+                            price={item.newRetailPrice ?? null}
+                            status={item.retailOverrideStatus}
+                            onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
+                          />
+                        </Field>
+
+                        <Field label="Allowance period">
+                          <div className="flex items-center gap-2">
+                            <DateField
+                              value={item.allowanceStartDate}
+                              onChange={(v) => updateAllowanceDates(item.id, v, item.allowanceEndDate ?? null)}
+                              aria-label="Allowance start date"
+                            />
+                            <span aria-hidden="true" className="text-gray-300">–</span>
+                            <DateField
+                              value={item.allowanceEndDate}
+                              onChange={(v) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, v)}
+                              aria-label="Allowance end date"
+                            />
+                          </div>
+                        </Field>
+                      </>
                     )}
                   </div>
-                )}
+                </div>
               </section>
             );
           })()}
 
-          {/* Fuel saver — an independent add-on on top of the retail price. */}
-          {isTemp && (
-            <section className="flex flex-col gap-2">
-              <h3 className="text-sm font-semibold text-gray-700">Fuel saver</h3>
-              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+          {/* Fuel saver — an opt-in add-on, now available on ANY item (not just a
+              temporary allowance). */}
+          <section className="flex flex-col gap-2">
+            <h3 className="text-sm font-semibold text-gray-700">Fuel saver</h3>
+            <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              {sending ? (
+                // Sending to SAP — read-only/locked, like base + retail.
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-sm tabular-nums">
+                    <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                    {item.fuelSaver != null && item.fuelSaver > 0 ? (
+                      <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver)} fuel</span>
+                    ) : (
+                      <span className="text-gray-500">No fuel saver</span>
+                    )}
+                  </div>
+                  <span className="text-xs font-medium text-gray-500">Locked</span>
+                </div>
+              ) : (
                 <div className="flex flex-col gap-2">
                   <Switch
                     checked={fuelSaverActive}
-                    disabled={sending}
                     onCheckedChange={(on) => {
                       setShowFuelSaver(on);
                       if (!on) updateFuelSaver(item.id, null);
@@ -699,20 +632,39 @@ export function ItemEditDrawer({
                     size="sm"
                   />
                   {fuelSaverActive && (
-                    <div className="w-[170px]">
-                      <Select
-                        options={FUEL_SAVER_OPTIONS}
-                        value={String(item.fuelSaver ?? "0")}
-                        onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
-                        label="Fuel saver"
-                        size="sm"
-                      />
-                    </div>
+                    <>
+                      <div className="w-[170px]">
+                        <Select
+                          options={FUEL_SAVER_OPTIONS}
+                          value={fuelSaverSelectValue(item.fuelSaver)}
+                          onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
+                          label="Fuel saver"
+                          size="sm"
+                        />
+                      </div>
+                      {item.fuelSaver != null && item.fuelSaver > 0 && (
+                        <Field label="Fuel saver period">
+                          <div className="flex items-center gap-2">
+                            <DateField
+                              value={item.fuelSaverStartDate}
+                              onChange={(v) => updateFuelSaverDates(item.id, v, item.fuelSaverEndDate ?? null)}
+                              aria-label="Fuel saver start date"
+                            />
+                            <span aria-hidden="true" className="text-gray-300">–</span>
+                            <DateField
+                              value={item.fuelSaverEndDate}
+                              onChange={(v) => updateFuelSaverDates(item.id, item.fuelSaverStartDate ?? null, v)}
+                              aria-label="Fuel saver end date"
+                            />
+                          </div>
+                        </Field>
+                      )}
+                    </>
                   )}
                 </div>
-              </div>
-            </section>
-          )}
+              )}
+            </div>
+          </section>
 
           {/* Competitor prices — collapsed context */}
           {item.competitors && item.competitors.length > 0 && (() => {
@@ -781,7 +733,7 @@ export function ItemEditDrawer({
                 const u =
                   item.newRetailPrice != null
                     ? item.newRetailPrice / Math.max(1, item.newRetailQty ?? 1)
-                    : item.recommendedRetailPrice ?? curRetail;
+                    : (hqReviewNeeded(item) ? item.recommendedRetailPrice : null) ?? curRetail;
                 const fuel = item.fuelSaver ?? 0;
                 return (
                   <div className="mb-3 flex flex-col gap-2 border-b border-gray-100 pb-3">
@@ -797,7 +749,7 @@ export function ItemEditDrawer({
                   <MarginRow
                     label="Gross margin"
                     current={grossMarginPct(item.currentBasePrice, item.cost)}
-                    next={grossMarginPct(item.newBasePrice ?? item.recommendedBasePrice, item.cost)}
+                    next={grossMarginPct(item.newBasePrice ?? (hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice), item.cost)}
                   />
                 </div>
               );
@@ -823,19 +775,17 @@ export function ItemEditDrawer({
       }}
     />
 
-    {/* Where should this change go? — asked on Done so the batch decision is a
-        deliberate step, not a confusing footer split-button. Same modal the bulk
-        bar and the Review worklist use. */}
+    {/* Where should this change go? — every change must land in a scheduled batch
+        (no loose limbo), so this is mandatory on Done: add to an existing batch or
+        create a new (scheduled) one. Same modal the bulk bar and Review use. */}
     <BatchPickerModal
       open={batchPromptOpen}
       onOpenChange={(o) => { if (!o) setBatchPromptOpen(false); }}
-      description="Your change is saved. Group it into a batch to control when it reaches SAP — or leave it and sort it later from To send."
+      description="Your change is saved. Add it to a scheduled batch to control when it reaches SAP."
       openBatches={openBatches}
-      activeBatch={activeBatch}
       count={new Set(myPendingIds.map((id) => id.split(":")[0])).size}
       onAddToBatch={(id) => { onAddToBatch(id, myPendingIds); closeAfterBatch(); }}
       onNewBatch={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
-      onLater={closeAfterBatch}
     />
     </>
   );
