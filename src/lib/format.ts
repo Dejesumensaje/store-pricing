@@ -17,6 +17,13 @@ export function fmtDateShort(iso: string) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** A date-only range as "May 23 – Jun 5" (or "from …" / "ends …" if half-open). */
+export function fmtDateRange(start?: string | null, end?: string | null): string | null {
+  if (!start && !end) return null;
+  if (start && end) return `${fmtDateShort(start)} – ${fmtDateShort(end)}`;
+  return end ? `ends ${fmtDateShort(end)}` : `from ${fmtDateShort(start!)}`;
+}
+
 /** Full ISO datetime ("2026-06-10T09:00:00Z") → "Jun 10". */
 export function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });

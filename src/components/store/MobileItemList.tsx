@@ -32,7 +32,7 @@ export function MobileItemList({ rows, batches, onRowClick }: Props) {
               }}
               className={`flex w-full items-start gap-3 rounded-xl border bg-white p-3 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                 hqReviewNeeded(item)
-                  ? "border-brand border-l-4 bg-brand/5"
+                  ? "border-hyvee-red border-l-4 bg-white"
                   : item.hasOverride
                   ? "border-amber-200"
                   : "border-gray-200"

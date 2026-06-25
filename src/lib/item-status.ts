@@ -12,10 +12,12 @@ const STATUS: Record<string, ItemStatus> = {
   review: { label: "Needs review", tone: "in-progress" },
   // In a scheduled batch — will send to SAP on the batch's date/time. Every
   // decision lands here (batching is mandatory); there is no loose "ready to send".
-  scheduled: { label: "Scheduled", tone: "neutral" },
-  // Sent to SAP, not live until SAP confirms — a subtle spinner signals it's in
-  // flight.
-  sent: { label: "Sending", tone: "warning", loading: true },
+  // Informative blue (not neutral gray, which read as disabled) — matches the
+  // batch-level "Scheduled" pill.
+  scheduled: { label: "Scheduled", tone: "in-progress" },
+  // Sent to SAP, not live until SAP confirms — the spinner (loading) signals it's
+  // in flight; neutral gray keeps it calm (amber read as a warning).
+  sent: { label: "Sending", tone: "neutral", loading: true },
   // The last send to SAP failed (reverts to Live after 3 days or retries). Visual
   // state only in this prototype.
   failed: { label: "Failed", tone: "negative" },

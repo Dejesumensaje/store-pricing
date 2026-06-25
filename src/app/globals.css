@@ -127,12 +127,26 @@ body {
   animation: review-dot 1.8s ease-in-out infinite;
 }
 
+/*
+ * The "HQ" pill: a soft red halo that expands and fades out (a slow "ping") so
+ * the eye is drawn to HQ-flagged items without a loud, distracting blink.
+ */
+@keyframes hq-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(226, 28, 17, 0.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(226, 28, 17, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(226, 28, 17, 0); }
+}
+.hq-pulse {
+  animation: hq-pulse 2s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .badge-pop,
   .send-bump,
   .batch-flash,
   .decision-pop,
-  .review-dot {
+  .review-dot,
+  .hq-pulse {
     animation: none;
   }
 }

@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useEffect, useId } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select, Switch, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { DateField } from "../shared/DateField";
+import { Drawer, Button, Badge, Select, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, OverrideStatus, Batch } from "@/types/pricing";
 import { PriceInputCell, derivePriceState } from "./PriceInputCell";
@@ -17,10 +17,10 @@ import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
+import { fmt, fmtQtyPrice, fmtDateTime, fmtDateRange } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Pencil, CalendarClock } from "lucide-react";
+import { RotateCcw, Trash2, Check, Package, Link2, ChevronDown, Lock, Info, Pencil, CalendarClock } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -35,11 +35,24 @@ type Props = {
   onClose: () => void;
 };
 
-function Field({ label, action, children }: { label: string; action?: React.ReactNode; children: React.ReactNode }) {
+function Field({
+  label,
+  action,
+  required,
+  children,
+}: {
+  label: string;
+  action?: React.ReactNode;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex min-h-6 items-center justify-between gap-3">
-        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <span className="text-sm font-medium text-gray-700">
+          {label}
+          {required && <span className="ml-0.5 text-red-500" aria-hidden="true">*</span>}
+        </span>
         {action}
       </div>
       {children}
@@ -113,7 +126,10 @@ export function ItemEditDrawer({
       : PRICE_TYPE_INTENT[item.category_type]
     : null;
 
-  const [showFuelSaver, setShowFuelSaver] = useState(false);
+  // Conscious-edit for fuel saver: like base/retail, the amount picker only
+  // appears once the director deliberately Adds/Changes it; otherwise the section
+  // shows the current value ($0.00 when none) read-only.
+  const [editingFuelSaver, setEditingFuelSaver] = useState(false);
   // Conscious-edit: the editable price input only appears once the director
   // deliberately chooses to set/change a price (vs. accepting or keeping). Until
   // then the section shows the current price read-only — no premature input.
@@ -128,7 +144,7 @@ export function ItemEditDrawer({
   const [movePickerOpen, setMovePickerOpen] = useState(false);
   // Reset per-item UI reveals when navigating to another item.
   useEffect(() => {
-    setShowFuelSaver(false);
+    setEditingFuelSaver(false);
     setEditingBase(false);
     setChangingRetail(false);
     setBatchPromptOpen(false);
@@ -177,7 +193,6 @@ export function ItemEditDrawer({
   };
 
   const status = item ? deriveItemStatus(item, batches) : null;
-  const fuelSaverActive = showFuelSaver || (item?.fuelSaver != null && item.fuelSaver > 0);
   // An HQ rec still awaiting the store's decision.
   const showAccept = item != null && hqReviewNeeded(item);
 
@@ -341,7 +356,6 @@ export function ItemEditDrawer({
                 <dt className="text-gray-400">Unit cost</dt>
                 <dd className="tabular-nums text-gray-700">
                   {fmt(item.cost)}
-                  {isTemp && <span className="text-gray-400"> · allowance {fmt(item.allowanceCost ?? item.cost)}</span>}
                 </dd>
                 {item.priceFamilyName && (
                   <>
@@ -417,7 +431,7 @@ export function ItemEditDrawer({
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
-                  Base price <span className="font-normal text-gray-400">· white shelf tag</span>
+                  Base price <span className="font-normal text-gray-400">· white tag</span>
                 </h3>
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   {baseLocked ? (
@@ -529,24 +543,32 @@ export function ItemEditDrawer({
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
-                  Retail price <span className="font-normal text-gray-400">· yellow promo tag</span>
+                  Retail price <span className="font-normal text-gray-400">· yellow tag</span>
                 </h3>
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   <div className="flex flex-col gap-4">
                     {retailLocked ? (
                       // Sent to SAP — read-only until SAP confirms. Show the promo if
-                      // there is one, otherwise just "No promo".
+                      // there is one (with its run window), otherwise just "No promo".
                       <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm tabular-nums">
-                          <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                          {item.newRetailPrice != null ? (
-                            <>
-                              <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
-                              <span aria-hidden="true" className="text-gray-300">→</span>
-                              <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice)}</span>
-                            </>
-                          ) : (
-                            <span className="text-base font-semibold text-gray-900">{isTemp ? fmt(curRetail) : "No promo"}</span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2 text-sm tabular-nums">
+                            <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                            {item.newRetailPrice != null ? (
+                              <>
+                                <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
+                                <span aria-hidden="true" className="text-gray-300">→</span>
+                                <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice)}</span>
+                              </>
+                            ) : (
+                              <span className="text-base font-semibold text-gray-900">{isTemp ? fmt(curRetail) : "No promo"}</span>
+                            )}
+                          </div>
+                          {item.newRetailPrice != null && fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) && (
+                            <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
+                              <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
+                              {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate)}
+                            </span>
                           )}
                         </div>
                         <span className="text-xs font-medium text-gray-500">Locked</span>
@@ -561,13 +583,22 @@ export function ItemEditDrawer({
                         </Button>
                       </div>
                     ) : retailDecided && !changingRetail ? (
-                      // Decided — show the promo price as the director left it.
+                      // Decided — show the promo price as the director left it,
+                      // with the promo run window underneath.
                       <div className="decision-pop flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm tabular-nums">
-                          <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                          <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
-                          <span aria-hidden="true" className="text-gray-300">→</span>
-                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-2 text-sm tabular-nums">
+                            <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                            <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
+                            <span aria-hidden="true" className="text-gray-300">→</span>
+                            <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
+                          </div>
+                          {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) && (
+                            <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
+                              <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
+                              {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate)}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setChangingRetail(true)}>Change</Button>
@@ -618,21 +649,29 @@ export function ItemEditDrawer({
                           />
                         </Field>
 
-                        <Field label="Allowance period">
-                          <div className="flex items-center gap-2">
-                            <DateField
-                              value={item.allowanceStartDate}
-                              onChange={(v) => updateAllowanceDates(item.id, v, item.allowanceEndDate ?? null)}
-                              aria-label="Allowance start date"
-                            />
-                            <span aria-hidden="true" className="text-gray-300">–</span>
-                            <DateField
-                              value={item.allowanceEndDate}
-                              onChange={(v) => updateAllowanceDates(item.id, item.allowanceStartDate ?? null, v)}
-                              aria-label="Allowance end date"
-                            />
-                          </div>
-                        </Field>
+                        {(() => {
+                          // A promo must carry a date range — flag it required and
+                          // show the error state until both ends are picked.
+                          const promoDatesMissing =
+                            item.newRetailPrice != null &&
+                            (!item.allowanceStartDate || !item.allowanceEndDate);
+                          return (
+                            <Field label="Promo period" required>
+                              <DateRangeField
+                                start={item.allowanceStartDate}
+                                end={item.allowanceEndDate}
+                                onChange={(s, e) => updateAllowanceDates(item.id, s, e)}
+                                error={promoDatesMissing}
+                                aria-label="Promo date range"
+                              />
+                              {promoDatesMissing && (
+                                <span className="text-xs font-medium text-red-500">
+                                  Pick a start and end date for the promo.
+                                </span>
+                              )}
+                            </Field>
+                          );
+                        })()}
                       </>
                     )}
                   </div>
@@ -647,61 +686,105 @@ export function ItemEditDrawer({
             <h3 className="text-sm font-semibold text-gray-700">Fuel saver</h3>
             <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
               {sending ? (
-                // Sending to SAP — read-only/locked, like base + retail.
+                // Sending to SAP — read-only/locked, like base + retail (with the
+                // fuel run window when there is one).
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-sm tabular-nums">
-                    <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                    {item.fuelSaver != null && item.fuelSaver > 0 ? (
-                      <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver)} fuel</span>
-                    ) : (
-                      <span className="text-gray-500">No fuel saver</span>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2 text-sm tabular-nums">
+                      <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+                      {item.fuelSaver != null && item.fuelSaver > 0 ? (
+                        <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver)} fuel</span>
+                      ) : (
+                        <span className="text-gray-500">No fuel saver</span>
+                      )}
+                    </div>
+                    {item.fuelSaver != null && item.fuelSaver > 0 && fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate) && (
+                      <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
+                        <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
+                        {fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate)}
+                      </span>
                     )}
                   </div>
                   <span className="text-xs font-medium text-gray-500">Locked</span>
                 </div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <Switch
-                    checked={fuelSaverActive}
-                    onCheckedChange={(on) => {
-                      setShowFuelSaver(on);
-                      if (!on) updateFuelSaver(item.id, null);
-                    }}
-                    label="Add fuel saver"
-                    size="sm"
-                  />
-                  {fuelSaverActive && (
-                    <>
-                      <div className="w-[170px]">
-                        <Select
-                          options={FUEL_SAVER_OPTIONS}
-                          value={fuelSaverSelectValue(item.fuelSaver)}
-                          onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
-                          label="Fuel saver"
-                          size="sm"
-                        />
+              ) : (() => {
+                // Same shape as base/retail: show the current value (even $0.00)
+                // read-only with a conscious Add/Change, and only reveal the amount
+                // picker + dates once the director deliberately edits.
+                const fuelDecided = item.fuelSaver != null && item.fuelSaver > 0;
+                // Like retail: show original → new only when a fuel saver already
+                // existed before this edit; a first-time add shows just the value.
+                const fuelHadPrior = item.currentFuelSaver != null && item.currentFuelSaver > 0;
+                const fuelPeriod = fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
+                if (!editingFuelSaver) {
+                  return fuelDecided ? (
+                    <div className="decision-pop flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2 text-sm tabular-nums">
+                          <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                          {fuelHadPrior && (
+                            <>
+                              <span className="text-gray-400 line-through">+{fmt(item.currentFuelSaver ?? 0)}</span>
+                              <span aria-hidden="true" className="text-gray-300">→</span>
+                            </>
+                          )}
+                          <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver ?? 0)} fuel</span>
+                        </div>
+                        {fuelPeriod && (
+                          <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
+                            <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
+                            {fuelPeriod}
+                          </span>
+                        )}
                       </div>
-                      {item.fuelSaver != null && item.fuelSaver > 0 && (
-                        <Field label="Fuel saver period">
-                          <div className="flex items-center gap-2">
-                            <DateField
-                              value={item.fuelSaverStartDate}
-                              onChange={(v) => updateFuelSaverDates(item.id, v, item.fuelSaverEndDate ?? null)}
-                              aria-label="Fuel saver start date"
-                            />
-                            <span aria-hidden="true" className="text-gray-300">–</span>
-                            <DateField
-                              value={item.fuelSaverEndDate}
-                              onChange={(v) => updateFuelSaverDates(item.id, item.fuelSaverStartDate ?? null, v)}
-                              aria-label="Fuel saver end date"
-                            />
-                          </div>
-                        </Field>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
+                      <div className="flex items-center gap-1.5">
+                        <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingFuelSaver(true)}>Change</Button>
+                        <Button
+                          variant="tertiary"
+                          size="sm"
+                          iconLeft={Trash2}
+                          onClick={() => updateFuelSaver(item.id, null)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-baseline gap-2 tabular-nums">
+                        <span className="text-xs text-gray-500">No fuel saver</span>
+                        <span className="text-base font-semibold text-gray-900">{fmt(0)}</span>
+                      </div>
+                      <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingFuelSaver(true)}>
+                        Add fuel saver
+                      </Button>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="flex flex-col gap-2">
+                    <div className="w-[170px]">
+                      <Select
+                        options={FUEL_SAVER_OPTIONS}
+                        value={fuelSaverSelectValue(item.fuelSaver)}
+                        onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
+                        label="Fuel saver"
+                        size="sm"
+                      />
+                    </div>
+                    {fuelDecided && (
+                      <Field label="Fuel saver period">
+                        <DateRangeField
+                          start={item.fuelSaverStartDate}
+                          end={item.fuelSaverEndDate}
+                          onChange={(s, e) => updateFuelSaverDates(item.id, s, e)}
+                          aria-label="Fuel saver date range"
+                        />
+                      </Field>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </section>
 
