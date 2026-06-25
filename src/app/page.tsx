@@ -15,7 +15,6 @@ import { TimeField, DEFAULT_SEND_TIME } from "@/components/shared/TimeField";
 import { SearchX, ArrowLeft, ArrowRight, CheckCircle2, CalendarClock, Plus, Package, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
-import { ReviewFlow } from "@/components/store/ReviewFlow";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
 import { BatchDetailDrawer } from "@/components/batches/BatchDetailDrawer";
 import { MobileItemList } from "@/components/store/MobileItemList";
@@ -51,9 +50,10 @@ export default function StorePricingPage() {
   // "To send" is a LENS over All items (not a separate destination): it focuses on
   // the batches waiting to go to SAP.
   const [hangLensOn, setHangLensOn] = useState(false);
-  // The guided HQ review is a focused flow, not a passive tab — it swaps the
-  // main content. All items stays the home for self-directed price management.
-  const [reviewMode, setReviewMode] = useState(false);
+  // HQ review is an in-place filter over All items, not a separate screen: the
+  // "HQ sent N" banner narrows the table to items still awaiting the director's
+  // call. Decisions happen in the row drawer, just like any other edit.
+  const [reviewOnly, setReviewOnly] = useState(false);
   // To-send lifecycle: Scheduled (upcoming) vs Sent. Every batch is scheduled at
   // creation, so there's no draft/pending bucket.
   const [toSendSegment, setToSendSegment] = useState<"scheduled" | "sent">("scheduled");
@@ -168,8 +168,15 @@ export default function StorePricingPage() {
     return m;
   }, [overrides]);
 
+  // The review filter is only "live" while recommendations remain — once the last
+  // one is decided it falls away on its own, so the director isn't left staring at
+  // an empty table (no effect/setState needed; it's derived).
+  const reviewActive = reviewOnly && hqCount > 0;
+
   const rows = useMemo(() => {
     let list = items;
+    // "HQ sent N" banner: narrow to items still awaiting the director's review.
+    if (reviewActive) list = list.filter(hqReviewNeeded);
     list = list.filter(matchesFilters);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -178,7 +185,7 @@ export default function StorePricingPage() {
     // Recent-first: items with an active edit float to the top, newest first;
     // everything else keeps its order (V8 sort is stable).
     return [...list].sort((a, b) => (activeAtById.get(b.id) ?? 0) - (activeAtById.get(a.id) ?? 0));
-  }, [items, matchesFilters, search, activeAtById]);
+  }, [items, reviewActive, matchesFilters, search, activeAtById]);
 
   // The table is read-only — every decision is made in the drawer and forced into
   // a batch, so there's no row selection / bulk bar.
@@ -318,14 +325,16 @@ export default function StorePricingPage() {
       <AppHeader
         hqCount={hqCount}
         onViewHq={() => {
-          if (hqCount > 0) setReviewMode(true);
+          if (hqCount > 0) {
+            setHangLensOn(false);
+            setReviewOnly(true);
+          }
         }}
       />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8">
         {/* Store identity + the "To send" navigation CTA. */}
-        {!reviewMode && (
-          <div className="flex flex-wrap items-center gap-3 md:gap-4">
+        <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <StorePricingHeader />
             {/* The To-send button is hidden on the To-send surface itself — the
                 lens header (All items · To send · tabs) already owns that nav, so
@@ -337,19 +346,11 @@ export default function StorePricingPage() {
               <span key={`bump-${trayPulse}`} className="send-bump inline-flex">
                 <Button
                   // A lens over All items: focus on the printed tags waiting to go
-                  // on the shelf. Always visible so edits never feel like they
-                  // vanished; gains emphasis once tags are waiting. From the HQ
-                  // review flow it jumps straight to the To-send surface.
-                  variant={hangLensOn ? "primary" : toSendCount > 0 ? "secondary" : "tertiary"}
+                  // on the shelf. Always the prominent (red) primary so batches
+                  // read as the key destination, regardless of how many tags wait.
+                  variant="primary"
                   iconLeft={Package}
-                  onClick={() => {
-                    if (reviewMode) {
-                      setReviewMode(false);
-                      setHangLensOn(true);
-                    } else {
-                      setHangLensOn((on) => !on);
-                    }
-                  }}
+                  onClick={() => setHangLensOn((on) => !on)}
                 >
                   Batches
                 </Button>
@@ -361,22 +362,9 @@ export default function StorePricingPage() {
               )}
             </div>
             )}
-          </div>
-        )}
+        </div>
 
-        {reviewMode ? (
-          <div className="mt-8">
-            <ReviewFlow
-              onExit={() => setReviewMode(false)}
-              onOpenItem={setDrawerItemId}
-              onGoToSend={() => { setReviewMode(false); setHangLensOn(true); }}
-              openBatches={openBatches}
-              onAddToBatch={addOverridesToBatch}
-              onNewBatch={openNewBatch}
-            />
-          </div>
-        ) : (
-          <>
+        <>
             {hangLensOn ? (
               // Lens header — batch-central. Lifecycle tabs (Scheduled / Sent).
               <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -418,12 +406,13 @@ export default function StorePricingPage() {
             )}
 
             <div className="mt-4">
-              {/* HQ proposals are a guided flow, entered from here — not a tab the
-                  director has to babysit. All items below is theirs to manage freely. */}
-              {!hangLensOn && hqCount > 0 && (
+              {/* HQ proposals filter the table in place. The banner narrows All
+                  items to what's awaiting the director's call; while filtered, a
+                  bar offers the way back to the full list. */}
+              {!hangLensOn && hqCount > 0 && !reviewActive && (
                 <button
                   type="button"
-                  onClick={() => setReviewMode(true)}
+                  onClick={() => setReviewOnly(true)}
                   className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3 text-left transition-colors hover:bg-brand/10"
                 >
                   <span className="flex items-center gap-2.5">
@@ -439,6 +428,22 @@ export default function StorePricingPage() {
                     Review <ArrowRight className="size-4" aria-hidden="true" />
                   </span>
                 </button>
+              )}
+              {!hangLensOn && reviewActive && (
+                <div className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3">
+                  <span className="flex items-center gap-2.5">
+                    <span className="relative flex size-2.5">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
+                      <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
+                    </span>
+                    <span className="text-sm text-gray-800">
+                      Showing <span className="font-semibold">{hqCount} item{hqCount === 1 ? "" : "s"} that need review</span> — decide each one to send it on.
+                    </span>
+                  </span>
+                  <Button variant="tertiary" size="sm" onClick={() => setReviewOnly(false)}>
+                    Show all items
+                  </Button>
+                </div>
               )}
               {/* Your batches — the control panel. Every change lives in a
                   scheduled batch (no loose inbox); the tabs split them into
@@ -515,14 +520,14 @@ export default function StorePricingPage() {
                       rowKey={(r) => r.id}
                       flat
                       isOverride={(r) => r.hasOverride}
+                      needsReview={(r) => hqReviewNeeded(r)}
                       onRowClick={(r) => setDrawerItemId(r.id)}
                     />
                   </div>
                 </>
               ))}
             </div>
-          </>
-        )}
+        </>
       </main>
 
       <ScanOverlay

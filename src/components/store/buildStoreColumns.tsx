@@ -1,12 +1,11 @@
 "use client";
 
-import { Loader2, Fuel, CalendarClock } from "lucide-react";
+import { Loader2, Fuel } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
 import { PricingItem, Batch } from "@/types/pricing";
-import { deriveItemStatus } from "@/lib/item-status";
-import { deriveDecision, DECISION_META } from "@/lib/change-summary";
-import { fmt, fmtQtyPrice } from "@/lib/format";
+import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
+import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
 import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 
 // Optional columns the gear/settings menu can toggle on (off by default). The
@@ -85,21 +84,25 @@ export function fmtShortDate(iso?: string | null): string | null {
   return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// A subtle calendar icon whose tooltip shows a date window — used in the table to
-// surface promo / fuel-saver run dates without spending a column on them.
-function DatesTip({ start, end, label }: { start?: string | null; end?: string | null; label: string }) {
+// The run-window for a promo / fuel saver, phrased for a tooltip. Dates now live
+// on hover over the tag itself (no standalone calendar icon), so this is the
+// tooltip copy rather than a rendered element.
+function dateRange(start?: string | null, end?: string | null): string | null {
   if (!start && !end) return null;
-  const range =
-    start && end ? `${fmtShortDate(start)} – ${fmtShortDate(end)}`
-    : end ? `ends ${fmtShortDate(end)}`
+  return start && end
+    ? `${fmtShortDate(start)} – ${fmtShortDate(end)}`
+    : end
+    ? `ends ${fmtShortDate(end)}`
     : `from ${fmtShortDate(start)}`;
-  return (
-    <Tooltip content={`${label} ${range}`}>
-      <span className="inline-flex shrink-0 cursor-default text-gray-400" aria-label={`${label} ${range}`}>
-        <CalendarClock className="size-3.5" aria-hidden="true" />
-      </span>
-    </Tooltip>
+}
+
+// The scheduled send time for the item, if it sits in a scheduled batch — surfaced
+// in a tooltip on the "Scheduled" status pill. Override ids are `${itemId}:${field}`.
+function scheduledSendAt(item: PricingItem, batches: Batch[]): string | null {
+  const batch = batches.find(
+    (b) => b.status === "scheduled" && b.overrideIds.some((id) => id.split(":")[0] === item.id)
   );
+  return batch?.scheduledAt ?? null;
 }
 
 // The shelf-tag chip: a colored tag swatch + label. The lens a director scans on
@@ -114,19 +117,20 @@ export function ShelfTagCell({ item }: { item: PricingItem }) {
   );
 }
 
-// Who set the "after" value in a price/fuel move: the director (a solid tag) or
-// HQ (a dashed "proposed" tag in the SAME color family + a subtle "HQ" marker).
-type MoveSource = "user" | "hq" | null;
-
-// A subtle "HQ" marker placed AFTER a proposed value, so the value keeps its
-// white/yellow tag-color convention while still signalling provenance. The
-// tooltip explains it; it never recolors the price itself.
-function HqMarker() {
+// A small "HQ" badge sitting next to the item NAME for items HQ has flagged for a
+// price change. Provenance ("HQ wants a change here") belongs at the item level —
+// the price tag itself stays one clean style regardless of who proposed it. The
+// tooltip says why; the "Needs review" pill + amber row carry the call-to-action.
+//
+// Color economy: HQ wears the Hy-Vee brand teal — the same cool family as the
+// "Needs review" status badge (DS informative) — NOT the fuel-saver blue. So the
+// brand red stays "your action", fuel stays blue, and "this is HQ's" is teal.
+export function HqBadge() {
   return (
-    <Tooltip content="Recommended by HQ — open the item to accept or change it.">
+    <Tooltip content="HQ recommends a price change — review and decide.">
       <span
-        className="cursor-default rounded bg-blue-50 px-1 py-px text-[9px] font-bold uppercase tracking-wide text-blue-600 ring-1 ring-inset ring-blue-100"
-        aria-label="Recommended by HQ"
+        className="shrink-0 cursor-default rounded bg-brand/10 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-brand ring-1 ring-inset ring-brand/20"
+        aria-label="HQ recommends a price change"
       >
         HQ
       </span>
@@ -135,18 +139,12 @@ function HqMarker() {
 }
 
 // The "after" value reads as the physical shelf tag it becomes: white card for a
-// base price, yellow card for a retail promo. The director's committed decision
-// is the SOLID tag; an HQ proposal (not yet on the shelf) is the DASHED, lighter
-// "proposed" variant of the same color — so the wall-of-yellow convention holds.
-const TAG_CHIP: Record<"white" | "yellow", { solid: string; proposed: string }> = {
-  white: {
-    solid: "rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
-    proposed: "rounded border border-dashed border-gray-300 bg-gray-50 px-1.5 py-0.5 font-semibold text-gray-700",
-  },
-  yellow: {
-    solid: "rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
-    proposed: "rounded border border-dashed border-amber-300 bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-900",
-  },
+// base price, yellow card for a retail promo. ONE tag style — whether the value
+// is the director's committed decision or HQ's proposal, the tag looks the same;
+// the HQ name badge + "Needs review" status carry the "this is a proposal" signal.
+const TAG_CHIP: Record<"white" | "yellow", string> = {
+  white: "rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
+  yellow: "rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
 };
 
 // One "original → after" line. No change ⇒ just the current price (muted). New
@@ -155,14 +153,12 @@ function MoveLine({
   label,
   original,
   display,
-  source,
   tag,
   setMode,
 }: {
   label?: string;
   original: number | null;
   display: string | null;
-  source: MoveSource;
   tag: "white" | "yellow";
   setMode?: boolean;
 }) {
@@ -181,14 +177,7 @@ function MoveLine({
               <span aria-hidden="true" className="text-gray-300">→</span>
             </>
           ) : null}
-          {source === "hq" ? (
-            <>
-              <span className={TAG_CHIP[tag].proposed}>{display}</span>
-              <HqMarker />
-            </>
-          ) : (
-            <span className={TAG_CHIP[tag].solid}>{display}</span>
-          )}
+          <span className={TAG_CHIP[tag]}>{display}</span>
         </>
       )}
     </span>
@@ -215,14 +204,11 @@ export function PriceCell({ item }: { item: PricingItem }) {
   const showRetail = hasRetailRow(item);
 
   const baseTarget = item.newBasePrice != null ? item.newBasePrice : item.hqReviewPending ? item.recommendedBasePrice : null;
-  const baseSource: MoveSource =
-    item.newBasePrice != null ? "user" : item.hqReviewPending && item.recommendedBasePrice != null ? "hq" : null;
   const baseLine = (
     <MoveLine
       label={showRetail ? "Base" : undefined}
       original={item.currentBasePrice}
       display={baseTarget != null ? fmt(baseTarget) : null}
-      source={baseSource}
       tag="white"
       setMode={isNew}
     />
@@ -234,40 +220,46 @@ export function PriceCell({ item }: { item: PricingItem }) {
   const decidedRetail = item.newRetailPrice ?? null;
   const recRetail = item.hqReviewPending ? item.recommendedRetailPrice ?? null : null;
   const retailTarget = decidedRetail ?? recRetail;
-  const retailSource: MoveSource = decidedRetail != null ? "user" : recRetail != null ? "hq" : null;
   const qty = decidedRetail != null ? item.newRetailQty ?? 1 : 1;
   const retailDisplay = retailTarget != null ? (qty > 1 ? fmtQtyPrice(qty, retailTarget) : fmt(retailTarget)) : null;
+
+  // The promo run-window now lives on hover over the yellow retail price itself,
+  // not on a separate calendar icon.
+  const promoRange =
+    item.category_type === "temporary_allowance"
+      ? dateRange(item.allowanceStartDate, item.allowanceEndDate)
+      : null;
+  const retailLine = (
+    <MoveLine label="Retail" original={retailCurrent} display={retailDisplay} tag="yellow" />
+  );
 
   return (
     <span className="flex flex-col gap-0.5">
       {baseLine}
-      <span className="flex items-center gap-1.5">
-        <MoveLine label="Retail" original={retailCurrent} display={retailDisplay} source={retailSource} tag="yellow" />
-        {item.category_type === "temporary_allowance" && (
-          <DatesTip start={item.allowanceStartDate} end={item.allowanceEndDate} label="Promo" />
-        )}
-      </span>
+      {promoRange ? (
+        <Tooltip content={`Promo ${promoRange}`}>
+          <span className="inline-flex w-fit cursor-default">{retailLine}</span>
+        </Tooltip>
+      ) : (
+        retailLine
+      )}
     </span>
   );
 }
 
-// The blue "+$X fuel" chip — the same visual the shopper sees on the tag (and the
-// drawer preview). `muted` = a fuel saver already live (no change this round).
-function FuelChip({ amount, muted }: { amount: number; muted?: boolean }) {
+// The "+$X fuel" chip — ONE style (the light blue outline), the same whether the
+// saver is the director's add, an HQ suggestion, or an unchanged live one. Source
+// is communicated at the item level (HQ name badge), not by recoloring the chip.
+function FuelChip({ amount }: { amount: number }) {
   return (
-    <span
-      className={`inline-flex items-center gap-0.5 rounded-sm px-1 py-px text-[10px] font-bold tabular-nums ${
-        muted ? "border border-blue-200 bg-blue-50 text-blue-700" : "bg-blue-600 text-white"
-      }`}
-    >
+    <span className="inline-flex items-center gap-0.5 rounded-sm border border-blue-200 bg-blue-50 px-1 py-px text-[10px] font-bold tabular-nums text-blue-700">
       <Fuel aria-hidden="true" className="size-2.5" />+{fmt(amount)}
     </span>
   );
 }
 
-// Fuel saver, before→after — rendered as the shopper-facing fuel chip. A store
-// add-on, so the "before" is usually none; the director's add is a solid chip,
-// an HQ suggestion a muted chip + "HQ" marker, an unchanged live saver a muted chip.
+// Fuel saver, before→after — rendered as the shopper-facing fuel chip (one light
+// style). A store add-on, so the "before" is usually none.
 export function FuelSaverCell({ item }: { item: PricingItem }) {
   const current = item.currentFuelSaver ?? null;
   const decided = item.fuelSaver ?? null;
@@ -277,22 +269,24 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
     decided != null && decided !== current ? decided
     : recommended != null && recommended !== current ? recommended
     : null;
-  const source: MoveSource =
-    decided != null && decided !== current ? "user"
-    : recommended != null && recommended !== current ? "hq"
-    : null;
 
   if (current == null && target == null) return <span className="text-sm text-gray-300">—</span>;
 
-  const dates = <DatesTip start={item.fuelSaverStartDate} end={item.fuelSaverEndDate} label="Fuel saver" />;
+  // The fuel-saver run-window lives on hover over the chip itself (no calendar icon).
+  const fuelRange = dateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
+  const withDates = (chip: React.ReactNode) =>
+    fuelRange ? (
+      <Tooltip content={`Fuel saver ${fuelRange}`}>
+        <span className="inline-flex cursor-default">{chip}</span>
+      </Tooltip>
+    ) : (
+      chip
+    );
 
   // No change — the steady live chip (or none).
   if (target == null) {
     return current != null && current > 0 ? (
-      <span className="flex items-center gap-1.5">
-        <FuelChip amount={current} muted />
-        {dates}
-      </span>
+      <span className="flex items-center gap-1.5">{withDates(<FuelChip amount={current} />)}</span>
     ) : (
       <span className="text-sm text-gray-300">—</span>
     );
@@ -306,46 +300,57 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
           <span aria-hidden="true" className="text-gray-300">→</span>
         </>
       )}
-      {source === "hq" ? (
-        <>
-          <FuelChip amount={target} muted />
-          <HqMarker />
-        </>
-      ) : (
-        <FuelChip amount={target} />
-      )}
-      {dates}
+      {withDates(<FuelChip amount={target} />)}
     </span>
   );
 }
 
-// Workflow status + the director's decision, merged into one column. The colored
-// badge is the workflow stage (Live / Needs review / Scheduled / Sending / Failed).
-// The HQ-relative decision (Accepted / Overridden / Kept current) rides below as a
-// quiet qualifier only when it adds something the status doesn't already imply.
+// Why a send to SAP can read "Failed" — shown on hover so the state isn't alarming.
+const FAILED_HELP =
+  "The last send to SAP didn't go through. It retries automatically; the price stays at its previous value until it succeeds.";
+
+// The workflow-stage badge (Live / Needs review / Scheduled / Sending / Failed).
+// "Needs review" carries a gently pulsing dot to pull the eye to undecided HQ
+// proposals; "Scheduled" and "Failed" explain themselves on hover.
 export function StatusCell({ item, batches }: { item: PricingItem; batches: Batch[] }) {
   const status = deriveItemStatus(item, batches);
-  const decision = deriveDecision(item);
-  const qualifier =
-    decision === "accepted" || decision === "overridden" || decision === "kept_current"
-      ? DECISION_META[decision]?.label
-      : null;
+  const isReview = status.label === "Needs review";
 
-  return (
-    // items-start so the Badge keeps its content width (a flex-col child would
-    // otherwise stretch to fill the column).
-    <span className="flex flex-col items-start gap-0.5">
-      <Badge tone={status.tone} size="sm">
-        <span className="inline-flex items-center gap-1">
-          {status.loading && (
-            <Loader2 aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />
-          )}
-          {status.label}
-        </span>
-      </Badge>
-      {qualifier && <span className="text-xs text-gray-500">{qualifier}</span>}
-    </span>
+  const badge = (
+    <Badge tone={status.tone} size="sm">
+      <span className="inline-flex items-center gap-1">
+        {isReview && (
+          <span
+            aria-hidden="true"
+            className="review-dot inline-block size-1.5 shrink-0 rounded-full bg-current"
+          />
+        )}
+        {status.loading && (
+          <Loader2 aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />
+        )}
+        {status.label}
+      </span>
+    </Badge>
   );
+
+  // Failed → explain what it means and that it self-heals.
+  if (status.label === "Failed") {
+    return <Tooltip content={FAILED_HELP}>{wrapTip(badge)}</Tooltip>;
+  }
+
+  // Scheduled → surface when it sends, drawn from its scheduled batch.
+  if (status.label === "Scheduled") {
+    const at = scheduledSendAt(item, batches);
+    if (at) return <Tooltip content={`Sends ${fmtDateTime(at)}`}>{wrapTip(badge)}</Tooltip>;
+  }
+
+  return badge;
+}
+
+// Tooltip triggers want a single focusable/hoverable child — wrap the badge so the
+// cursor reads as informational.
+function wrapTip(node: React.ReactNode) {
+  return <span className="inline-flex cursor-default">{node}</span>;
 }
 
 // Minimal default columns + optional ones toggled via the gear menu. Decisions
@@ -359,7 +364,7 @@ export function buildStoreColumns(
 
   return [
     idCol,
-    itemCol(),
+    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge /> : null)),
     textCol("category", "Category", (r) => r.category, 140),
     {
       id: "price",

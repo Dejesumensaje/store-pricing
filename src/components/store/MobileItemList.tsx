@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { PricingItem, Batch } from "@/types/pricing";
 import { PriceCell, FuelSaverCell, StatusCell } from "./buildStoreColumns";
+import { hqReviewNeeded } from "@/lib/item-status";
 
 type Props = {
   rows: PricingItem[];
@@ -30,7 +31,11 @@ export function MobileItemList({ rows, batches, onRowClick }: Props) {
                 }
               }}
               className={`flex w-full items-start gap-3 rounded-xl border bg-white p-3 text-left transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
-                item.hasOverride ? "border-amber-200" : "border-gray-200"
+                hqReviewNeeded(item)
+                  ? "border-brand border-l-4 bg-brand/5"
+                  : item.hasOverride
+                  ? "border-amber-200"
+                  : "border-gray-200"
               }`}
             >
               <div className="size-10 shrink-0 overflow-hidden rounded-full bg-gray-100 flex items-center justify-center">
