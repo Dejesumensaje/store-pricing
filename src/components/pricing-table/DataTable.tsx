@@ -77,6 +77,9 @@ type Props<T> = {
   rowKey: (row: T) => string;
   isSelected?: (row: T) => boolean;
   isOverride?: (row: T) => boolean;
+  /** Marks rows still awaiting the director's HQ review — highlighted louder than
+   *  a decided override so they stand out for action. */
+  needsReview?: (row: T) => boolean;
   /** Group label rendered above the pricing columns (e.g. "Base price breakdown").
    *  Ignored for columns that declare a `subgroup`. */
   pricingGroupLabel?: string;
@@ -95,6 +98,7 @@ export function DataTable<T>({
   rowKey,
   isSelected,
   isOverride,
+  needsReview,
   pricingGroupLabel,
   splitPane,
   flat,
@@ -180,16 +184,24 @@ export function DataTable<T>({
               {sortedRows.map((row) => {
                 const selected = isSelected?.(row);
                 const override = isOverride?.(row);
+                const review = needsReview?.(row);
                 return (
                   <TableRow key={rowKey(row)} selected={selected} className="h-12">
-                    {itemCols.map((c) => {
-                      const bg = selected ? "bg-blue-50" : override ? "bg-orange-50/40" : "bg-white";
+                    {itemCols.map((c, i) => {
+                      const bg = selected
+                        ? "bg-blue-50"
+                        : review
+                        ? "bg-brand/5"
+                        : override
+                        ? "bg-orange-50/40"
+                        : "bg-white";
+                      const reviewAccent = review && i === 0 ? "border-l-2 border-l-brand" : "";
                       return (
                         <TableCell
                           key={c.id}
                           align={c.align}
                           truncate={false}
-                          className={`${bg} border-b border-gray-100`}
+                          className={`${bg} border-b border-gray-100 ${reviewAccent}`}
                           style={{ width: c.width, minWidth: c.width }}
                         >
                           {c.cell(row)}
@@ -369,6 +381,7 @@ export function DataTable<T>({
           {sortedRows.map((row) => {
             const selected = isSelected?.(row);
             const override = isOverride?.(row);
+            const review = needsReview?.(row);
             return (
               <TableRow
                 key={rowKey(row)}
@@ -395,15 +408,23 @@ export function DataTable<T>({
                     : undefined
                 }
               >
-                {columns.map((c) => {
+                {columns.map((c, i) => {
                   const pinned = isPinned(c.group);
+                  // Review rows wear the brand teal (the HQ/needs-review color) — a
+                  // faint wash plus a left accent bar on the first cell — so undecided
+                  // HQ items read as "act on me", and amber stays for promos.
                   const bg = pinned
                     ? GROUP_BG[c.group]
                     : selected
                     ? "bg-blue-50"
+                    : review
+                    ? "bg-brand/5"
                     : override
                     ? "bg-orange-50/40"
                     : "bg-white";
+                  // Accent goes LAST so tailwind-merge keeps the amber left border
+                  // (a trailing `border-gray-100` would otherwise win the merge).
+                  const reviewAccent = review && i === 0 ? "border-l-2 border-l-brand" : "";
                   return (
                     <TableCell
                       key={c.id}
@@ -411,7 +432,7 @@ export function DataTable<T>({
                       truncate={false}
                       className={`${bg} ${
                         c.id === firstPinnedId ? firstPinnedShadow : segDivider(c.id)
-                      } border-b border-gray-100`}
+                      } border-b border-gray-100 ${reviewAccent}`}
                       style={{ ...stickyStyle(c), width: c.width, minWidth: c.width }}
                     >
                       {c.cell(row)}

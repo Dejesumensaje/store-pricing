@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { DataColumn } from "../DataTable";
 import { PricingItem } from "@/types/pricing";
 import { Chip, Badge, Checkbox, Tooltip } from "@dejesumensaje/converge-ds-experimental";
@@ -64,7 +65,8 @@ export function selectCol(h: SelHandlers): DataColumn<PricingItem> {
   };
 }
 
-export function itemCol(): DataColumn<PricingItem> {
+// `accessory` renders after the name (e.g. an "HQ" badge for items HQ flagged).
+export function itemCol(accessory?: (r: PricingItem) => ReactNode): DataColumn<PricingItem> {
   return {
     id: "item",
     group: "item",
@@ -80,6 +82,7 @@ export function itemCol(): DataColumn<PricingItem> {
         <Tooltip content={r.name}>
           <span className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{r.name}</span>
         </Tooltip>
+        {accessory?.(r)}
       </div>
     ),
   };

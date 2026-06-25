@@ -15,6 +15,30 @@
 @import "tailwindcss/utilities.css" layer(utilities);
 
 /*
+ * Hy-Vee red as the primary action color. The DS ships --primary green
+ * (#26890d); stakeholders asked for the brand red on the header and every
+ * primary button, so we override the DS semantic token here (after its import)
+ * — every `variant="primary"` Button resolves through .bg-primary /
+ * .text-primary-foreground and picks this up.
+ */
+/* `!important` so the brand red wins the `--primary` cascade no matter how the
+ * dev vs. prod bundler orders our override relative to the DS stylesheet. This
+ * covers the primary button's BASE (`bg-primary`). */
+:root {
+  --primary: #e21c11 !important;
+  --primary-foreground: #fff !important;
+}
+
+/* The DS primary Button's HOVER is hardcoded to `bg-success` (green #207f19), not
+ * `bg-primary` — fine when primary was the DS green, but now that primary is brand
+ * red the green hover clashed. Re-point only the primary button's hover to a
+ * darker brand red. Scoped to `.btn.bg-primary` so the green success elements that
+ * also use `hover:bg-success` are untouched. */
+.btn.bg-primary:hover {
+  background-color: color-mix(in srgb, var(--primary) 88%, #000) !important;
+}
+
+/*
  * Project theme tokens registered with Tailwind v4 so they are usable both as
  * `var(--token)` and as utilities (bg-brand, text-brand, bg-group-pricing-bg…).
  * The DS ships its own semantic tokens in :root (--primary is green #26890d);
@@ -24,6 +48,7 @@
   --font-sans: var(--font-open-sans), "Open Sans", ui-sans-serif, sans-serif;
 
   --color-brand: #003a5d;
+  --color-hyvee-red: #e21c11;
   --color-group-pricing-bg: #fdf1ef;
   --color-group-pricing-header: #fbe6e2;
   --color-group-impact-bg: #eef5f9;
@@ -90,11 +115,24 @@ body {
   animation: decision-pop 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/*
+ * The "Needs review" status dot: a gentle pulse to draw the eye to items still
+ * awaiting the director's call, without the louder ping used on the page banner.
+ */
+@keyframes review-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.78); }
+}
+.review-dot {
+  animation: review-dot 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .badge-pop,
   .send-bump,
   .batch-flash,
-  .decision-pop {
+  .decision-pop,
+  .review-dot {
     animation: none;
   }
 }

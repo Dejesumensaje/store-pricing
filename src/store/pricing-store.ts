@@ -313,8 +313,12 @@ export const usePricingStore = create<PricingStore>((set) => ({
         overrides: state.overrides.map((o) =>
           overrideIds.includes(o.id) ? { ...o, status: "in_batch", batchId } : o
         ),
+        // An override lives in exactly one batch: add to the target and strip it
+        // from any other batch (so re-assigning an already-batched change moves it).
         batches: state.batches.map((b) =>
-          b.id === batchId ? { ...b, overrideIds: [...new Set([...b.overrideIds, ...overrideIds])] } : b
+          b.id === batchId
+            ? { ...b, overrideIds: [...new Set([...b.overrideIds, ...overrideIds])] }
+            : { ...b, overrideIds: b.overrideIds.filter((id) => !overrideIds.includes(id)) }
         ),
         items: applyStatusToItems(state.items, affected, "in_batch"),
       };
@@ -349,7 +353,12 @@ export const usePricingStore = create<PricingStore>((set) => ({
       };
       const affected = state.overrides.filter((o) => overrideIds.includes(o.id));
       return {
-        batches: [...state.batches, newBatch],
+        // Strip the seeded ids from any batch they were already in — one override
+        // belongs to exactly one batch (so creating a batch can move a change).
+        batches: [
+          ...state.batches.map((b) => ({ ...b, overrideIds: b.overrideIds.filter((id) => !overrideIds.includes(id)) })),
+          newBatch,
+        ],
         overrides: state.overrides.map((o) =>
           overrideIds.includes(o.id) ? { ...o, status: "in_batch", batchId: newBatch.id } : o
         ),

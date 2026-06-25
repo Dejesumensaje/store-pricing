@@ -12,10 +12,11 @@ function fmtSave(amount: number): string {
   return amount < 1 ? `${Math.round(amount * 100)}¢` : fmt(amount);
 }
 
-// The blue "+$X fuel" chip — a fuel saver can ride on any tag (white or yellow).
+// The "+$X fuel" chip — one light style (matches the table's fuel chip); a fuel
+// saver can ride on any tag (white or yellow).
 function FuelChip({ amount }: { amount: number }) {
   return (
-    <span className="inline-flex items-center gap-0.5 rounded-sm bg-blue-600 px-1 py-px text-[9px] font-bold text-white">
+    <span className="inline-flex items-center gap-0.5 rounded-sm border border-blue-200 bg-blue-50 px-1 py-px text-[9px] font-bold text-blue-700">
       <Fuel aria-hidden="true" className="size-2.5" />+{fmt(amount)} fuel
     </span>
   );

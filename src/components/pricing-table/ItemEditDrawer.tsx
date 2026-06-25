@@ -10,16 +10,17 @@ import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BatchPickerModal } from "../store/BatchPickerModal";
+import { HqBadge } from "../store/buildStoreColumns";
 import { ShelfTagPreview } from "./ShelfTagPreview";
 import { ImpactBreakdown } from "./columns/shared";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { fmt, fmtQtyPrice } from "@/lib/format";
+import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Pencil } from "lucide-react";
+import { RotateCcw, Check, Package, Link2, ChevronDown, Lock, Info, Pencil, CalendarClock } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -84,6 +85,7 @@ export function ItemEditDrawer({
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const setReviewed = usePricingStore((s) => s.setReviewed);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
+  const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const toast = useToast();
 
   const item = items.find((i) => i.id === itemId) ?? null;
@@ -122,12 +124,15 @@ export function ItemEditDrawer({
   const [confirmRevert, setConfirmRevert] = useState<"base" | "retail" | null>(null);
   // On finishing with a pending change, ask where it should go (batch / new / later).
   const [batchPromptOpen, setBatchPromptOpen] = useState(false);
+  // Re-assign an already-batched change to a different (or new) batch from here.
+  const [movePickerOpen, setMovePickerOpen] = useState(false);
   // Reset per-item UI reveals when navigating to another item.
   useEffect(() => {
     setShowFuelSaver(false);
     setEditingBase(false);
     setChangingRetail(false);
     setBatchPromptOpen(false);
+    setMovePickerOpen(false);
   }, [itemId]);
 
   // Editing auto-saves the moment a price commits; finishing simply closes the
@@ -184,6 +189,18 @@ export function ItemEditDrawer({
       ].filter((x): x is string => x != null)
     : [];
   const hasPendingOverride = myPendingIds.length > 0;
+
+  // This item's changes that already sit in a (scheduled) batch — surfaced so the
+  // director can see WHERE it's queued and move it to another / a new batch.
+  const inBatchIds = item
+    ? [
+        item.baseOverrideStatus === "in_batch" ? `${item.id}:base` : null,
+        item.retailOverrideStatus === "in_batch" ? `${item.id}:retail` : null,
+      ].filter((x): x is string => x != null)
+    : [];
+  const myBatch = inBatchIds.length > 0
+    ? batches.find((b) => inBatchIds.some((id) => b.overrideIds.includes(id))) ?? null
+    : null;
 
   // Reject the recommendation — keep the current SAP price. Nothing is sent. Reversible.
   const keepCurrent = () => {
@@ -334,6 +351,7 @@ export function ItemEditDrawer({
                 )}
               </dl>
               <div className="flex flex-wrap items-center gap-1">
+                {hqReviewNeeded(item) && <HqBadge />}
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
                 {isEdlp && <Badge tone="success" size="sm">EDLP</Badge>}
                 {item.isKvi && <Badge tone="warning" size="sm">KVI</Badge>}
@@ -363,6 +381,27 @@ export function ItemEditDrawer({
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
               <span className="text-gray-700">{hqRecRationale(item)}</span>
+            </div>
+          )}
+
+          {/* Batch membership — once a change is in a scheduled batch, show WHERE it's
+              queued and let the director move it to another batch (or a new one). */}
+          {myBatch && (
+            <div className="-mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+                <span className="inline-flex items-center gap-1.5 text-gray-700">
+                  <Package className="size-4 shrink-0 text-brand" aria-hidden="true" />
+                  In batch <span className="font-medium text-gray-900">{myBatch.name}</span>
+                </span>
+                {myBatch.scheduledAt && (
+                  <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                    <CalendarClock className="size-3.5" aria-hidden="true" /> Sends {fmtDateTime(myBatch.scheduledAt)}
+                  </span>
+                )}
+              </div>
+              <Button variant="tertiary" size="sm" onClick={() => setMovePickerOpen(true)}>
+                Change batch
+              </Button>
             </div>
           )}
 
@@ -786,6 +825,24 @@ export function ItemEditDrawer({
       count={new Set(myPendingIds.map((id) => id.split(":")[0])).size}
       onAddToBatch={(id) => { onAddToBatch(id, myPendingIds); closeAfterBatch(); }}
       onNewBatch={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
+    />
+
+    {/* Move this already-batched change to a different scheduled batch (or a new one).
+        The store keeps an override in exactly one batch, so this relocates it. */}
+    <BatchPickerModal
+      open={movePickerOpen}
+      onOpenChange={(o) => { if (!o) setMovePickerOpen(false); }}
+      title="Change batch"
+      description="Move this change to a different scheduled batch, or create a new one."
+      openBatches={openBatches.filter((b) => b.id !== myBatch?.id)}
+      count={1}
+      onAddToBatch={(id) => {
+        inBatchIds.forEach((oid) => moveOverrideToBatch(oid, id));
+        const name = batches.find((b) => b.id === id)?.name ?? "batch";
+        toast.success(`Moved to ${name}`);
+        setMovePickerOpen(false);
+      }}
+      onNewBatch={() => { onNewBatch(inBatchIds); setMovePickerOpen(false); }}
     />
     </>
   );
