@@ -120,16 +120,16 @@ export function ShelfTagCell({ item }: { item: PricingItem }) {
 // A small "HQ" badge sitting next to the item NAME for items HQ has flagged for a
 // price change. Provenance ("HQ wants a change here") belongs at the item level —
 // the price tag itself stays one clean style regardless of who proposed it. The
-// tooltip says why; the "Needs review" pill + amber row carry the call-to-action.
+// tooltip says why; the "Needs review" pill + red row rail carry the call-to-action.
 //
-// Color economy: HQ wears the Hy-Vee brand teal — the same cool family as the
-// "Needs review" status badge (DS informative) — NOT the fuel-saver blue. So the
-// brand red stays "your action", fuel stays blue, and "this is HQ's" is teal.
+// HQ wears the Hy-Vee red — HQ *is* Hy-Vee headquarters, so the brand red reads as
+// "this came from HQ, look here". A subtle pulse (.hq-pulse) draws the eye without
+// shouting.
 export function HqBadge() {
   return (
     <Tooltip content="HQ recommends a price change — review and decide.">
       <span
-        className="shrink-0 cursor-default rounded bg-brand/10 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-brand ring-1 ring-inset ring-brand/20"
+        className="hq-pulse shrink-0 cursor-default rounded bg-hyvee-red/10 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-hyvee-red ring-1 ring-inset ring-hyvee-red/30"
         aria-label="HQ recommends a price change"
       >
         HQ

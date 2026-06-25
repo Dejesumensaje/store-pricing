@@ -190,12 +190,10 @@ export function DataTable<T>({
                     {itemCols.map((c, i) => {
                       const bg = selected
                         ? "bg-blue-50"
-                        : review
-                        ? "bg-brand/5"
                         : override
                         ? "bg-orange-50/40"
                         : "bg-white";
-                      const reviewAccent = review && i === 0 ? "border-l-2 border-l-brand" : "";
+                      const reviewAccent = review && i === 0 ? "border-l-2 border-l-hyvee-red" : "";
                       return (
                         <TableCell
                           key={c.id}
@@ -410,21 +408,19 @@ export function DataTable<T>({
               >
                 {columns.map((c, i) => {
                   const pinned = isPinned(c.group);
-                  // Review rows wear the brand teal (the HQ/needs-review color) — a
-                  // faint wash plus a left accent bar on the first cell — so undecided
-                  // HQ items read as "act on me", and amber stays for promos.
+                  // Review rows stay WHITE with a Hy-Vee red left rail (the HQ color)
+                  // on the first cell — so undecided HQ items read as "act on me"
+                  // without the gray wash, and amber stays for promos.
                   const bg = pinned
                     ? GROUP_BG[c.group]
                     : selected
                     ? "bg-blue-50"
-                    : review
-                    ? "bg-brand/5"
                     : override
                     ? "bg-orange-50/40"
                     : "bg-white";
-                  // Accent goes LAST so tailwind-merge keeps the amber left border
+                  // Accent goes LAST so tailwind-merge keeps the red left border
                   // (a trailing `border-gray-100` would otherwise win the merge).
-                  const reviewAccent = review && i === 0 ? "border-l-2 border-l-brand" : "";
+                  const reviewAccent = review && i === 0 ? "border-l-2 border-l-hyvee-red" : "";
                   return (
                     <TableCell
                       key={c.id}

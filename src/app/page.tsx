@@ -12,7 +12,7 @@ import {
 } from "@dejesumensaje/converge-ds-experimental";
 import { DateField, todayIso } from "@/components/shared/DateField";
 import { TimeField, DEFAULT_SEND_TIME } from "@/components/shared/TimeField";
-import { SearchX, ArrowLeft, ArrowRight, CheckCircle2, CalendarClock, Plus, Package, Loader2 } from "lucide-react";
+import { SearchX, ArrowLeft, ListFilter, CheckCircle2, CalendarClock, Plus, Package, Loader2 } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
@@ -77,19 +77,20 @@ export default function StorePricingPage() {
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
 
-  // Distinct items sitting in a batch, waiting to send to SAP — the To-send badge.
-  const toSendCount = useMemo(
-    () => new Set(overrides.filter((o) => o.status === "in_batch").map((o) => o.itemId)).size,
-    [overrides]
+  // How many batches the user has on the go (draft + scheduled) — the Batches
+  // badge counts batches, not items, so it answers "how many batches do I have?".
+  const batchCount = useMemo(
+    () => batches.filter((b) => b.status === "draft" || b.status === "scheduled").length,
+    [batches]
   );
-  // Pulse the badge when its count grows (e.g. after add-to-batch) so the user
-  // sees where their action landed. Re-keys the badge to restart the anim.
+  // Pulse the badge when the batch count grows (e.g. after a new batch) so the
+  // user sees their action land. Re-keys the badge to restart the anim.
   const [trayPulse, setTrayPulse] = useState(0);
-  const prevTrayCount = useRef(toSendCount);
+  const prevTrayCount = useRef(batchCount);
   useEffect(() => {
-    if (toSendCount > prevTrayCount.current) setTrayPulse((n) => n + 1);
-    prevTrayCount.current = toSendCount;
-  }, [toSendCount]);
+    if (batchCount > prevTrayCount.current) setTrayPulse((n) => n + 1);
+    prevTrayCount.current = batchCount;
+  }, [batchCount]);
 
   // Batches the user can still build into (one-click "active batch" target).
   const openBatches = useMemo(
@@ -355,9 +356,9 @@ export default function StorePricingPage() {
                   Batches
                 </Button>
               </span>
-              {toSendCount > 0 && (
+              {batchCount > 0 && (
                 <span key={`badge-${trayPulse}`} className="badge-pop absolute -top-1.5 -right-1.5 pointer-events-none">
-                  <CountBadge count={toSendCount} tone="warning" />
+                  <CountBadge count={batchCount} tone="warning" />
                 </span>
               )}
             </div>
@@ -424,8 +425,8 @@ export default function StorePricingPage() {
                       <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review — proposed price changes awaiting your call.
                     </span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-1 text-sm font-semibold text-brand">
-                    Review <ArrowRight className="size-4" aria-hidden="true" />
+                  <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-brand">
+                    <ListFilter className="size-4" aria-hidden="true" /> Review
                   </span>
                 </button>
               )}
