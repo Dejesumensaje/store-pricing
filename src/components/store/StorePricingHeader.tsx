@@ -10,7 +10,7 @@ export function StorePricingHeader() {
     <>
       <h1 className="order-1 text-2xl font-bold text-gray-900">Store #1402</h1>
       <div className="order-3 w-full md:order-2 md:w-auto">
-        <span className="inline-block rounded-full border border-gray-300 px-3.5 py-1 text-sm text-gray-600">
+        <span className="text-base text-gray-500 md:ml-1">
           902 S. Locust St, Glenwood, IA 51534
         </span>
       </div>
