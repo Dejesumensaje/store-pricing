@@ -9,15 +9,20 @@ how long a store director takes to complete each flow, and where they get stuck.
 
 A single screen. The user is a **store director** managing prices for their location.
 
-- **"All items" tab** → their permanent workspace.
-- **"HQ Recommendations" tab** → a queue of **proposals** sent by headquarters (HQ). These are
-  **not live in SAP yet** — the director decides.
-- Clicking a row opens a **drawer** with three sections: Base price / Retail price / Fuel saver.
-- On an HQ recommendation the director can: **Accept** the proposal, **enter their own price**
-  (override), or **Keep current**.
-- Decided changes become "pending to send." They go to SAP **loose** ("Send all") or grouped
-  in a **batch** (which can be scheduled for a date).
-- The **"To send"** button (top right) opens the submission view (SAP Submission).
+- **"All items" list** → their permanent workspace. A banner appears at the top when HQ has
+  sent price recommendations that need a decision.
+- Clicking that banner (or the filter badge) narrows the list to items with pending HQ recs.
+- Clicking any row opens a **drawer** with up to three sections: Base price / Retail price /
+  Fuel saver.
+- On an HQ recommendation the director can: **Accept $X.XX** (the formatted recommended price),
+  **Set a different price** (override), or **Keep current**.
+- Every decided change must land in a **batch** before it can be sent to SAP. Batches can be
+  sent immediately or scheduled for a future date/time. There is no "send all loose" path.
+- The **"Batches"** button (top right) opens the batch management view: Scheduled and Sent tabs,
+  and a "New batch" button.
+
+> **Note for the moderator:** In earlier prototypes a "Send all" (loose) button existed. It has
+> been removed — all sends now go through a batch. Update the participant scenario accordingly.
 
 ---
 
@@ -26,7 +31,7 @@ A single screen. The user is a **store director** managing prices for their loca
 1. Does the user understand the difference between **current SAP price**, **HQ recommendation**, and **their price**?
 2. Can they **decide** on an HQ proposal unaided and quickly?
 3. Can they find and **edit** a price on their own?
-4. Do they complete the **send to SAP** flow (loose and in a batch) with confidence?
+4. Do they complete the **send to SAP** flow (via a batch) with confidence?
 5. Do they always know **what state** each item is in?
 
 ---
@@ -87,8 +92,12 @@ This is the key comprehension task for the mental model.
 ### Task 3 — Accept an HQ recommendation
 > "You agree with HQ's proposal for **Fritos Original 9.25oz**. Apply it."
 
-**Success:** uses **Accept HQ rec** ($5.79); the item becomes decided / pending to send (`RBCS5-7`).
-**What to watch:** Do they expect accepting to "send" it already? Do they understand the send step still remains?
+**Success:** clicks **Accept $5.79** in the drawer; the item status changes to Scheduled (`RBCS5-7`).
+**What to watch:** Do they find the HQ rec banner that triggers the filtered view? Do they expect
+accepting to "send" it immediately? Do they understand the batch step still remains?
+
+> **Moderator note:** The Accept button shows the formatted price ("Accept $5.79"), not a generic
+> "Accept" label — this is intentional and was confirmed in automated testing.
 
 ---
 
@@ -118,21 +127,28 @@ confusing point — watch closely.
 
 ---
 
-### Task 7 — Send changes to SAP (loose)
-> "You've decided on several changes. Send them to HQ / SAP now, without grouping them."
+### Task 7 — Send a batch to SAP
+> "You've decided on several changes. Send the batch to SAP now."
 
-**Success:** reaches "To send" → **Send all to SAP** → confirms.
-**What to watch:** Do they find "To send"? Does the button's counter give a hint? Do they understand the
-"pending SAP confirmation" status?
+**Success:** opens **Batches** → finds a Scheduled batch → clicks **Send now** (or equivalent) →
+batch moves to Sent tab / confirmation shown.
+**What to watch:** Do they find the "Batches" button? Do they understand the batch → send
+relationship? Do they grasp "pending SAP confirmation" vs. "live"?
+
+> **Design note (updated 2026-06-30):** A previous version of this scenario asked the director
+> to "Send all without grouping." That path no longer exists — all sends are batch-based
+> (ADR-0035 / ADR-0036). If participants ask about sending loose, probe for their mental model;
+> the absence of a loose path is a deliberate design decision worth validating.
 
 ---
 
-### Task 8 — Group into a batch and schedule
-> "You want these changes to go out together on **Friday, June 26**. Group them and schedule them for that date."
+### Task 8 — Create a batch and schedule it
+> "You want these changes to go out together on **Friday, June 26**. Create a batch for that date."
 
-**Success:** selects decided items → creates/uses a batch → schedules it with a date (use `2026-06-26`).
-**What to watch:** Do they discover only decided items can be selected? Do they get batch vs. loose send?
-Do they find the schedule date?
+**Success:** opens Batches → clicks **New batch** → sets name + date (`2026-06-26`) → saves →
+the new batch appears in the Scheduled tab.
+**What to watch:** Do they find the New batch button? Do they understand that items need to be
+assigned to the batch separately (via Done in the drawer)? Do they find the schedule date picker?
 
 ---
 
@@ -155,7 +171,7 @@ Do they find the schedule date?
 2. When did you feel lost or unsure?
 3. What was most useful? What's missing or excessive?
 4. Was the difference between **SAP price**, **HQ recommendation**, and **your price** clear? How would you put it?
-5. Loose send vs. batch: when would you use each? Was that clear?
+5. Did you miss a way to send changes immediately, without creating a batch? How would you expect that to work?
 6. Compared to how you do it today, would this save you time? Would you use it?
 7. One thing you'd change right away.
 
@@ -172,8 +188,8 @@ Do they find the schedule date?
 | 4 Override (Kettle Sea Salt → $5.59) | | | | |
 | 5 Own change (Lay's BBQ → $3.99) | | | | |
 | 6 Promo/multi-unit (Smartfood 2 for $7) | | | | |
-| 7 Send loose | | | | |
-| 8 Batch + schedule (Jun 26) | | | | |
+| 7 Send batch to SAP | | | | |
+| 8 New batch + schedule (Jun 26) | | | | |
 | 9 Filter (Temporary Allowance) | | | | |
 
 **How to read the results afterward:**
@@ -185,3 +201,42 @@ Do they find the schedule date?
 
 > Keep it simple: no need for a lab with a one-way mirror. A screen-share call, a stopwatch, and this
 > sheet are enough. What matters is **watching where they hesitate**, not the exact number.
+
+---
+
+## 9. Pre-test validation (Playwright audit — 2026-06-30)
+
+A Playwright audit (`e2e/audit.spec.ts`) was run against the prototype to confirm each flow is
+reachable before inviting participants. Tests run on **desktop-chrome** and **mobile-safari**
+(iPhone 14 viewport). All 43 tests pass; 5 are skipped (desktop-only tests correctly skipped
+on mobile, and vice versa).
+
+### Flows confirmed working
+
+| Test plan task | Playwright coverage | Status |
+|---|---|---|
+| 0 First impression | Initial load — heading, Batches button, item visible | ✅ Pass |
+| 1 Locate product | Search: typing filters list; clearing restores full list | ✅ Pass |
+| 2 Understand HQ rec | HQ banner visible; clicking opens filtered "Needs review" view | ✅ Pass |
+| 3 Accept HQ rec | Drawer shows "Accept $X.XX" + "Keep current"; accepting dismisses block | ✅ Pass |
+| 4 Override / set own price | "Needs review" drawer: no input open by default (conscious-edit model) | ✅ Pass |
+| 5 Own change | Desktop table scrolls with sticky headers; items accessible in drawer | ✅ Pass |
+| 6 Promo / multi-unit | Not automated (complex multi-step form — flag for manual pre-test check) | ⚠️ Manual |
+| 7 Send batch | Batches surface loads; seeded batches visible; Sent tab renders without crash | ✅ Pass |
+| 8 New batch + schedule | "New batch" modal opens with date field | ✅ Pass |
+| 9 Filter | Filter drawer opens and closes without errors | ✅ Pass |
+
+### Notable findings from the audit
+
+- **Sticky headers confirmed (desktop only):** The DataTable scroll container's `scrollHeight >
+  clientHeight` — headers stay pinned while 245+ items scroll below.
+- **No console errors** in any flow — zero JavaScript errors across all automated paths.
+- **Mobile layout clean:** No horizontal page overflow on iPhone 14 viewport.
+- **HQ rec accept button shows formatted price** ("Accept $5.79") — not a generic "Accept HQ rec"
+  label. This is intentional but worth noting in the moderator brief, as participants may not
+  immediately associate "Accept $5.79" with "applying the HQ recommendation."
+- **Batch-mandatory confirmed:** There is no "Send all" loose path. Any scenario that implies
+  sending without a batch will need to be updated before the session (see Task 7 above).
+- **Task 6 (promo/multi-unit) not automated:** The retail price section has multiple interaction
+  states (accept-first, set-promo, date range). Verify manually before each session that the
+  `NC-4` item is in the expected state.
