@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { SearchInput, Button } from "@dejesumensaje/converge-ds-experimental";
 import { SlidersHorizontal, ScanLine } from "lucide-react";
 import { ColumnsMenu, ColumnOption } from "../pricing-table/ColumnsMenu";
@@ -15,20 +16,40 @@ type Props = {
 };
 
 export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFilterCount, columnOptions, onToggleColumn }: Props) {
+  const [focused, setFocused] = useState(false);
+  // Mirror the DS SearchInput's own rule: it stays expanded while focused OR
+  // while it holds a value. We read this off React focus events (caught on the
+  // display:contents wrapper, so we don't clobber the DS's internal focus
+  // handlers on the input itself).
+  const isOpen = focused || search.length > 0;
+
   return (
     // Mobile: search pinned left, actions clustered right (justify-between).
     // Desktop: the whole toolbar sits at the right of the tabs row, items inline.
     <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-start">
-      <SearchInput
-        value={search}
-        onValueChange={onSearch}
-        size="sm"
-        expandDirection="right"
-        aria-label="Search items"
-        placeholder="Search by name or ID"
-        className="md:w-56"
-      />
-      <div className="flex items-center gap-2">
+      {/* display:contents lets the SearchInput sit directly in the flex row
+          while this wrapper still receives the input's bubbled focus events. */}
+      <div
+        style={{ display: "contents" }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      >
+        <SearchInput
+          value={search}
+          onValueChange={onSearch}
+          size="sm"
+          expandDirection="right"
+          aria-label="Search items"
+          placeholder="Search by name or ID"
+          // The DS pins width via an inline style (200px when expanded), which
+          // clips the placeholder. Override it only when open: full row on
+          // mobile, a fixed 300px on desktop so the whole label is visible.
+          className={isOpen ? "w-full! md:w-[300px]!" : undefined}
+        />
+      </div>
+      {/* On mobile, collapse the action cluster while search is open so the
+          input owns the full row. Desktop (md:flex) always shows it. */}
+      <div className={`items-center gap-2 md:flex ${isOpen ? "hidden" : "flex"}`}>
         <Button
           variant="secondary"
           size="sm"
