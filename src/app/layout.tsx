@@ -20,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`h-full ${openSans.variable}`}>
-      <body className="min-h-full bg-gray-50 antialiased">
+      <body className="h-full flex flex-col bg-gray-50 antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

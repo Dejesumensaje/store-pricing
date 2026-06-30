@@ -191,7 +191,7 @@ export function DataTable<T>({
                       const bg = selected
                         ? "bg-blue-50"
                         : override
-                        ? "bg-orange-50/40"
+                        ? "bg-blue-50/40"
                         : "bg-white";
                       const reviewAccent = review && i === 0 ? "border-l-2 border-l-hyvee-red" : "";
                       return (
@@ -416,7 +416,7 @@ export function DataTable<T>({
                     : selected
                     ? "bg-blue-50"
                     : override
-                    ? "bg-orange-50/40"
+                    ? "bg-blue-50/40"
                     : "bg-white";
                   // Accent goes LAST so tailwind-merge keeps the red left border
                   // (a trailing `border-gray-100` would otherwise win the merge).
