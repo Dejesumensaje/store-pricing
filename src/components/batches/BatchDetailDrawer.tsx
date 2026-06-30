@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Drawer, Button, Badge, Select, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { Trash2, Send, Inbox, CalendarClock } from "lucide-react";
+import { Trash2, Send, Inbox, CalendarClock, ClipboardCopy, Check } from "lucide-react";
 import { usePricingStore } from "@/store/pricing-store";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { fmt, fmtQtyPrice, fmtDate, fmtDateTime } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
@@ -14,6 +16,9 @@ type Props = {
 
 export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
   const toast = useToast();
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const [sapCopied, setSapCopied] = useState(false);
   const batches = usePricingStore((s) => s.batches);
   const overrides = usePricingStore((s) => s.overrides);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
@@ -29,6 +34,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
   const otherScheduledBatches = batches.filter((b) => b.id !== batchId && b.status === "scheduled");
 
   return (
+    <>
     <Drawer
       open={batch != null}
       onOpenChange={onOpenChange}
@@ -52,11 +58,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                 variant="primary"
                 iconLeft={Send}
                 disabled={batchOverrides.length === 0}
-                onClick={() => {
-                  submitBatch(batch.id);
-                  toast.success(`Batch "${batch.name}" sent to SAP`);
-                  onOpenChange(false);
-                }}
+                onClick={() => setConfirmSend(true)}
               >
                 Send to SAP now ({batchOverrides.length})
               </Button>
@@ -77,7 +79,26 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
               )}
             </span>
             {batch.sapReference && (
-              <span>SAP ref <span className="font-medium text-gray-600">{batch.sapReference}</span></span>
+              <span className="inline-flex items-center gap-1">
+                SAP ref{" "}
+                <span className="font-mono font-medium text-gray-600">{batch.sapReference}</span>
+                <button
+                  type="button"
+                  aria-label="Copy SAP reference"
+                  className="ml-0.5 rounded p-0.5 text-gray-400 hover:text-gray-700 transition-colors"
+                  onClick={() => {
+                    navigator.clipboard.writeText(batch.sapReference!);
+                    setSapCopied(true);
+                    setTimeout(() => setSapCopied(false), 2000);
+                  }}
+                >
+                  {sapCopied ? (
+                    <Check className="size-3 text-emerald-600" aria-hidden="true" />
+                  ) : (
+                    <ClipboardCopy className="size-3" aria-hidden="true" />
+                  )}
+                </button>
+              </span>
             )}
           </div>
 
@@ -113,7 +134,11 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                             size="sm"
                             options={otherScheduledBatches.map((b) => ({ label: b.name, value: b.id }))}
                             value=""
-                            onChange={(v) => moveOverrideToBatch(ov.id, v as string)}
+                            onChange={(v) => {
+                              const targetBatch = otherScheduledBatches.find((b) => b.id === v);
+                              moveOverrideToBatch(ov.id, v as string);
+                              if (targetBatch) toast.success(`Moved to "${targetBatch.name}"`);
+                            }}
                             placeholder="Move to batch…"
                           />
                         </div>
@@ -125,7 +150,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
                         size="sm"
                         iconLeft={Trash2}
                         aria-label={`Remove ${ov.itemName} (reverts the change)`}
-                        onClick={() => removeFromLooseTray(ov.id)}
+                        onClick={() => setConfirmRemoveId(ov.id)}
                       >
                         Remove
                       </Button>
@@ -138,5 +163,32 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
         </div>
       )}
     </Drawer>
+
+    <ConfirmDialog
+      open={confirmRemoveId != null}
+      onOpenChange={(open) => { if (!open) setConfirmRemoveId(null); }}
+      headline="Remove from batch and discard this price change?"
+      description="The price will revert to its previous value. This cannot be undone."
+      confirmLabel="Remove and discard"
+      destructive
+      onConfirm={() => { if (confirmRemoveId) removeFromLooseTray(confirmRemoveId); }}
+    />
+
+    <ConfirmDialog
+      open={confirmSend}
+      onOpenChange={setConfirmSend}
+      headline={`Send "${batch?.name}" to SAP now?`}
+      description={`This sends ${batchOverrides.length} price change${batchOverrides.length !== 1 ? "s" : ""} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
+      confirmLabel="Send to SAP now"
+      onConfirm={() => {
+        if (!batch) return;
+        submitBatch(batch.id);
+        toast.success(
+          `"${batch.name}" sent to SAP — ${batchOverrides.length} item${batchOverrides.length !== 1 ? "s" : ""} · sends ${fmtDateTime(batch.scheduledAt ?? new Date().toISOString())}`
+        );
+        onOpenChange(false);
+      }}
+    />
+    </>
   );
 }

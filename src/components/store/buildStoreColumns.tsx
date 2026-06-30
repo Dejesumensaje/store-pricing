@@ -8,9 +8,6 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
 import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 
-// Optional columns the gear/settings menu can toggle on (off by default). The
-// default table already shows the before→after Price + Fuel saver cells, so the
-// opt-in list is just supporting attributes (aisle, brand, cost, …).
 export const STORE_OPTIONAL_COLUMNS: { id: string; label: string }[] = [
   { id: "aisle", label: "Aisle" },
   { id: "subcategory", label: "Subcategory" },
@@ -184,21 +181,16 @@ function MoveLine({
   );
 }
 
-// A retail/promo row is worth showing only when the item actually has one.
 function hasRetailRow(item: PricingItem): boolean {
   return item.category_type === "temporary_allowance" || item.newRetailPrice != null;
 }
 
-// Magnitude of the base move, for the column's sort (biggest changes first).
 function baseMovePct(item: PricingItem): number {
   const target = item.newBasePrice ?? (item.hqReviewPending ? item.recommendedBasePrice : null);
   if (target == null || !(item.currentBasePrice > 0)) return 0;
   return Math.abs((target - item.currentBasePrice) / item.currentBasePrice) * 100;
 }
 
-// The before→after price cell. Base row always; a Retail row stacks beneath it
-// when the item carries a promo. Each row shows what was live → the new value,
-// with the director's decision in bold and an undecided HQ proposal in a pill.
 export function PriceCell({ item }: { item: PricingItem }) {
   const isNew = item.category_type === "new_discontinued" && item.itemStatus === "new";
   const showRetail = hasRetailRow(item);
@@ -258,8 +250,6 @@ function FuelChip({ amount }: { amount: number }) {
   );
 }
 
-// Fuel saver, before→after — rendered as the shopper-facing fuel chip (one light
-// style). A store add-on, so the "before" is usually none.
 export function FuelSaverCell({ item }: { item: PricingItem }) {
   const current = item.currentFuelSaver ?? null;
   const decided = item.fuelSaver ?? null;
@@ -309,9 +299,6 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
 const FAILED_HELP =
   "The last send to SAP didn't go through. It retries automatically; the price stays at its previous value until it succeeds.";
 
-// The workflow-stage badge (Live / Needs review / Scheduled / Sending / Failed).
-// "Needs review" carries a gently pulsing dot to pull the eye to undecided HQ
-// proposals; "Scheduled" and "Failed" explain themselves on hover.
 export function StatusCell({ item, batches }: { item: PricingItem; batches: Batch[] }) {
   const status = deriveItemStatus(item, batches);
   const isReview = status.label === "Needs review";
@@ -353,9 +340,7 @@ function wrapTip(node: React.ReactNode) {
   return <span className="inline-flex cursor-default">{node}</span>;
 }
 
-// Minimal default columns + optional ones toggled via the gear menu. Decisions
-// are made in the drawer (and forced into a batch), so the table is read-only —
-// no select column / bulk bar.
+// No select column — decisions happen in the drawer and are forced into a batch.
 export function buildStoreColumns(
   batches: Batch[],
   visibleCols: Set<string>
@@ -370,7 +355,9 @@ export function buildStoreColumns(
       id: "price",
       group: "item",
       width: 210,
-      header: "Price",
+      header: (
+        <span title="Sorts by percentage change magnitude, largest first">Price</span>
+      ),
       sortable: true,
       // Sort by magnitude of the move so a click surfaces the biggest changes
       // (calm, no-change rows settle together at the bottom).

@@ -5,11 +5,9 @@ import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCatego
 import { mockItems, mockOverrides, mockBatches } from "@/lib/mock-data";
 
 type PricingStore = {
-  // One unified catalog — every item carries its own price type (category_type).
   items: PricingItem[];
   overrides: Override[];
   batches: Batch[];
-  // Price edits — every commit upserts a pending override automatically
   updateBasePrice: (itemId: string, newPrice: number | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
@@ -20,7 +18,6 @@ type PricingStore = {
   acceptNoChange: (itemId: string) => void;
   // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
   setReviewed: (itemId: string, value: boolean) => void;
-  // Pending list / batches
   removeFromLooseTray: (overrideId: string) => void;
   removeFromBatch: (overrideId: string) => void;
   addToBatch: (batchId: string, overrideIds: string[]) => void;
@@ -403,9 +400,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
     }),
 }));
 
-// ─── Selectors ────────────────────────────────────────────────────────────────
-// selectPendingOverrides returns a fresh array — consume it with
-// useShallow(...) from "zustand/react/shallow" to avoid re-render loops.
+// selectPendingOverrides returns a fresh array — use with useShallow() to avoid re-render loops.
 export const selectPendingOverrides = (s: PricingStore) =>
   s.overrides.filter((o) => o.status === "pending");
 export const selectPendingCount = (s: PricingStore) =>

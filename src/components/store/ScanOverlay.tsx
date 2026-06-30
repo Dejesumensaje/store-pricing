@@ -24,6 +24,7 @@ export function ScanOverlay({ open, items, onClose, onScanResult }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   // Element to restore focus to when the overlay closes (the "Scan" trigger).
   const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -31,6 +32,8 @@ export function ScanOverlay({ open, items, onClose, onScanResult }: Props) {
     closeRef.current?.focus();
     return () => restoreFocusRef.current?.focus();
   }, [open]);
+
+  useEffect(() => () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); }, []);
 
   if (!open) return null;
 
@@ -60,7 +63,7 @@ export function ScanOverlay({ open, items, onClose, onScanResult }: Props) {
     const item = items[Math.floor(Math.random() * items.length)];
     setDetected(true);
     // Brief "locked on" beat before jumping into the drawer.
-    setTimeout(() => {
+    timeoutRef.current = setTimeout(() => {
       setDetected(false);
       onScanResult(item.id);
     }, 550);
@@ -71,12 +74,10 @@ export function ScanOverlay({ open, items, onClose, onScanResult }: Props) {
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
-      aria-label="Scan product"
+      aria-label="Simulated barcode scanner"
       onKeyDown={onKeyDown}
       className="fixed inset-0 z-50 flex flex-col bg-black/90 text-white"
     >
-      <style>{`@keyframes scanline{0%{top:8%}50%{top:88%}100%{top:8%}}@media(prefers-reduced-motion:reduce){.scan-line{animation:none!important;top:48%!important}}`}</style>
-
       <div className="flex items-center justify-between p-4">
         <span className="inline-flex items-center gap-2 text-sm font-medium">
           <ScanLine className="size-4" aria-hidden="true" /> Scan product
@@ -107,14 +108,12 @@ export function ScanOverlay({ open, items, onClose, onScanResult }: Props) {
             <span
               aria-hidden="true"
               className="scan-line absolute inset-x-6 h-0.5 bg-brand shadow-[0_0_12px_2px] shadow-brand"
-              style={{ animation: "scanline 2s ease-in-out infinite" }}
             />
           )}
         </button>
 
         <div className="text-center">
-          <p className="text-sm text-white/80">Point at the product barcode</p>
-          <p className="mt-1 text-xs text-white/40">Tap the frame to simulate a scan</p>
+          <p className="text-sm text-white/80">Simulated scan — tap the frame</p>
         </div>
 
         <Button variant="primary" iconLeft={ScanLine} onClick={simulateScan}>

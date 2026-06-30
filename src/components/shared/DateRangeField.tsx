@@ -205,6 +205,7 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
       {open && (
         <div
           role="dialog"
+          aria-label="Select date range"
           className={`absolute left-0 z-50 rounded-lg border border-gray-200 bg-white p-2 shadow-lg ${
             openUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}

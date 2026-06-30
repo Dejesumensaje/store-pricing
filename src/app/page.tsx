@@ -24,6 +24,7 @@ import { DataTable } from "@/components/pricing-table/DataTable";
 import { buildStoreColumns, STORE_OPTIONAL_COLUMNS, shelfTagKind, SHELF_TAG_META } from "@/components/store/buildStoreColumns";
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
 import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/FilterDrawer";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
@@ -42,7 +43,6 @@ export default function StorePricingPage() {
   const pending = usePricingStore(useShallow(selectPendingOverrides));
   const createBatch = usePricingStore((s) => s.createBatch);
   const addToBatch = usePricingStore((s) => s.addToBatch);
-  // Undo of "add to batch" fully reverts the change (no loose state to fall back to).
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
@@ -74,13 +74,16 @@ export default function StorePricingPage() {
   // To-send list so the user sees exactly where it went. The counter re-triggers
   // the animation when the same batch is targeted twice in a row.
   const [batchFlash, setBatchFlash] = useState<{ id: string; n: number } | null>(null);
+  // Mirrors batchFlash for the Sent & Live list — fires when a batch transitions
+  // submitted → confirmed so the go-live moment gets a visible acknowledgment.
+  const [confirmedFlash, setConfirmedFlash] = useState<{ id: string; n: number } | null>(null);
+  const [confirmSendBatchId, setConfirmSendBatchId] = useState<string | null>(null);
+  const prevBatchStatuses = useRef(new Map<string, string>(batches.map((b) => [b.id, b.status])));
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
 
-  // How many batches the user has on the go (draft + scheduled) — the Batches
-  // badge counts batches, not items, so it answers "how many batches do I have?".
   const batchCount = useMemo(
-    () => batches.filter((b) => b.status === "draft" || b.status === "scheduled").length,
+    () => batches.filter((b) => b.status === "scheduled").length,
     [batches]
   );
   // Pulse the badge when the batch count grows (e.g. after a new batch) so the
@@ -88,16 +91,42 @@ export default function StorePricingPage() {
   const [trayPulse, setTrayPulse] = useState(0);
   const prevTrayCount = useRef(batchCount);
   useEffect(() => {
-    if (batchCount > prevTrayCount.current) setTrayPulse((n) => n + 1);
+    if (batchCount > prevTrayCount.current) {
+      setTrayPulse((n) => n + 1);
+      // Fire a one-time onboarding toast the very first time a batch is created.
+      if (prevTrayCount.current === 0) {
+        toast.success('Batch created — set a send date, then use "Send to SAP now" when ready.');
+      }
+    }
     prevTrayCount.current = batchCount;
-  }, [batchCount]);
+  }, [batchCount, toast]);
 
-  // Batches the user can still build into (one-click "active batch" target).
+  // Toast once when the last HQ recommendation is reviewed (hqCount drops to 0
+  // while the director is in the review flow). The ref is initialised to hqCount
+  // so we never fire on the very first render when hqCount may already be 0.
+  const prevHqCount = useRef(hqCount);
+  useEffect(() => {
+    if (prevHqCount.current > 0 && hqCount === 0 && reviewOnly) {
+      toast.success("All HQ recommendations reviewed — add your changes to a batch to send to SAP.");
+    }
+    prevHqCount.current = hqCount;
+  }, [hqCount, reviewOnly, toast]);
+
+  useEffect(() => {
+    batches.forEach((b) => {
+      if (prevBatchStatuses.current.get(b.id) === "submitted" && b.status === "confirmed") {
+        const count = overrides.filter((o) => o.batchId === b.id).length;
+        toast.success(`"${b.name}" is now live in SAP — ${count} item${count !== 1 ? "s" : ""}`);
+        setConfirmedFlash((f) => ({ id: b.id, n: (f?.n ?? 0) + 1 }));
+      }
+    });
+    prevBatchStatuses.current = new Map(batches.map((b) => [b.id, b.status]));
+  }, [batches, overrides, toast]);
+
   const openBatches = useMemo(
-    () => batches.filter((b) => b.status === "draft" || b.status === "scheduled"),
+    () => batches.filter((b) => b.status === "scheduled"),
     [batches]
   );
-  // Lifecycle groupings for the To-send tabs.
   const scheduledBatches = useMemo(() => batches.filter((b) => b.status === "scheduled"), [batches]);
   const sentBatches = useMemo(
     () => batches.filter((b) => b.status === "submitted" || b.status === "confirmed"),
@@ -119,16 +148,17 @@ export default function StorePricingPage() {
   // ── Faceted filtering (All items / HQ tabs) ──────────────────────────────
   const facets: FilterFacet[] = useMemo(
     () => [
+      // Change type is first so FilterDrawer opens it by default (DT-05).
+      // Change type matches any of a (possibly multi-change) item's actions (AC7).
+      { key: "changeType", label: "Change type", options: CHANGE_FILTER_OPTIONS.filter((o) =>
+        items.some((i) => itemChangeGroups(i).includes(o))
+      ) },
       { key: "brand", label: "Brand", options: uniqueSorted(items.map((i) => i.brand)) },
       { key: "category", label: "Category", options: uniqueSorted(items.map((i) => i.category)) },
       { key: "itemRole", label: "Item role", options: uniqueSorted(items.map((i) => i.itemRole)) },
       { key: "nationalVsStore", label: "National vs. store", options: uniqueSorted(items.map((i) => i.nationalVsStore)) },
       { key: "sensitivity", label: "Sensitivity", options: uniqueSorted(items.map((i) => i.sensitivity)) },
       { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyLabel)) },
-      // Change type matches any of a (possibly multi-change) item's actions (AC7).
-      { key: "changeType", label: "Change type", options: CHANGE_FILTER_OPTIONS.filter((o) =>
-        items.some((i) => itemChangeGroups(i).includes(o))
-      ) },
     ],
     [items]
   );
@@ -202,8 +232,6 @@ export default function StorePricingPage() {
 
   const openNewBatch = (seedIds: string[]) => setNewBatch({ open: true, seedIds });
 
-  // Assign a change to a batch — the conscious sorting that doses the send to SAP.
-  // Driven by the drawer (one item) and the Review worklist. Undoable.
   const addOverridesToBatch = (batchId: string, ids: string[]) => {
     if (ids.length === 0) return;
     addToBatch(batchId, ids);
@@ -215,7 +243,6 @@ export default function StorePricingPage() {
     });
   };
 
-  // Re-schedule a batch for a date + time — it sends to SAP automatically then.
   const confirmScheduleBatch = () => {
     if (!scheduleBatchId || !scheduleDate || !scheduleTime) return;
     const at = `${scheduleDate}T${scheduleTime}:00`;
@@ -261,6 +288,7 @@ export default function StorePricingPage() {
                 <span
                   key={it.id}
                   title={it.name}
+                  aria-label={`${SHELF_TAG_META[shelfTagKind(it)].label} — ${it.name}`}
                   className={`h-2.5 w-4 rounded-[2px] border ${SHELF_TAG_META[shelfTagKind(it)].swatch}`}
                 />
               ))}
@@ -272,8 +300,6 @@ export default function StorePricingPage() {
     );
   };
 
-  // A scheduled batch row — identity + send date/time, plus Reschedule / Send now.
-  // Flashes briefly when a selection just landed in it.
   const renderOpenBatchRow = (b: Batch) => {
     const flashing = batchFlash?.id === b.id;
     return (
@@ -295,18 +321,20 @@ export default function StorePricingPage() {
           <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={() => openScheduleBatch(b.id, b.scheduledAt)}>
             Reschedule
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => submitBatch(b.id)}>Send now</Button>
+          <Button variant="secondary" size="sm" onClick={() => setConfirmSendBatchId(b.id)}>Send now</Button>
         </div>
       </div>
     );
   };
 
-  // A sent batch row — read-only, shows SAP status (Sending → Live). Opens the
-  // detail drawer for a preview.
   const renderSentBatchRow = (b: Batch) => {
     const live = b.status === "confirmed";
+    const flashing = confirmedFlash?.id === b.id;
     return (
-      <div key={b.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+      <div
+        key={flashing ? `${b.id}-confirmed-${confirmedFlash!.n}` : b.id}
+        className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 ${flashing ? "batch-flash" : ""}`}
+      >
         {renderBatchIdentity(b, null)}
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge tone={live ? "success" : "warning"} size="sm">
@@ -322,7 +350,7 @@ export default function StorePricingPage() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-gray-50">
+    <div id="main-content" className="flex h-full flex-col bg-gray-50">
       <AppHeader
         hqCount={hqCount}
         onViewHq={() => {
@@ -334,7 +362,6 @@ export default function StorePricingPage() {
       />
 
       <main className="mx-auto w-full max-w-[1400px] flex-1 flex flex-col min-h-0 overflow-auto px-4 py-6 md:px-8">
-        {/* Store identity + the "To send" navigation CTA. */}
         <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <StorePricingHeader />
             {/* The To-send button is hidden on the To-send surface itself — the
@@ -347,9 +374,8 @@ export default function StorePricingPage() {
               <span key={`bump-${trayPulse}`} className="send-bump inline-flex">
                 <Button
                   // A lens over All items: focus on the printed tags waiting to go
-                  // on the shelf. Always the prominent (red) primary so batches
-                  // read as the key destination, regardless of how many tags wait.
-                  variant="primary"
+                  // on the shelf. Primary when there are batches waiting, secondary otherwise.
+                  variant={batchCount > 0 ? 'primary' : 'secondary'}
                   iconLeft={Package}
                   onClick={() => setHangLensOn((on) => !on)}
                 >
@@ -367,7 +393,6 @@ export default function StorePricingPage() {
 
         <>
             {hangLensOn ? (
-              // Lens header — batch-central. Lifecycle tabs (Scheduled / Sent).
               <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-3">
                   <Button variant="tertiary" size="sm" iconLeft={ArrowLeft} onClick={() => setHangLensOn(false)}>
@@ -384,7 +409,7 @@ export default function StorePricingPage() {
                     onValueChange={(v) => setToSendSegment(v as "scheduled" | "sent")}
                     options={[
                       { value: "scheduled", label: `Scheduled (${itemsInBatches(scheduledBatches)})` },
-                      { value: "sent", label: `Sent (${itemsInBatches(sentBatches)})` },
+                      { value: "sent", label: `Sent & Live (${itemsInBatches(sentBatches)})` },
                     ]}
                   />
                 </div>
@@ -392,7 +417,12 @@ export default function StorePricingPage() {
             ) : (
               <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <h2 className="text-xl font-bold text-gray-900">
-                  All items <span className="ml-1 text-sm font-normal text-gray-400">{TOTAL_ITEM_COUNT.toLocaleString()}</span>
+                  All items{" "}
+                  <span className="ml-1 text-sm font-normal text-gray-400">
+                    {activeFilterCount > 0 || search
+                      ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}`
+                      : TOTAL_ITEM_COUNT.toLocaleString()}
+                  </span>
                 </h2>
                 <ItemsToolbar
                   search={search}
@@ -407,9 +437,6 @@ export default function StorePricingPage() {
             )}
 
             <div className="mt-4 flex-1 md:min-h-0 flex flex-col">
-              {/* HQ proposals filter the table in place. The banner narrows All
-                  items to what's awaiting the director's call; while filtered, a
-                  bar offers the way back to the full list. */}
               {!hangLensOn && hqCount > 0 && !reviewActive && (
                 <button
                   type="button"
@@ -425,8 +452,11 @@ export default function StorePricingPage() {
                       <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review — proposed price changes awaiting your call.
                     </span>
                   </span>
-                  <span className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-brand">
-                    <ListFilter className="size-4" aria-hidden="true" /> Review
+                  <span
+                    className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-brand"
+                    aria-label={`Review ${hqCount} HQ recommendation${hqCount !== 1 ? 's' : ''}`}
+                  >
+                    <ListFilter className="size-4" aria-hidden="true" /> Review recommendations
                   </span>
                 </button>
               )}
@@ -438,7 +468,7 @@ export default function StorePricingPage() {
                       <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
                     </span>
                     <span className="text-sm text-gray-800">
-                      Showing <span className="font-semibold">{hqCount} item{hqCount === 1 ? "" : "s"} that need review</span> — decide each one to send it on.
+                      Showing <span className="font-semibold">{hqCount} item{hqCount === 1 ? "" : "s"} that need review</span> — Accept or override each price — then add to a batch to send to SAP.
                     </span>
                   </span>
                   <Button variant="tertiary" size="sm" onClick={() => setReviewOnly(false)}>
@@ -446,9 +476,6 @@ export default function StorePricingPage() {
                   </Button>
                 </div>
               )}
-              {/* Your batches — the control panel. Every change lives in a
-                  scheduled batch (no loose inbox); the tabs split them into
-                  Scheduled (upcoming) and Sent. */}
               {hangLensOn && toSendSegment === "scheduled" && (
                 <div className="mb-5">
                   <div className="mb-2 flex items-center justify-between">
@@ -484,7 +511,7 @@ export default function StorePricingPage() {
               {!hangLensOn && (rows.length === 0 ? (
                 <EmptyState
                   icon={SearchX}
-                  title="No items match"
+                  title={activeFilterCount > 0 && !search ? "No items match your filters" : "No items match"}
                   hint="Try a different search or clear the filters."
                   className="py-20"
                   action={
@@ -497,14 +524,13 @@ export default function StorePricingPage() {
                           setFilters({});
                         }}
                       >
-                        Clear search &amp; filters
+                        {activeFilterCount > 0 && !search ? "Clear filters" : "Clear search & filters"}
                       </Button>
                     )
                   }
                 />
               ) : (
                 <>
-                  {/* Phone: tappable cards (read-only — decisions happen in the drawer). */}
                   <div className="md:hidden">
                     <MobileItemList
                       rows={rows}
@@ -594,6 +620,24 @@ export default function StorePricingPage() {
       </Modal>
 
       <BatchDetailDrawer batchId={manageBatchId} onOpenChange={(o) => { if (!o) setManageBatchId(null); }} />
+
+      {(() => {
+        const sendBatch = batches.find((b) => b.id === confirmSendBatchId);
+        const sendCount = sendBatch ? batchItems(sendBatch).length : 0;
+        return (
+          <ConfirmDialog
+            open={confirmSendBatchId != null}
+            onOpenChange={(open) => { if (!open) setConfirmSendBatchId(null); }}
+            headline={`Send "${sendBatch?.name}" to SAP now?`}
+            description={`This sends ${sendCount} price change${sendCount !== 1 ? "s" : ""} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
+            confirmLabel="Send to SAP now"
+            onConfirm={() => {
+              if (!confirmSendBatchId) return;
+              submitBatch(confirmSendBatchId);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

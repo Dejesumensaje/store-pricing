@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
-import { Send, Settings2, Layers, CalendarClock, Target, Eye } from "lucide-react";
+import { Send, Settings2, Layers, CalendarClock, Target, Eye, ClipboardCopy, Check } from "lucide-react";
 import { Batch } from "@/types/pricing";
 import { BatchImpact } from "@/lib/batch-utils";
 import { fmtDate, fmtImpactMoney, fmtImpactUnits } from "@/lib/format";
@@ -10,7 +11,6 @@ const STATUS_META: Record<
   Batch["status"],
   { label: string; tone: "neutral" | "warning" | "success" | "in-progress" }
 > = {
-  draft: { label: "Draft", tone: "neutral" },
   scheduled: { label: "Scheduled", tone: "in-progress" },
   submitted: { label: "Pending SAP confirmation", tone: "warning" },
   confirmed: { label: "Live", tone: "success" },
@@ -29,7 +29,8 @@ type Props = {
 
 export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isActive, onSetActive }: Props) {
   const status = STATUS_META[batch.status];
-  const isOpen = batch.status === "draft" || batch.status === "scheduled";
+  const isOpen = batch.status === "scheduled";
+  const [sapCopied, setSapCopied] = useState(false);
 
   return (
     <div className="flex flex-col rounded-xl border border-gray-200 bg-white p-5 transition-shadow hover:shadow-sm">
@@ -63,15 +64,32 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isAct
         <Metric label="Units" value={fmtImpactUnits(impact.unitsValue)} positive={impact.unitsValue >= 0} />
       </div>
 
-      {batch.scheduledAt && (batch.status === "scheduled" || batch.status === "draft") && (
+      {batch.scheduledAt && batch.status === "scheduled" && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-gray-500">
           <CalendarClock className="size-3.5" aria-hidden="true" /> Scheduled for {fmtDate(batch.scheduledAt)}
         </p>
       )}
 
       {batch.sapReference && (
-        <p className="mt-3 text-xs text-gray-500">
-          SAP ref <span className="font-medium text-gray-600">{batch.sapReference}</span>
+        <p className="mt-3 inline-flex items-center gap-1 text-xs text-gray-500">
+          SAP ref{" "}
+          <span className="font-mono font-medium text-gray-600">{batch.sapReference}</span>
+          <button
+            type="button"
+            aria-label="Copy SAP reference"
+            className="ml-0.5 rounded p-0.5 text-gray-400 hover:text-gray-700 transition-colors"
+            onClick={() => {
+              navigator.clipboard.writeText(batch.sapReference!);
+              setSapCopied(true);
+              setTimeout(() => setSapCopied(false), 2000);
+            }}
+          >
+            {sapCopied ? (
+              <Check className="size-3 text-emerald-600" aria-hidden="true" />
+            ) : (
+              <ClipboardCopy className="size-3" aria-hidden="true" />
+            )}
+          </button>
         </p>
       )}
 
@@ -80,12 +98,12 @@ export function BatchCard({ batch, impact, onManage, onSchedule, onSubmit, isAct
           {isOpen ? "Manage" : "Preview"}
         </Button>
         <div className="flex-1" />
-        {(batch.status === "draft" || batch.status === "scheduled") && (
+        {batch.status === "scheduled" && (
           <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={onSchedule}>
-            {batch.status === "scheduled" ? "Reschedule" : "Schedule"}
+            Reschedule
           </Button>
         )}
-        {(batch.status === "draft" || batch.status === "scheduled") && (
+        {batch.status === "scheduled" && (
           <Button variant="primary" size="sm" iconLeft={Send} onClick={onSubmit}>
             Send now
           </Button>

@@ -126,6 +126,14 @@ body {
 .review-dot {
   animation: review-dot 1.8s ease-in-out infinite;
 }
+/*
+ * One-shot variant for mobile cards: same pulse but stops after the first cycle
+ * so it doesn't compete with scroll performance on long lists (MOB-01).
+ */
+.review-dot-once {
+  animation: review-dot 1.8s ease-in-out 1;
+  animation-iteration-count: 1;
+}
 
 /*
  * The "HQ" pill: a soft red halo that expands and fades out (a slow "ping") so
@@ -140,13 +148,31 @@ body {
   animation: hq-pulse 2s ease-out infinite;
 }
 
+/*
+ * Scan-line sweep for the ScanOverlay viewfinder. Defined here (not inline) so
+ * the reduced-motion block below can suppress it with !important.
+ */
+@keyframes scanline {
+  0%   { top: 8%; }
+  50%  { top: 88%; }
+  100% { top: 8%; }
+}
+.scan-line {
+  animation: scanline 2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .badge-pop,
   .send-bump,
   .batch-flash,
   .decision-pop,
   .review-dot,
-  .hq-pulse {
-    animation: none;
+  .review-dot-once,
+  .hq-pulse,
+  .scan-line {
+    animation: none !important;
+  }
+  .scan-line {
+    top: 48% !important;
   }
 }

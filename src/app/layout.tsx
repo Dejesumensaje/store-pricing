@@ -21,6 +21,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`h-full ${openSans.variable}`}>
       <body className="h-full flex flex-col bg-gray-50 antialiased">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:px-4 focus:py-2 focus:bg-white focus:text-gray-900 focus:outline focus:outline-2 focus:outline-hyvee-red">Skip to main content</a>
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -37,6 +37,7 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
   // A batch must be scheduled (date + time) — both required to create.
   const [date, setDate] = useState<string | null>(null);
   const [time, setTime] = useState<string | null>(null);
+  const [pastError, setPastError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -45,6 +46,7 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
       setChecked(new Set(initialSelectedIds ?? []));
       setDate(todayIso());
       setTime(DEFAULT_SEND_TIME);
+      setPastError(null);
     }
   }, [open, initialSelectedIds]);
 
@@ -57,7 +59,13 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
   const canCreate = !!name.trim() && checked.size > 0 && !!date && !!time;
   const handleCreate = () => {
     if (!canCreate) return;
-    onCreate(name.trim(), Array.from(checked), `${date}T${time}:00`);
+    const scheduledAt = `${date}T${time}:00`;
+    if (new Date(scheduledAt) <= new Date()) {
+      setPastError("Send time is in the past");
+      return;
+    }
+    setPastError(null);
+    onCreate(name.trim(), Array.from(checked), scheduledAt);
     onOpenChange(false);
   };
 
@@ -91,9 +99,21 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
         <div className="flex flex-col gap-1.5">
           <p className="text-sm font-medium text-gray-700">Send schedule</p>
           <div className="flex items-center gap-2">
-            <DateField value={date} onChange={setDate} min={todayIso()} aria-label="Send date" />
-            <TimeField value={time} onChange={setTime} aria-label="Send time" />
+            <DateField
+              value={date}
+              onChange={(v) => { setDate(v); setPastError(null); }}
+              min={todayIso()}
+              aria-label="Send date"
+            />
+            <TimeField
+              value={time}
+              onChange={(v) => { setTime(v); setPastError(null); }}
+              aria-label="Send time"
+            />
           </div>
+          {pastError && (
+            <p className="text-xs text-red-600">{pastError}</p>
+          )}
           <p className="text-xs text-gray-500">The batch sends to SAP automatically at this date and time.</p>
         </div>
 

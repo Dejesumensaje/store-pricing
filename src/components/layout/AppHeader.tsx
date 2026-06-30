@@ -28,6 +28,8 @@ export function AppHeader({ hqCount = 0, onViewHq }: Props) {
 
       <div className="flex items-center gap-4">
         <div className="relative inline-flex text-white [&_button]:text-white [&_button:hover]:bg-white/15">
+          {/* Bell is decorative here — the button's aria-label carries the accessible name.
+              The DS Button should apply aria-hidden="true" to the iconLeft SVG it renders. */}
           <Button
             variant="tertiary"
             iconLeft={Bell}
@@ -35,7 +37,7 @@ export function AppHeader({ hqCount = 0, onViewHq }: Props) {
             onClick={onViewHq}
           />
           {hasNotifications && (
-            <span className="absolute -top-1 -right-1 pointer-events-none">
+            <span aria-hidden="true" className="absolute -top-1 -right-1 pointer-events-none">
               <CountBadge count={hqCount} tone="in-progress" />
             </span>
           )}

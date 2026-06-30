@@ -18,7 +18,7 @@ export type NationalVsStore = "National" | "Store";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
 export type OverrideStatus = "pending" | "in_batch" | "submitted" | "confirmed";
-export type BatchStatus = "draft" | "scheduled" | "submitted" | "confirmed";
+export type BatchStatus = "scheduled" | "submitted" | "confirmed";
 
 export type PricingItem = {
   id: string;

@@ -1,5 +1,7 @@
 "use client";
 
+import { STORE_NAME, STORE_ADDRESS } from "@/lib/store-config";
+
 // Rendered as a fragment so the title, address, and the sibling Batch-tray
 // button are all direct flex children of the page header row. `order` + the
 // address's `w-full md:w-auto` drive the responsive wrap:
@@ -8,10 +10,10 @@
 export function StorePricingHeader() {
   return (
     <>
-      <h1 className="order-1 text-2xl font-bold text-gray-900">Store #1402</h1>
+      <h1 className="order-1 text-2xl font-bold text-gray-900">{STORE_NAME}</h1>
       <div className="order-3 w-full md:order-2 md:w-auto">
         <span className="text-base text-gray-500 md:ml-1">
-          902 S. Locust St, Glenwood, IA 51534
+          {STORE_ADDRESS}
         </span>
       </div>
     </>

@@ -25,7 +25,7 @@ const METHODS: { id: Method; label: string }[] = [
 function initialMethod(qty: number | null, price: number | null): Method {
   if (qty != null && qty > 1) return "multi";
   if (price != null) return "exact";
-  return "pct";
+  return "exact";
 }
 
 // Progressive retail-price control for a temporary allowance. The % / $ off

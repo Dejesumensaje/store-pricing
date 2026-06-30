@@ -104,13 +104,3 @@ export const PRICE_TYPE_INTENT: Record<
     permanent: true,
   },
 };
-
-// Change-type pills, in display order. "all" is the master view.
-export const CHANGE_TYPE_TABS: { value: string; label: string; route: string }[] = [
-  { value: "all", label: "All items", route: "/all-items" },
-  { value: "base", label: "Base prices changes", route: "/pricing/base" },
-  { value: "temporary_allowance", label: "Temporary allowances changes", route: "/pricing/temporary-allowance" },
-  { value: "everyday_low_price", label: "Everyday low prices changes", route: "/pricing/everyday-low-price" },
-  { value: "new_discontinued", label: "New / discontinued", route: "/pricing/new-discontinued" },
-  { value: "no_change", label: "No change", route: "/pricing/no-change" },
-];

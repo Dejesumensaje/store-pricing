@@ -168,7 +168,12 @@ export function ShelfTagPreview({ item }: { item: PricingItem }) {
       <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Pricing at {STORE_NAME}</p>
       <div className="flex flex-wrap items-start gap-2">
         {yellow}
-        {white}
+        <div className="flex flex-col items-start">
+          {white}
+          {item.newBasePrice == null && (
+            <span className="mt-0.5 text-[10px] text-gray-400">Current price</span>
+          )}
+        </div>
       </div>
     </div>
   );

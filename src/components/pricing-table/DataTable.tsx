@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useRef, useCallback } from "react";
+import { useMemo, useState } from "react";
 import {
   Table,
   TableHeader,
@@ -50,7 +50,6 @@ type Segment<T> = {
   width: number;
 };
 
-// Contiguous runs of (group, subgroup) → one group-header cell per run.
 function segmentColumns<T>(
   cols: DataColumn<T>[],
   pricingGroupLabel?: React.ReactNode
@@ -83,8 +82,6 @@ type Props<T> = {
   /** Group label rendered above the pricing columns (e.g. "Base price breakdown").
    *  Ignored for columns that declare a `subgroup`. */
   pricingGroupLabel?: string;
-  /** When true, renders item columns in a scrollable left pane and pricing+impact in a fixed right pane. */
-  splitPane?: boolean;
   /** Flat read-only table: same single-table layout but no horizontally-pinned
    *  pricing/impact columns. Group-header labels and the sticky top header stay. */
   flat?: boolean;
@@ -100,13 +97,10 @@ export function DataTable<T>({
   isOverride,
   needsReview,
   pricingGroupLabel,
-  splitPane,
   flat,
   onRowClick,
 }: Props<T>) {
   const [sort, setSort] = useState<{ id: string; dir: "asc" | "desc" } | null>(null);
-  const leftPaneRef = useRef<HTMLDivElement>(null);
-  const rightPaneRef = useRef<HTMLDivElement>(null);
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
@@ -127,160 +121,7 @@ export function DataTable<T>({
       prev?.id === id ? (prev.dir === "asc" ? { id, dir: "desc" } : null) : { id, dir: "asc" }
     );
 
-  const syncScrollLeft = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (rightPaneRef.current) rightPaneRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
-  }, []);
-  const syncScrollRight = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (leftPaneRef.current) leftPaneRef.current.scrollTop = (e.target as HTMLDivElement).scrollTop;
-  }, []);
-
-  // ── Split-pane render path ───────────────────────────────────────────────────
-  if (splitPane) {
-    const itemCols = columns.filter((c) => c.group === "item");
-    const rightCols = columns.filter((c) => c.group !== "item");
-    const rightWidth = rightCols.reduce((s, c) => s + c.width, 0);
-    const segments = segmentColumns(rightCols, pricingGroupLabel);
-    // Columns that open a new segment get a left divider (e.g. Base | Retail).
-    const segmentStartIds = new Set(segments.slice(1).map((s) => s.cols[0].id));
-    const segDivider = (id: string) => (segmentStartIds.has(id) ? "border-l border-gray-200" : "");
-    const firstPinnedShadow = "shadow-[-8px_0_8px_-6px_rgba(0,0,0,0.08)]";
-
-    return (
-      <div className="flex h-full overflow-hidden border border-gray-200 rounded-xl bg-white">
-        {/* Left pane — item columns, horizontal scroll */}
-        <div
-          ref={leftPaneRef}
-          className="flex-1 min-w-0 overflow-auto"
-          onScroll={syncScrollLeft}
-        >
-          <Table density="compact" className="border-separate border-spacing-0 w-max">
-            <TableHeader>
-              {/* Blank group header row — keeps header height equal to the right
-                  pane's group + column rows so body rows stay aligned. */}
-              <TableHeaderRow className="h-[37px]">
-                <TableHeaderGroup
-                  colSpan={itemCols.length}
-                  className="bg-gray-50 sticky top-0 z-10 border-b border-gray-200"
-                  style={{ height: 37 }}
-                />
-              </TableHeaderRow>
-              <TableHeaderRow className="h-[37px]">
-                {itemCols.map((c) => (
-                  <TableHeaderCell
-                    key={c.id}
-                    align={c.align}
-                    sortable={c.sortable}
-                    sortDirection={sort?.id === c.id ? sort.dir : null}
-                    onSort={c.sortable ? () => toggleSort(c.id) : undefined}
-                    className="bg-gray-50 z-10 sticky border-b-2 border-gray-200 whitespace-nowrap"
-                    style={{ width: c.width, minWidth: c.width, top: 37 }}
-                  >
-                    {c.header}
-                  </TableHeaderCell>
-                ))}
-              </TableHeaderRow>
-            </TableHeader>
-            <TableBody>
-              {sortedRows.map((row) => {
-                const selected = isSelected?.(row);
-                const override = isOverride?.(row);
-                const review = needsReview?.(row);
-                return (
-                  <TableRow key={rowKey(row)} selected={selected} className="h-12">
-                    {itemCols.map((c, i) => {
-                      const bg = selected
-                        ? "bg-blue-50"
-                        : override
-                        ? "bg-blue-50/40"
-                        : "bg-white";
-                      const reviewAccent = review && i === 0 ? "border-l-2 border-l-hyvee-red" : "";
-                      return (
-                        <TableCell
-                          key={c.id}
-                          align={c.align}
-                          truncate={false}
-                          className={`${bg} border-b border-gray-100 ${reviewAccent}`}
-                          style={{ width: c.width, minWidth: c.width }}
-                        >
-                          {c.cell(row)}
-                        </TableCell>
-                      );
-                    })}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-
-        {/* Right pane — pricing + impact columns, fixed width */}
-        <div
-          ref={rightPaneRef}
-          className={`flex-shrink-0 overflow-auto ${firstPinnedShadow}`}
-          style={{ width: rightWidth }}
-          onScroll={syncScrollRight}
-        >
-          <Table density="compact" className="border-separate border-spacing-0 w-max">
-            <TableHeader>
-              {/* Group header row — one cell per (group, subgroup) segment */}
-              <TableHeaderRow className="h-[37px]">
-                {segments.map((seg, i) => (
-                  <TableHeaderGroup
-                    key={seg.key}
-                    colSpan={seg.cols.length}
-                    className={`${GROUP_HEADER_BG[seg.group]} sticky top-0 z-20 border-b border-gray-200 text-xs font-semibold uppercase tracking-wide px-3 py-2 ${
-                      seg.group === "impact" ? "text-brand" : "text-gray-600"
-                    } ${i > 0 ? "border-l border-gray-200" : ""}`}
-                    style={{ width: seg.width, minWidth: seg.width }}
-                  >
-                    {seg.label}
-                  </TableHeaderGroup>
-                ))}
-              </TableHeaderRow>
-              {/* Column header row */}
-              <TableHeaderRow className="h-[37px]">
-                {rightCols.map((c) => (
-                  <TableHeaderCell
-                    key={c.id}
-                    align={c.align}
-                    sortable={c.sortable}
-                    sortDirection={sort?.id === c.id ? sort.dir : null}
-                    onSort={c.sortable ? () => toggleSort(c.id) : undefined}
-                    className={`${GROUP_HEADER_BG[c.group]} ${segDivider(c.id)} z-10 sticky border-b-2 border-gray-200 whitespace-nowrap`}
-                    style={{ width: c.width, minWidth: c.width, top: 37 }}
-                  >
-                    {c.header}
-                  </TableHeaderCell>
-                ))}
-              </TableHeaderRow>
-            </TableHeader>
-            <TableBody>
-              {sortedRows.map((row) => {
-                const selected = isSelected?.(row);
-                return (
-                  <TableRow key={rowKey(row)} selected={selected} className="h-12">
-                    {rightCols.map((c) => (
-                      <TableCell
-                        key={c.id}
-                        align={c.align}
-                        truncate={false}
-                        className={`${GROUP_BG[c.group]} ${segDivider(c.id)} border-b border-gray-100`}
-                        style={{ width: c.width, minWidth: c.width }}
-                      >
-                        {c.cell(row)}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Default single-table render path ────────────────────────────────────────
+  // ── Single-table render path ─────────────────────────────────────────────────
 
   // Precompute right-offsets for pinned columns (pricing + impact), right→left.
   const pinnedRightOffset = useMemo(() => {
@@ -406,7 +247,7 @@ export function DataTable<T>({
                     : undefined
                 }
               >
-                {columns.map((c, i) => {
+                {columns.map((c) => {
                   const pinned = isPinned(c.group);
                   // Review rows stay WHITE with a Hy-Vee red left rail (the HQ color)
                   // on the first cell — so undecided HQ items read as "act on me"
@@ -420,7 +261,7 @@ export function DataTable<T>({
                     : "bg-white";
                   // Accent goes LAST so tailwind-merge keeps the red left border
                   // (a trailing `border-gray-100` would otherwise win the merge).
-                  const reviewAccent = review && i === 0 ? "border-l-2 border-l-hyvee-red" : "";
+                  const reviewAccent = review && c.id === 'id' ? "border-l-2 border-l-hyvee-red" : "";
                   return (
                     <TableCell
                       key={c.id}

@@ -76,7 +76,7 @@ export function BatchPickerModal({
         )}
 
         <Button variant="secondary" iconLeft={Plus} onClick={onNewBatch}>
-          Create a new batch
+          Create a new batch with this change
         </Button>
       </div>
     </Modal>

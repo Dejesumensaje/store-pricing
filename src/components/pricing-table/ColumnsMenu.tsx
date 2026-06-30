@@ -40,7 +40,6 @@ export function ColumnsMenu({
         size="sm"
         iconLeft={Columns3}
         aria-label="Column settings"
-        aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
       />

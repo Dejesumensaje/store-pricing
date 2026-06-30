@@ -35,7 +35,7 @@ export function ConfirmDialog({
       description={description}
       footer={
         <div className="flex w-full justify-center gap-2">
-          <Button variant="secondary" onClick={() => onOpenChange(false)}>
+          <Button variant="secondary" autoFocus onClick={() => onOpenChange(false)}>
             {cancelLabel}
           </Button>
           <Button

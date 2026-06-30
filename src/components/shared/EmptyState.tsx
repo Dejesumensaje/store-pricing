@@ -21,7 +21,7 @@ export function EmptyState({ icon: Icon, title, hint, action, bordered = true, c
         bordered ? "rounded-xl border border-dashed border-gray-200 bg-white py-14" : "py-16"
       } ${className ?? ""}`}
     >
-      <Icon className="size-9 stroke-1" aria-hidden="true" />
+      <Icon className="size-9 stroke-[1.5]" aria-hidden="true" />
       <p className="text-sm font-medium">{title}</p>
       {hint && <p className="max-w-xs text-center text-xs">{hint}</p>}
       {action && <div className="mt-1">{action}</div>}

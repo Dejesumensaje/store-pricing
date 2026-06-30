@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Drawer, Button, Checkbox, Badge, Input } from "@dejesumensaje/converge-ds-experimental";
 import { ChevronDown, Search } from "lucide-react";
 
@@ -93,7 +93,7 @@ function FacetSection({
           <button
             type="button"
             onClick={() => onChange([])}
-            className="absolute right-7 top-1/2 -translate-y-1/2 text-xs font-medium text-brand hover:underline"
+            className="absolute right-7 top-1/2 -translate-y-1/2 flex min-h-[44px] items-center text-xs font-medium text-brand hover:underline"
           >
             Clear
           </button>
@@ -155,14 +155,18 @@ function FacetSection({
 export function FilterDrawer({ open, onOpenChange, facets, value, onApply }: Props) {
   const [draft, setDraft] = useState<FilterValue>(value);
   const [openFacets, setOpenFacets] = useState<Set<string>>(new Set());
+  // Capture the trigger element so focus can be restored when the drawer closes.
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
     setDraft(value);
     // Open facets that already have a selection so active filters are visible;
     // otherwise open just the first facet as a starting point.
     const active = facets.filter((f) => (value[f.key]?.length ?? 0) > 0).map((f) => f.key);
     setOpenFacets(new Set(active.length ? active : facets.slice(0, 1).map((f) => f.key)));
+    return () => restoreFocusRef.current?.focus();
   }, [open, value, facets]);
 
   const total = countSelected(draft);
@@ -178,7 +182,7 @@ export function FilterDrawer({ open, onOpenChange, facets, value, onApply }: Pro
       footer={
         <div className="flex items-center gap-2">
           <Button variant="tertiary" onClick={() => setDraft({})}>
-            Clear all
+            Reset filters
           </Button>
           <div className="flex-1" />
           <Button variant="secondary" onClick={() => onOpenChange(false)}>

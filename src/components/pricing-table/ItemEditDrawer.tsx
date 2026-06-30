@@ -77,8 +77,6 @@ function MarginRow({ label, current, next }: { label: string; current: number; n
 }
 
 
-// Per-item editing drawer. Self-driven: resolves the item from the store and
-// commits edits through the store actions; navigation walks the caller's list.
 export function ItemEditDrawer({
   itemId,
   flow,
@@ -141,22 +139,18 @@ export function ItemEditDrawer({
   // the reduction-method chooser once the director chooses to set their own price.
   const [changingRetail, setChangingRetail] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState<"base" | "retail" | null>(null);
-  // On finishing with a pending change, ask where it should go (batch / new / later).
   const [batchPromptOpen, setBatchPromptOpen] = useState(false);
-  // Re-assign an already-batched change to a different (or new) batch from here.
   const [movePickerOpen, setMovePickerOpen] = useState(false);
-  // Reset per-item UI reveals when navigating to another item.
   useEffect(() => {
     setEditingFuelSaver(false);
     setEditingBase(false);
     setChangingRetail(false);
+    setConfirmRevert(null);
     setBatchPromptOpen(false);
     setMovePickerOpen(false);
   }, [itemId]);
 
-  // Editing auto-saves the moment a price commits; finishing simply closes the
-  // drawer and returns to the underlying flow. We deliberately don't jump to the
-  // next item — that hop added noise without helping the decide-then-send task.
+  // Deliberately no auto-advance — hopping to the next item added noise without helping the decide-then-send task.
   const advance = () => onClose();
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
@@ -327,7 +321,7 @@ export function ItemEditDrawer({
           {hasPendingOverride ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600">
               <Check className="size-4 text-emerald-600" aria-hidden="true" />
-              Change saved · ready to send
+              Change saved · add to a batch to send
             </span>
           ) : (
             <span />
@@ -340,8 +334,6 @@ export function ItemEditDrawer({
     >
       {item && (
         <div key={item.id} className="flex flex-col gap-5">
-          {/* Item identity — the drawer header already carries the name, so this is
-              the second-level reference info: SKU, vendor, cost + role/program badges. */}
           <div className="flex items-start gap-3">
             <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
               {item.image ? (
@@ -376,11 +368,8 @@ export function ItemEditDrawer({
             </div>
           </div>
 
-          {/* What the shopper sees — a live preview of the physical shelf tag(s)
-              this edit produces (white regular tag + yellow promo tag). */}
-          <ShelfTagPreview item={item} />
+          <ShelfTagPreview key={`${item.id}-${item.newBasePrice ?? 'none'}`} item={item} />
 
-          {/* Sent to SAP — the whole drawer is read-only until SAP confirms. */}
           {sending && (
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
               <Lock className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
@@ -400,10 +389,6 @@ export function ItemEditDrawer({
             </div>
           )}
 
-          {/* HQ recommendation context — WHAT is proposed and WHY (Sarah: the
-              director should understand the recommendation, not just see a price).
-              Replaces the old generic "accept it, enter your own, or keep" copy,
-              which the accept-first buttons + footer already make obvious. */}
           {hqReviewNeeded(item) && (
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
@@ -411,8 +396,6 @@ export function ItemEditDrawer({
             </div>
           )}
 
-          {/* Batch membership — once a change is in a scheduled batch, show WHERE it's
-              queued and let the director move it to another batch (or a new one). */}
           {myBatch && (
             <div className="-mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
@@ -432,21 +415,16 @@ export function ItemEditDrawer({
             </div>
           )}
 
-          {/* Base price — the white-tag shelf price, shown for EVERY item.
-              Conscious-edit: the editable input appears only after a deliberate
-              Accept / Set / Change. HQ recs for a temporary allowance live on the
-              retail promo, so accept-first shows here only when HQ proposes a
-              different BASE price. */}
           {(() => {
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
-            const baseHasRec = showAccept && Math.abs(rec - item.currentBasePrice) > 0.005;
+            const baseHasRec = showAccept && item.recommendedBasePrice != null && Math.abs(rec - item.currentBasePrice) > 0.005;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
                   Base price <span className="font-normal text-gray-400">· white tag</span>
                 </h3>
-                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                <div className={`rounded-xl border border-gray-200 bg-gray-50 px-4 py-3${item.sendFailed ? " ring-2 ring-orange-300" : ""}`}>
                   {baseLocked ? (
                     // Sent to SAP — read-only until SAP confirms. Show the change if
                     // there is one, otherwise just the (unchanged) current price.
@@ -468,8 +446,6 @@ export function ItemEditDrawer({
                   ) : editingBase ? (
                     baseInputBlock()
                   ) : decided ? (
-                    // Decided — a compact, popping confirmation of the new price.
-                    // New items have no "current" to strike through — just the price.
                     <div className="decision-pop flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 text-sm tabular-nums">
                         <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -494,7 +470,6 @@ export function ItemEditDrawer({
                       </div>
                     </div>
                   ) : baseHasRec ? (
-                    // HQ rec awaiting a call — accept it, set your own, or keep current.
                     <div className="flex flex-col gap-3">
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
@@ -514,8 +489,6 @@ export function ItemEditDrawer({
                       </div>
                     </div>
                   ) : (
-                    // No change yet — show the live price (or a new-item prompt);
-                    // the input only appears on a deliberate Set price / Change.
                     <div className="flex items-center justify-between gap-3">
                       {isNewItem ? (
                         <span className="text-sm text-gray-600">{intent?.helper ?? "Set the opening price."}</span>
@@ -535,9 +508,6 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {/* Retail price (promo) — shown for EVERY item. A plain item has no promo
-              yet; "Set promo price" converts it to a temporary allowance (yellow
-              tag). When HQ proposes a promo, the section opens accept-first. */}
           {(() => {
             const recRetail = item.recommendedRetailPrice ?? item.currentBasePrice;
             // % / $ reductions are taken off the base (white-tag) price — the new
@@ -561,8 +531,6 @@ export function ItemEditDrawer({
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   <div className="flex flex-col gap-4">
                     {retailLocked ? (
-                      // Sent to SAP — read-only until SAP confirms. Show the promo if
-                      // there is one (with its run window), otherwise just "No promo".
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2 text-sm tabular-nums">
@@ -596,8 +564,6 @@ export function ItemEditDrawer({
                         </Button>
                       </div>
                     ) : retailDecided && !changingRetail ? (
-                      // Decided — show the promo price as the director left it,
-                      // with the promo run window underneath.
                       <div className="decision-pop flex items-center justify-between gap-3">
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2 text-sm tabular-nums">
@@ -626,7 +592,6 @@ export function ItemEditDrawer({
                         </div>
                       </div>
                     ) : !changingRetail ? (
-                      // No promo yet — read-only, with a conscious "Set promo price".
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-baseline gap-2 tabular-nums">
                           <span className="text-xs text-gray-500">{isTemp ? "Current" : "No promo"}</span>
@@ -693,14 +658,10 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {/* Fuel saver — an opt-in add-on, now available on ANY item (not just a
-              temporary allowance). */}
           <section className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold text-gray-700">Fuel saver</h3>
             <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
               {sending ? (
-                // Sending to SAP — read-only/locked, like base + retail (with the
-                // fuel run window when there is one).
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex flex-col gap-0.5">
                     <div className="flex items-center gap-2 text-sm tabular-nums">
@@ -721,12 +682,7 @@ export function ItemEditDrawer({
                   <span className="text-xs font-medium text-gray-500">Locked</span>
                 </div>
               ) : (() => {
-                // Same shape as base/retail: show the current value (even $0.00)
-                // read-only with a conscious Add/Change, and only reveal the amount
-                // picker + dates once the director deliberately edits.
                 const fuelDecided = item.fuelSaver != null && item.fuelSaver > 0;
-                // Like retail: show original → new only when a fuel saver already
-                // existed before this edit; a first-time add shows just the value.
                 const fuelHadPrior = item.currentFuelSaver != null && item.currentFuelSaver > 0;
                 const fuelPeriod = fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
                 if (!editingFuelSaver) {
@@ -780,7 +736,14 @@ export function ItemEditDrawer({
                       <Select
                         options={FUEL_SAVER_OPTIONS}
                         value={fuelSaverSelectValue(item.fuelSaver)}
-                        onChange={(v) => updateFuelSaver(item.id, parseFloat(v as string))}
+                        onChange={(v) => {
+                          if (v === '0.00' || v === '0' || parseFloat(v as string) === 0) {
+                            updateFuelSaver(item.id, null);
+                            setEditingFuelSaver(false);
+                          } else {
+                            updateFuelSaver(item.id, parseFloat(v as string));
+                          }
+                        }}
                         label="Fuel saver"
                         size="sm"
                       />
@@ -801,65 +764,6 @@ export function ItemEditDrawer({
             </div>
           </section>
 
-          {/* Competitor prices — collapsed context */}
-          {item.competitors && item.competitors.length > 0 && (() => {
-            const ourPrice = item.newBasePrice ?? item.currentBasePrice;
-            return (
-              <CollapsibleSection title="Competitor prices" count={item.competitors.length}>
-                <div className="-mx-4 -my-3">
-                  <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
-                    <span className="text-xs font-medium text-gray-500">Our price</span>
-                    <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourPrice)}</span>
-                  </div>
-                  {item.competitors.map((c) => {
-                    const diff = ourPrice - c.price;
-                    return (
-                      <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
-                        <div className="min-w-0">
-                          <span className="text-sm text-gray-700">{c.name}</span>
-                          {c.distanceMi != null && <span className="ml-2 text-xs text-gray-500">{c.distanceMi} mi</span>}
-                        </div>
-                        <div className="flex items-center gap-2 tabular-nums">
-                          <span className="text-sm text-gray-700">{fmt(c.price)}</span>
-                          <span className={`w-20 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500"}`}>
-                            {diff > 0 ? `+${fmt(diff)} hi` : diff < 0 ? `${fmt(diff)} lo` : "match"}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CollapsibleSection>
-            );
-          })()}
-
-          {/* Related items — includes line-price members (flagged); collapsed. */}
-          {(() => {
-            const lineIds = new Set(lineItems.map((li) => li.id));
-            const merged = [...lineItems, ...relatedItems.filter((ri) => !lineIds.has(ri.id))];
-            if (merged.length === 0) return null;
-            return (
-              <CollapsibleSection title="Related items" count={merged.length}>
-                <div className="-mx-4 -my-3">
-                  {merged.map((ri) => (
-                    <div key={ri.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-gray-700">{ri.name}</p>
-                        <p className="text-xs text-gray-500">{ri.id}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {lineIds.has(ri.id) && <Badge tone="neutral" size="sm">Line</Badge>}
-                        <span className="text-sm tabular-nums text-gray-500">{fmt(ri.newBasePrice ?? ri.currentBasePrice)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            );
-          })()}
-
-          {/* Projected impact — de-emphasized, collapsed by default. Margin lives
-              here now (consolidated financials), above the sales/units breakdown. */}
           <CollapsibleSection title="Projected impact">
             {(() => {
               if (isTemp) {
@@ -891,6 +795,61 @@ export function ItemEditDrawer({
             })()}
             <ImpactBreakdown item={item} />
           </CollapsibleSection>
+
+          {item.competitors && item.competitors.length > 0 && (() => {
+            const ourPrice = item.newBasePrice ?? item.currentBasePrice;
+            return (
+              <CollapsibleSection title="Competitor prices" count={item.competitors.length}>
+                <div className="-mx-4 -my-3">
+                  <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
+                    <span className="text-xs font-medium text-gray-500">Our price</span>
+                    <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourPrice)}</span>
+                  </div>
+                  {item.competitors.map((c) => {
+                    const diff = ourPrice - c.price;
+                    return (
+                      <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
+                        <div className="min-w-0">
+                          <span className="text-sm text-gray-700">{c.name}</span>
+                          {c.distanceMi != null && <span className="ml-2 text-xs text-gray-500">{c.distanceMi} mi</span>}
+                        </div>
+                        <div className="flex items-center gap-2 tabular-nums">
+                          <span className="text-sm text-gray-700">{fmt(c.price)}</span>
+                          <span className={`w-20 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                            {diff > 0 ? `+${fmt(diff)} hi` : diff < 0 ? `${fmt(diff)} lo` : "match"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CollapsibleSection>
+            );
+          })()}
+
+          {(() => {
+            const lineIds = new Set(lineItems.map((li) => li.id));
+            const merged = [...lineItems, ...relatedItems.filter((ri) => !lineIds.has(ri.id))];
+            if (merged.length === 0) return null;
+            return (
+              <CollapsibleSection title="Related items" count={merged.length}>
+                <div className="-mx-4 -my-3">
+                  {merged.map((ri) => (
+                    <div key={ri.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-gray-700">{ri.name}</p>
+                        <p className="text-xs text-gray-500">{ri.id}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {lineIds.has(ri.id) && <Badge tone="neutral" size="sm">Line</Badge>}
+                        <span className="text-sm tabular-nums text-gray-500">{fmt(ri.newBasePrice ?? ri.currentBasePrice)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CollapsibleSection>
+            );
+          })()}
         </div>
       )}
     </Drawer>
@@ -910,9 +869,6 @@ export function ItemEditDrawer({
       }}
     />
 
-    {/* Where should this change go? — every change must land in a scheduled batch
-        (no loose limbo), so this is mandatory on Done: add to an existing batch or
-        create a new (scheduled) one. Same modal the bulk bar and Review use. */}
     <BatchPickerModal
       open={batchPromptOpen}
       onOpenChange={(o) => { if (!o) setBatchPromptOpen(false); }}
@@ -923,8 +879,6 @@ export function ItemEditDrawer({
       onNewBatch={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
     />
 
-    {/* Move this already-batched change to a different scheduled batch (or a new one).
-        The store keeps an override in exactly one batch, so this relocates it. */}
     <BatchPickerModal
       open={movePickerOpen}
       onOpenChange={(o) => { if (!o) setMovePickerOpen(false); }}
@@ -976,11 +930,9 @@ function CollapsibleSection({
           className={`size-4 text-gray-500 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
         />
       </button>
-      {open && (
-        <div id={panelId} className="border-t border-gray-100 px-4 py-3 text-gray-600">
-          {children}
-        </div>
-      )}
+      <div id={panelId} hidden={!open} className="border-t border-gray-100 px-4 py-3 text-gray-600">
+        {children}
+      </div>
     </div>
   );
 }
