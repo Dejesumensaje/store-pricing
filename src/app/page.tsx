@@ -322,7 +322,7 @@ export default function StorePricingPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50">
+    <div className="flex h-full flex-col bg-gray-50">
       <AppHeader
         hqCount={hqCount}
         onViewHq={() => {
@@ -333,7 +333,7 @@ export default function StorePricingPage() {
         }}
       />
 
-      <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 md:px-8">
+      <main className="mx-auto w-full max-w-[1400px] flex-1 flex flex-col min-h-0 overflow-auto px-4 py-6 md:px-8">
         {/* Store identity + the "To send" navigation CTA. */}
         <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <StorePricingHeader />
@@ -406,7 +406,7 @@ export default function StorePricingPage() {
               </div>
             )}
 
-            <div className="mt-4">
+            <div className="mt-4 flex-1 md:min-h-0 flex flex-col">
               {/* HQ proposals filter the table in place. The banner narrows All
                   items to what's awaiting the director's call; while filtered, a
                   bar offers the way back to the full list. */}
@@ -513,8 +513,9 @@ export default function StorePricingPage() {
                     />
                   </div>
 
-                  {/* Tablet/desktop: full data table. */}
-                  <div className="hidden md:block">
+                  {/* Tablet/desktop: full data table. flex-1 + min-h-0 lets DataTable's
+                      h-full/overflow-auto create a real scroll container so sticky headers work. */}
+                  <div className="hidden md:flex md:flex-col md:flex-1 md:min-h-0">
                     <DataTable
                       columns={columns}
                       rows={rows}

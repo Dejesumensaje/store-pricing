@@ -9,7 +9,7 @@ const STATUS: Record<string, ItemStatus> = {
   // An HQ recommendation the director hasn't decided on yet. The proposal is NOT
   // live — the item still carries its current SAP price; this flags that a
   // decision (accept / override / keep current) is owed.
-  review: { label: "Needs review", tone: "in-progress" },
+  review: { label: "Needs review", tone: "warning" },
   // In a scheduled batch — will send to SAP on the batch's date/time. Every
   // decision lands here (batching is mandatory); there is no loose "ready to send".
   // Informative blue (not neutral gray, which read as disabled) — matches the

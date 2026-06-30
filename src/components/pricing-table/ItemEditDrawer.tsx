@@ -20,7 +20,7 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateTime, fmtDateRange } from "@/lib/format";
 import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { RotateCcw, Trash2, Check, Package, Link2, ChevronDown, Lock, Info, Pencil, CalendarClock } from "lucide-react";
+import { RotateCcw, Trash2, Check, Package, Link2, ChevronDown, Lock, Info, Pencil, CalendarClock, AlertCircle } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -113,8 +113,11 @@ export function ItemEditDrawer({
   // altered until SAP accepts it. An item that's Sending (any submitted field) is
   // FULLY locked — base, retail AND fuel saver, regardless of which field is the
   // one in flight. So a single `sending` flag locks every section.
+  // sendFailed items retain overrideStatus "submitted" but the send never landed —
+  // the price is not live in SAP, so the director must be able to edit and retry.
   const sending =
-    item?.baseOverrideStatus === "submitted" || item?.retailOverrideStatus === "submitted";
+    !item?.sendFailed &&
+    (item?.baseOverrideStatus === "submitted" || item?.retailOverrideStatus === "submitted");
   const baseLocked = sending;
   const retailLocked = sending;
   // Per-type intent (labels + helper copy). New/discontinued is refined by itemStatus.
@@ -383,6 +386,16 @@ export function ItemEditDrawer({
               <Lock className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
               <span className="text-amber-900">
                 Sent to SAP — locked until SAP confirms it. Nothing here can be changed yet.
+              </span>
+            </div>
+          )}
+          {/* Send failed — NOT locked: the price never made it to SAP, so the
+              director can edit the price and re-submit via a batch. */}
+          {item?.sendFailed && (
+            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs">
+              <AlertCircle className="size-4 shrink-0 text-red-600" aria-hidden="true" />
+              <span className="text-red-900">
+                Send failed — this price is <strong>not live in SAP</strong>. Edit it below and add it to a batch to retry.
               </span>
             </div>
           )}
