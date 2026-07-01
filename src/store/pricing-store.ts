@@ -2,9 +2,17 @@
 
 import { create } from "zustand";
 import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory } from "@/types/pricing";
-import { mockItems, mockOverrides, mockBatches } from "@/lib/mock-data";
+import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
+import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
+import { hqReviewNeeded } from "@/lib/item-status";
+import { applyFanoutToSlice, buildFanoutSources, revertFanoutInSlice } from "@/lib/store-fanout";
 
 type PricingStore = {
+  // The store currently in view. Its items/overrides/batches are the top-level
+  // fields below (the "working set"); every other store sits in `stash`.
+  activeStoreId: string;
+  stash: Record<string, StoreSlice>;
+  setActiveStore: (id: string) => void;
   items: PricingItem[];
   overrides: Override[];
   batches: Batch[];
@@ -23,9 +31,14 @@ type PricingStore = {
   addToBatch: (batchId: string, overrideIds: string[]) => void;
   moveOverrideToBatch: (overrideId: string, targetBatchId: string) => void;
   // Every batch is born scheduled — date + time is required, no draft state.
-  createBatch: (name: string, overrideIds: string[], scheduledAt: string) => void;
+  // `targetStoreIds` fans the batch out to several of the director's stores at
+  // once (defaults to just the active store).
+  createBatch: (name: string, overrideIds: string[], scheduledAt: string, targetStoreIds?: string[]) => void;
   scheduleBatch: (batchId: string, scheduledAt: string) => void;
   submitBatch: (batchId: string) => void;
+  // Change which stores a (scheduled) batch applies to: adds replicate the price
+  // into new stores, removals revert those stores' copies. Origin is always kept.
+  setBatchTargetStores: (batchId: string, targetStoreIds: string[]) => void;
   confirmBatch: (batchId: string) => void;
 };
 
@@ -114,10 +127,38 @@ function applyStatusToItems(
   });
 }
 
+// Boot every store's data; the active store becomes the working set, the rest
+// go to the stash. Switching stores swaps a slice in and out (see setActiveStore).
+const initialData = buildInitialStoreData();
+const initialStash: Record<string, StoreSlice> = {};
+for (const s of STORES) if (s.id !== DEFAULT_STORE_ID) initialStash[s.id] = initialData[s.id];
+const initialActive = initialData[DEFAULT_STORE_ID];
+
 export const usePricingStore = create<PricingStore>((set) => ({
-  items: mockItems,
-  overrides: mockOverrides,
-  batches: mockBatches,
+  activeStoreId: DEFAULT_STORE_ID,
+  stash: initialStash,
+  items: initialActive.items,
+  overrides: initialActive.overrides,
+  batches: initialActive.batches,
+
+  // Switch the store in view. The current working set is stashed under its id and
+  // the target store's slice is loaded — so unsent work in each store is preserved.
+  setActiveStore: (id) =>
+    set((state) => {
+      if (id === state.activeStoreId) return {};
+      const target = state.stash[id];
+      if (!target) return {};
+      const nextStash = { ...state.stash };
+      nextStash[state.activeStoreId] = { items: state.items, overrides: state.overrides, batches: state.batches };
+      delete nextStash[id];
+      return {
+        activeStoreId: id,
+        stash: nextStash,
+        items: target.items,
+        overrides: target.overrides,
+        batches: target.batches,
+      };
+    }),
 
   updateBasePrice: (itemId, newPrice) =>
     set((state) => {
@@ -338,49 +379,188 @@ export const usePricingStore = create<PricingStore>((set) => ({
       }),
     })),
 
-  createBatch: (name, overrideIds, scheduledAt) =>
+  createBatch: (name, overrideIds, scheduledAt, targetStoreIds) =>
     set((state) => {
-      const newBatch: Batch = {
-        id: `batch-${Date.now()}`,
+      const now = Date.now();
+      const createdAt = new Date().toISOString();
+      const baseBatchId = `batch-${now}`;
+      // Target stores always include the active one (where the changes were made).
+      const targets = [...new Set([state.activeStoreId, ...(targetStoreIds ?? [])])];
+      const multiStore = targets.length > 1;
+      const groupId = multiStore ? `grp-${now}` : undefined;
+      const meta = { originStoreId: state.activeStoreId, targetStoreIds: targets, groupId };
+
+      // ── Active store: group the selected overrides into the new batch. ──
+      const activeBatch: Batch = {
+        id: baseBatchId,
         name,
         status: "scheduled",
         overrideIds,
-        createdAt: new Date().toISOString(),
+        createdAt,
         scheduledAt,
+        ...meta,
       };
       const affected = state.overrides.filter((o) => overrideIds.includes(o.id));
-      return {
-        // Strip the seeded ids from any batch they were already in — one override
-        // belongs to exactly one batch (so creating a batch can move a change).
+      const activeUpdate = {
         batches: [
+          // One override belongs to exactly one batch — strip these ids elsewhere.
           ...state.batches.map((b) => ({ ...b, overrideIds: b.overrideIds.filter((id) => !overrideIds.includes(id)) })),
-          newBatch,
+          activeBatch,
         ],
         overrides: state.overrides.map((o) =>
-          overrideIds.includes(o.id) ? { ...o, status: "in_batch", batchId: newBatch.id } : o
+          overrideIds.includes(o.id) ? { ...o, status: "in_batch" as const, batchId: baseBatchId } : o
         ),
         items: applyStatusToItems(state.items, affected, "in_batch"),
       };
+
+      if (!multiStore) return activeUpdate;
+
+      // ── Other target stores: replicate the resulting prices into each slice. ──
+      const sources = buildFanoutSources(affected, state.items);
+      const nextStash = { ...state.stash };
+      for (const storeId of targets) {
+        if (storeId === state.activeStoreId) continue;
+        const slice = nextStash[storeId];
+        if (!slice) continue;
+        const replicaBatchId = `${baseBatchId}::${storeId}`;
+        const { slice: nextSlice, createdIds } = applyFanoutToSlice(slice, sources, replicaBatchId, now);
+        const replicaBatch: Batch = {
+          id: replicaBatchId,
+          name,
+          status: "scheduled",
+          overrideIds: createdIds,
+          createdAt,
+          scheduledAt,
+          ...meta,
+        };
+        nextStash[storeId] = { ...nextSlice, batches: [...nextSlice.batches, replicaBatch] };
+      }
+      return { ...activeUpdate, stash: nextStash };
     }),
 
   // Schedule a draft batch to send at a future date/time (overrides stay in_batch).
+  // A multi-store batch reschedules its whole group across every target store.
   scheduleBatch: (batchId, scheduledAt) =>
-    set((state) => ({
-      batches: state.batches.map((b) =>
-        b.id === batchId ? { ...b, status: "scheduled", scheduledAt } : b
-      ),
-    })),
+    set((state) => {
+      const groupId = state.batches.find((b) => b.id === batchId)?.groupId;
+      const match = (b: Batch) => b.id === batchId || (groupId != null && b.groupId === groupId);
+      const reschedule = (batches: Batch[]) =>
+        batches.map((b) => (match(b) ? { ...b, status: "scheduled" as const, scheduledAt } : b));
+      const update: Partial<PricingStore> = { batches: reschedule(state.batches) };
+      if (groupId != null) {
+        const nextStash = { ...state.stash };
+        for (const [sid, slice] of Object.entries(state.stash)) {
+          if (slice.batches.some(match)) nextStash[sid] = { ...slice, batches: reschedule(slice.batches) };
+        }
+        update.stash = nextStash;
+      }
+      return update;
+    }),
 
+  // Send a batch to SAP. A multi-store batch sends its whole group — each target
+  // store's replica goes to SAP together.
   submitBatch: (batchId) =>
     set((state) => {
-      const affected = state.overrides.filter((o) => o.batchId === batchId);
-      return {
-        batches: state.batches.map((b) =>
-          b.id === batchId ? { ...b, status: "submitted", submittedAt: new Date().toISOString() } : b
-        ),
-        overrides: state.overrides.map((o) => (o.batchId === batchId ? { ...o, status: "submitted" } : o)),
-        items: applyStatusToItems(state.items, affected, "submitted"),
+      const groupId = state.batches.find((b) => b.id === batchId)?.groupId;
+      const submittedAt = new Date().toISOString();
+      const match = (b: Batch) => b.id === batchId || (groupId != null && b.groupId === groupId);
+      const submitSlice = (slice: StoreSlice): StoreSlice => {
+        const ids = new Set(slice.batches.filter(match).map((b) => b.id));
+        const affected = slice.overrides.filter((o) => o.batchId != null && ids.has(o.batchId));
+        return {
+          items: applyStatusToItems(slice.items, affected, "submitted"),
+          overrides: slice.overrides.map((o) =>
+            o.batchId != null && ids.has(o.batchId) ? { ...o, status: "submitted" } : o
+          ),
+          batches: slice.batches.map((b) => (match(b) ? { ...b, status: "submitted" as const, submittedAt } : b)),
+        };
       };
+      const active = submitSlice({ items: state.items, overrides: state.overrides, batches: state.batches });
+      const update: Partial<PricingStore> = { items: active.items, overrides: active.overrides, batches: active.batches };
+      if (groupId != null) {
+        const nextStash = { ...state.stash };
+        for (const [sid, slice] of Object.entries(state.stash)) {
+          if (slice.batches.some(match)) nextStash[sid] = submitSlice(slice);
+        }
+        update.stash = nextStash;
+      }
+      return update;
+    }),
+
+  setBatchTargetStores: (batchId, nextTargetIds) =>
+    set((state) => {
+      // Locate the batch (it may live in the active working set or a stashed store).
+      let viewedStoreId = state.activeStoreId;
+      let viewedSlice: StoreSlice = { items: state.items, overrides: state.overrides, batches: state.batches };
+      if (!state.batches.some((b) => b.id === batchId)) {
+        const hit = Object.entries(state.stash).find(([, sl]) => sl.batches.some((b) => b.id === batchId));
+        if (!hit) return {};
+        [viewedStoreId, viewedSlice] = [hit[0], hit[1]];
+      }
+      const batch = viewedSlice.batches.find((b) => b.id === batchId)!;
+      if (batch.status !== "scheduled") return {}; // stores are locked once sent
+
+      const origin = batch.originStoreId ?? viewedStoreId;
+      const oldTargets = batch.targetStoreIds ?? [origin];
+      const groupId = batch.groupId ?? `grp-${Date.now()}`;
+      const baseBatchId = batchId.includes("::") ? batchId.split("::")[0] : batchId;
+      const now = Date.now();
+      const replicaId = (sid: string) => (sid === origin ? baseBatchId : `${baseBatchId}::${sid}`);
+
+      const targets = [...new Set([origin, ...nextTargetIds])];
+      const toAdd = targets.filter((s) => !oldTargets.includes(s));
+      const toRemove = oldTargets.filter((s) => !targets.includes(s) && s !== origin);
+
+      // Replicate the batch's (absolute) prices into any newly added stores.
+      const sources = buildFanoutSources(
+        viewedSlice.overrides.filter((o) => o.batchId === batchId),
+        viewedSlice.items
+      );
+
+      let activeSlice: StoreSlice = { items: state.items, overrides: state.overrides, batches: state.batches };
+      const nextStash: Record<string, StoreSlice> = { ...state.stash };
+      const getSlice = (sid: string) => (sid === state.activeStoreId ? activeSlice : nextStash[sid]);
+      const setSlice = (sid: string, sl: StoreSlice) => {
+        if (sid === state.activeStoreId) activeSlice = sl;
+        else nextStash[sid] = sl;
+      };
+
+      for (const sid of toAdd) {
+        const sl = getSlice(sid);
+        if (!sl) continue;
+        const rid = replicaId(sid);
+        const { slice, createdIds } = applyFanoutToSlice(sl, sources, rid, now);
+        const replica: Batch = {
+          id: rid,
+          name: batch.name,
+          status: "scheduled",
+          overrideIds: createdIds,
+          createdAt: batch.createdAt,
+          scheduledAt: batch.scheduledAt,
+          originStoreId: origin,
+          targetStoreIds: targets,
+          groupId,
+        };
+        setSlice(sid, { ...slice, batches: [...slice.batches, replica] });
+      }
+      for (const sid of toRemove) {
+        const sl = getSlice(sid);
+        if (!sl) continue;
+        setSlice(sid, revertFanoutInSlice(sl, replicaId(sid)));
+      }
+
+      // Refresh group metadata on every surviving member (badge hides when single).
+      const finalGroupId = targets.length > 1 ? groupId : undefined;
+      const patch = (batches: Batch[]) =>
+        batches.map((b) =>
+          b.id === batchId || (b.groupId != null && b.groupId === groupId)
+            ? { ...b, targetStoreIds: targets, groupId: finalGroupId }
+            : b
+        );
+      activeSlice = { ...activeSlice, batches: patch(activeSlice.batches) };
+      for (const sid of Object.keys(nextStash)) nextStash[sid] = { ...nextStash[sid], batches: patch(nextStash[sid].batches) };
+
+      return { items: activeSlice.items, overrides: activeSlice.overrides, batches: activeSlice.batches, stash: nextStash };
     }),
 
   // Post-SAP acknowledgment: a submitted batch is confirmed back by SAP.
@@ -405,3 +585,27 @@ export const selectPendingOverrides = (s: PricingStore) =>
   s.overrides.filter((o) => o.status === "pending");
 export const selectPendingCount = (s: PricingStore) =>
   s.overrides.reduce((n, o) => n + (o.status === "pending" ? 1 : 0), 0);
+
+// The store currently in view (stable object from STORES).
+export const useActiveStore = (): Store =>
+  usePricingStore((s) => storeById(s.activeStoreId) ?? STORES[0]);
+
+// Per-store work summary for the switcher: unsent changes (pending or in a
+// scheduled batch) + HQ recommendations still awaiting the director's call.
+export type StoreSummary = { store: Store; unsent: number; hqCount: number };
+export const useStoreSummaries = (): StoreSummary[] => {
+  const activeStoreId = usePricingStore((s) => s.activeStoreId);
+  const items = usePricingStore((s) => s.items);
+  const overrides = usePricingStore((s) => s.overrides);
+  const stash = usePricingStore((s) => s.stash);
+  return STORES.map((store) => {
+    const slice = store.id === activeStoreId ? { items, overrides } : stash[store.id];
+    const ov = slice?.overrides ?? [];
+    const it = slice?.items ?? [];
+    return {
+      store,
+      unsent: ov.filter((o) => o.status === "pending" || o.status === "in_batch").length,
+      hqCount: it.filter(hqReviewNeeded).length,
+    };
+  });
+};

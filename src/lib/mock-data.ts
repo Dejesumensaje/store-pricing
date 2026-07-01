@@ -1,4 +1,5 @@
 import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity } from "@/types/pricing";
+import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -582,3 +583,67 @@ export const mockItems: PricingItem[] = [
 
 // Headline count shown on the "All items (N)" pill.
 export const TOTAL_ITEM_COUNT = mockItems.length;
+
+// ─── Per-store data (multi-store support) ────────────────────────────────────
+// Each store the director manages gets its own slice of items/overrides/batches.
+// #1402 is the primary, richly seeded demo store (all the flows above). The other
+// stores share the same SKU catalog (so a change can fan out to them) but boot
+// "clean": prices nudged per store, no in-progress edits, their own HQ worklist.
+
+export type StoreSlice = { items: PricingItem[]; overrides: Override[]; batches: Batch[] };
+
+// SKUs HQ is recommending on the primary store — the pool we rotate a per-store
+// subset from, so each store shows a different HQ review count.
+const HQ_REVIEW_POOL = mockItems.filter((i) => i.hqReviewPending).map((i) => i.id);
+
+// A clean, store-specific copy of an item: no pending/in-flight edits, prices
+// scaled by a per-store factor, strategy reset to what's live in SAP.
+function cleanForStore(item: PricingItem, factor: number): PricingItem {
+  const scale = (n: number | undefined) => (n == null ? undefined : round2(n * factor));
+  return {
+    ...item,
+    currentBasePrice: round2(item.currentBasePrice * factor),
+    recommendedBasePrice: round2(item.recommendedBasePrice * factor),
+    currentRetailPrice: scale(item.currentRetailPrice),
+    recommendedRetailPrice: scale(item.recommendedRetailPrice),
+    allowanceCost: scale(item.allowanceCost),
+    // Start clean — no decisions carried over from the primary store.
+    newBasePrice: null,
+    baseOverrideStatus: undefined,
+    newRetailPrice: null,
+    newRetailQty: null,
+    retailOverrideStatus: undefined,
+    hasOverride: false,
+    sendFailed: false,
+    reviewed: false,
+    hqReviewPending: false,
+    autoTypedFrom: null,
+    // Undo any demo strategy conversion (e.g. Base → EDLP on the primary store).
+    category_type: item.sapStrategy ?? item.category_type,
+    sapStrategy: undefined,
+    // Keep the live fuel saver steady (no pending change).
+    fuelSaver: item.currentFuelSaver ?? null,
+  };
+}
+
+function buildSecondaryStore(index: number): StoreSlice {
+  const factor = 1 + index * 0.025; // each store a touch pricier than the last
+  const keep = Math.max(2, HQ_REVIEW_POOL.length - index * 3); // fewer HQ recs per store
+  const hqSet = new Set(HQ_REVIEW_POOL.slice(0, keep));
+  const items = mockItems.map((it) => {
+    const clean = cleanForStore(it, factor);
+    return hqSet.has(it.id) ? { ...clean, hqReviewPending: true } : clean;
+  });
+  return { items, overrides: [], batches: [] };
+}
+
+export function buildInitialStoreData(): Record<string, StoreSlice> {
+  const data: Record<string, StoreSlice> = {};
+  STORES.forEach((store, index) => {
+    data[store.id] =
+      store.id === DEFAULT_STORE_ID
+        ? { items: mockItems, overrides: mockOverrides, batches: mockBatches }
+        : buildSecondaryStore(index);
+  });
+  return data;
+}
