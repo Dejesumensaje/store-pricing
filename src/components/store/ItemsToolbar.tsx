@@ -42,9 +42,9 @@ export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFil
           aria-label="Search items"
           placeholder="Search by name or ID"
           // The DS pins width via an inline style (200px when expanded), which
-          // clips the placeholder. Override it only when open: full row on
-          // mobile, a fixed 300px on desktop so the whole label is visible.
-          className={isOpen ? "w-full! md:w-[300px]!" : undefined}
+          // clips the placeholder. On desktop always stay expanded at 300px
+          // so the placeholder is visible; on mobile only expand when open.
+          className={isOpen ? "w-full! md:w-[300px]!" : "md:w-[300px]!"}
         />
       </div>
       {/* On mobile, collapse the action cluster while search is open so the
