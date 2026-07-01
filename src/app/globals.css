@@ -176,3 +176,54 @@ body {
     top: 48% !important;
   }
 }
+
+/*
+ * SearchInput expansion width override.
+ *
+ * The DS's SearchInput sets its own width via an inline style (200px when
+ * expanded) which clips the placeholder text at 16px font. We detect expansion
+ * via the DS's own DOM signal — input[tabindex="0"] appears only when the DS
+ * sets f=true — and override the DS root div's width from here so the
+ * placeholder is fully visible.
+ *
+ * These rules are UNLAYERED (not inside any @layer), making them the highest-
+ * priority author declarations. Combined with !important they beat the DS's
+ * inline style even though our Tailwind utilities (inside @layer utilities)
+ * cannot, due to the way CSS cascade layers invert !important priority.
+ */
+/* On mobile: grow the wrapper to fill the row when expanded. */
+.search-widget:has(input[tabindex="0"]) {
+  flex: 1;
+}
+/* On desktop: never grow — the fixed 300px below is enough. */
+@media (min-width: 48rem) {
+  .search-widget:has(input[tabindex="0"]) {
+    flex: none;
+  }
+}
+
+/*
+ * Expand the DS root div when open. Switching from inline-flex → flex makes
+ * the element a block-level flex container that naturally fills its parent
+ * width, so width:100% resolves correctly on mobile. On desktop a fixed 300px
+ * is applied on top to cap the growth.
+ */
+.search-widget:has(input[tabindex="0"]) > div:first-child {
+  display: flex !important;
+  transition: width 250ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+@media (min-width: 48rem) {
+  .search-widget:has(input[tabindex="0"]) > div:first-child {
+    width: 300px !important;
+  }
+}
+
+/* Hide the action cluster on mobile while the search is open. */
+.search-widget:has(input[tabindex="0"]) + .search-actions {
+  display: none;
+}
+@media (min-width: 48rem) {
+  .search-widget:has(input[tabindex="0"]) + .search-actions {
+    display: flex;
+  }
+}
