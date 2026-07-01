@@ -1,20 +1,20 @@
 "use client";
 
-import { STORE_NAME, STORE_ADDRESS } from "@/lib/store-config";
+import { StoreSwitcher } from "@/components/layout/StoreSwitcher";
+import { useActiveStore } from "@/store/pricing-store";
 
-// Rendered as a fragment so the title, address, and the sibling Batch-tray
-// button are all direct flex children of the page header row. `order` + the
-// address's `w-full md:w-auto` drive the responsive wrap:
-//   mobile  → row 1: title ⋯ batch tray (pinned right) / row 2: address
-//   desktop → title · address ⋯⋯⋯ batch tray (single row)
+// Rendered as a fragment so the store switcher, address, and the sibling
+// Batch-tray button are all direct flex children of the page header row.
+// `order` + the address's `w-full md:w-auto` drive the responsive wrap:
+//   mobile  → row 1: switcher ⋯ batch tray (pinned right) / row 2: address
+//   desktop → switcher · address ⋯⋯⋯ batch tray (single row)
 export function StorePricingHeader() {
+  const store = useActiveStore();
   return (
     <>
-      <h1 className="order-1 text-2xl font-bold text-gray-900">{STORE_NAME}</h1>
+      <StoreSwitcher />
       <div className="order-3 w-full md:order-2 md:w-auto">
-        <span className="text-base text-gray-500 md:ml-1">
-          {STORE_ADDRESS}
-        </span>
+        <span className="text-base text-gray-500 md:ml-1">{store.address}</span>
       </div>
     </>
   );

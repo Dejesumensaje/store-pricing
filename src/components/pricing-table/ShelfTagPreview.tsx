@@ -4,7 +4,7 @@ import { Fuel } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { shelfTagKind, fmtShortDate } from "../store/buildStoreColumns";
-import { STORE_NAME } from "@/lib/store-config";
+import { useActiveStore } from "@/store/pricing-store";
 
 // Savings the way a Hy-Vee yellow tag prints it: cents under a dollar ("78¢"),
 // dollars above.
@@ -108,6 +108,7 @@ function YellowTag({
 // yellow promo tag; new/discontinued shift the white tag's kicker. Reads the
 // item straight from the (already store-driven) drawer, so it updates as you type.
 export function ShelfTagPreview({ item }: { item: PricingItem }) {
+  const store = useActiveStore();
   const kind = shelfTagKind(item);
   const whiteNew = item.newBasePrice ?? item.currentBasePrice;
 
@@ -165,7 +166,7 @@ export function ShelfTagPreview({ item }: { item: PricingItem }) {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Pricing at {STORE_NAME}</p>
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Pricing at {store.name}</p>
       <div className="flex flex-wrap items-start gap-2">
         {yellow}
         <div className="flex flex-col items-start">

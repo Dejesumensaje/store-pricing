@@ -12,7 +12,7 @@ import {
 } from "@dejesumensaje/converge-ds-experimental";
 import { DateField, todayIso } from "@/components/shared/DateField";
 import { TimeField, DEFAULT_SEND_TIME } from "@/components/shared/TimeField";
-import { SearchX, ArrowLeft, ListFilter, CheckCircle2, CalendarClock, Plus, Package, Loader2 } from "lucide-react";
+import { SearchX, ArrowLeft, ListFilter, CheckCircle2, CalendarClock, Plus, Package, Loader2, ChevronRight } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
@@ -27,6 +27,7 @@ import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/Fil
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
+import { buildFanoutSources, planFanout } from "@/lib/store-fanout";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem, Batch } from "@/types/pricing";
 import { pricingStrategyLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
@@ -267,7 +268,12 @@ export default function StorePricingPage() {
     const bItems = batchItems(b);
     const count = bItems.length;
     return (
-      <button type="button" onClick={() => setManageBatchId(b.id)} className="flex min-w-0 items-center gap-3 text-left">
+      <button
+        type="button"
+        onClick={() => setManageBatchId(b.id)}
+        aria-label={`Open ${b.name} details`}
+        className="group -m-1.5 flex min-w-0 items-center gap-3 rounded-lg p-1.5 text-left transition-colors hover:bg-gray-50"
+      >
         <span className="relative inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand/10">
           <Package className="size-5 text-brand" aria-hidden="true" />
           {count > 0 && (
@@ -278,7 +284,12 @@ export default function StorePricingPage() {
           )}
         </span>
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-gray-900">{b.name}</p>
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-gray-900 group-hover:text-brand group-hover:underline">{b.name}</span>
+            {(b.targetStoreIds?.length ?? 1) > 1 && (
+              <Badge tone="in-progress" size="sm">{b.targetStoreIds!.length} stores</Badge>
+            )}
+          </span>
           {subtext && <p className="flex items-center gap-1.5 text-xs text-gray-500">{subtext}</p>}
           {count > 0 && (
             // Tag-shaped chips (wider than tall) so a lone white one doesn't read
@@ -296,6 +307,10 @@ export default function StorePricingPage() {
             </div>
           )}
         </div>
+        <ChevronRight
+          aria-hidden="true"
+          className="size-4 shrink-0 text-gray-300 transition-all group-hover:translate-x-0.5 group-hover:text-brand"
+        />
       </button>
     );
   };
@@ -584,15 +599,43 @@ export default function StorePricingPage() {
         onOpenChange={(open) => setNewBatch((p) => ({ ...p, open }))}
         candidates={pending}
         initialSelectedIds={newBatch.seedIds}
-        onCreate={(name, ids, scheduledAt) => {
-          createBatch(name, ids, scheduledAt);
-          // The new batch is appended last; flash it so the user sees where it landed.
+        onCreate={(name, ids, scheduledAt, targetStoreIds) => {
+          // Summarize the fan-out from pre-apply state so the toast can report
+          // what landed where (applied / overwritten / skipped) across stores.
+          const st = usePricingStore.getState();
+          const selected = st.overrides.filter((o) => ids.includes(o.id));
+          const targets = [...new Set([st.activeStoreId, ...targetStoreIds])];
+          const multiStore = targets.length > 1;
+          const summary = multiStore
+            ? planFanout(
+                buildFanoutSources(selected, st.items),
+                targets,
+                st.activeStoreId,
+                { items: st.items, overrides: st.overrides, batches: [] },
+                st.stash
+              )
+            : null;
+
+          createBatch(name, ids, scheduledAt, targetStoreIds);
+          // The active-store batch is appended last; flash it so the user sees where it landed.
           const all = usePricingStore.getState().batches;
           const newId = all[all.length - 1]?.id ?? null;
           if (newId) setBatchFlash((prev) => ({ id: newId, n: (prev?.n ?? 0) + 1 }));
-          toast.success(`Batch "${name}" scheduled for ${fmtDateTime(scheduledAt)}`, {
-            description: `${ids.length} price change${ids.length !== 1 ? "s" : ""} grouped`,
-          });
+
+          if (multiStore && summary) {
+            const applied = summary.totalApplied + summary.totalConflicts;
+            const skipped = summary.totalMissing + summary.totalLocked;
+            const parts = [`${applied} change${applied !== 1 ? "s" : ""} across ${targets.length} stores`];
+            if (summary.totalConflicts > 0) parts.push(`${summary.totalConflicts} overwritten`);
+            if (skipped > 0) parts.push(`${skipped} skipped`);
+            toast.success(`Batch "${name}" scheduled for ${targets.length} stores`, {
+              description: parts.join(" · "),
+            });
+          } else {
+            toast.success(`Batch "${name}" scheduled for ${fmtDateTime(scheduledAt)}`, {
+              description: `${ids.length} price change${ids.length !== 1 ? "s" : ""} grouped`,
+            });
+          }
         }}
       />
 
@@ -624,13 +667,15 @@ export default function StorePricingPage() {
       {(() => {
         const sendBatch = batches.find((b) => b.id === confirmSendBatchId);
         const sendCount = sendBatch ? batchItems(sendBatch).length : 0;
+        const storeCount = sendBatch?.targetStoreIds?.length ?? 1;
+        const scopeSuffix = storeCount > 1 ? ` across ${storeCount} stores` : "";
         return (
           <ConfirmDialog
             open={confirmSendBatchId != null}
             onOpenChange={(open) => { if (!open) setConfirmSendBatchId(null); }}
-            headline={`Send "${sendBatch?.name}" to SAP now?`}
-            description={`This sends ${sendCount} price change${sendCount !== 1 ? "s" : ""} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
-            confirmLabel="Send to SAP now"
+            headline={storeCount > 1 ? `Send "${sendBatch?.name}" to ${storeCount} stores now?` : `Send "${sendBatch?.name}" to SAP now?`}
+            description={`This sends ${sendCount} price change${sendCount !== 1 ? "s" : ""}${scopeSuffix} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
+            confirmLabel={storeCount > 1 ? "Send to all stores now" : "Send to SAP now"}
             onConfirm={() => {
               if (!confirmSendBatchId) return;
               submitBatch(confirmSendBatchId);

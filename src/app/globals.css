@@ -60,6 +60,21 @@ body {
 }
 
 /*
+ * Tailwind v4's preflight dropped the default `cursor: pointer` on buttons, so
+ * our hand-rolled <button> elements (batch cards, store switcher, menu items…)
+ * showed the default arrow with no hint they were clickable. The DS stylesheet
+ * is imported UNLAYERED, so a layered rule can't beat its reset — these rules are
+ * unlayered too, and the `:not()` compounds out-specify a bare `button` selector.
+ */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="menuitem"]:not([aria-disabled="true"]),
+[role="menuitemradio"]:not([aria-disabled="true"]),
+label:has(> input:not(:disabled)) {
+  cursor: pointer;
+}
+
+/*
  * Subtle attention pulse for count badges when they increment (e.g. the batch
  * tray badge after an item is added) so the user sees where their action
  * landed. Honors reduced-motion like the DS's own animations.
