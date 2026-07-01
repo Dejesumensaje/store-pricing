@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { SearchInput, Button } from "@dejesumensaje/converge-ds-experimental";
 import { SlidersHorizontal, ScanLine } from "lucide-react";
 import { ColumnsMenu, ColumnOption } from "../pricing-table/ColumnsMenu";
@@ -16,24 +15,19 @@ type Props = {
 };
 
 export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFilterCount, columnOptions, onToggleColumn }: Props) {
-  const [focused, setFocused] = useState(false);
-  // Mirror the DS SearchInput's own rule: it stays expanded while focused OR
-  // while it holds a value. We read this off React focus events (caught on the
-  // display:contents wrapper, so we don't clobber the DS's internal focus
-  // handlers on the input itself).
-  const isOpen = focused || search.length > 0;
-
   return (
     // Mobile: search pinned left, actions clustered right (justify-between).
     // Desktop: the whole toolbar sits at the right of the tabs row, items inline.
     <div className="flex w-full items-center justify-between gap-2 md:w-auto md:justify-start">
-      {/* display:contents lets the SearchInput sit directly in the flex row
-          while this wrapper still receives the input's bubbled focus events. */}
-      <div
-        style={{ display: "contents" }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-      >
+      {/*
+        search-widget: CSS hook. globals.css uses :has(input[tabindex="0"]) on
+        this class to detect when the DS has expanded (the DS sets tabIndex=0
+        on its hidden input only when open). Width override lives there too —
+        as unlayered !important CSS so it beats the DS inline style.
+        flex-1 md:flex-none: on mobile the wrapper grows to fill the row so
+        width:100% on the DS root resolves to full container width.
+      */}
+      <div className="search-widget">
         <SearchInput
           value={search}
           onValueChange={onSearch}
@@ -41,15 +35,14 @@ export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFil
           expandDirection="right"
           aria-label="Search items"
           placeholder="Search by name or ID"
-          // The DS pins width via an inline style (200px when expanded), which
-          // clips the placeholder. On desktop always stay expanded at 300px
-          // so the placeholder is visible; on mobile only expand when open.
-          className={isOpen ? "w-full! md:w-[300px]!" : "md:w-[300px]!"}
         />
       </div>
-      {/* On mobile, collapse the action cluster while search is open so the
-          input owns the full row. Desktop (md:flex) always shows it. */}
-      <div className={`items-center gap-2 md:flex ${isOpen ? "hidden" : "flex"}`}>
+      {/*
+        search-actions: CSS hook. globals.css hides this on mobile while the
+        search is open (:has selector on the sibling .search-widget), always
+        visible on desktop.
+      */}
+      <div className="search-actions flex items-center gap-2">
         <Button
           variant="secondary"
           size="sm"

@@ -441,15 +441,15 @@ export default function StorePricingPage() {
                 <button
                   type="button"
                   onClick={() => setReviewOnly(true)}
-                  className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3 text-left transition-colors hover:bg-brand/10"
+                  className="mb-4 flex w-full flex-col items-start gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3 text-left transition-colors hover:bg-brand/10 md:flex-row md:items-center md:justify-between"
                 >
                   <span className="flex items-center gap-2.5">
-                    <span className="relative flex size-2.5">
+                    <span className="relative flex size-2.5 shrink-0">
                       <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
                       <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
                     </span>
                     <span className="text-sm text-gray-800">
-                      <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review — proposed price changes awaiting your call.
+                      <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review<span className="hidden md:inline"> — proposed price changes awaiting your call</span>.
                     </span>
                   </span>
                   <span
@@ -461,18 +461,18 @@ export default function StorePricingPage() {
                 </button>
               )}
               {!hangLensOn && reviewActive && (
-                <div className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3">
+                <div className="mb-4 flex w-full flex-col items-start gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3 md:flex-row md:items-center md:justify-between">
                   <span className="flex items-center gap-2.5">
-                    <span className="relative flex size-2.5">
+                    <span className="relative flex size-2.5 shrink-0">
                       <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
                       <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
                     </span>
                     <span className="text-sm text-gray-800">
-                      Showing <span className="font-semibold">{hqCount} item{hqCount === 1 ? "" : "s"} that need review</span> — Accept or override each price — then add to a batch to send to SAP.
+                      Showing <span className="font-semibold">{hqCount} item{hqCount === 1 ? "" : "s"} that need review</span><span className="hidden md:inline"> — Accept or override each price — then add to a batch to send to SAP</span>.
                     </span>
                   </span>
                   <Button variant="tertiary" size="sm" onClick={() => setReviewOnly(false)}>
-                    Show all items
+                    Back to all items
                   </Button>
                 </div>
               )}
