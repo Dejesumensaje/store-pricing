@@ -9,7 +9,7 @@ const openSans = Open_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Store Pricing | HyVee",
+  title: "Store Pricing | Hy-Vee",
   description: "Store pricing management platform",
 };
 

@@ -5,7 +5,7 @@ import { DataColumn } from "../DataTable";
 import { PricingItem } from "@/types/pricing";
 import { Chip, Badge, Checkbox, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 import Image from "next/image";
-import { Check, AlertCircle } from "lucide-react";
+import { Check, AlertCircle, Image as ImageIcon } from "lucide-react";
 import { PriceCellState } from "../PriceInputCell";
 
 export { fmt } from "@/lib/format";
@@ -77,7 +77,7 @@ export function itemCol(accessory?: (r: PricingItem) => ReactNode): DataColumn<P
     cell: (r) => (
       <div className="flex items-center gap-2.5">
         <div className="size-9 bg-gray-100 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
-          {r.image ? <Image src={r.image} alt={r.name} width={36} height={36} className="object-cover" /> : <span className="text-gray-300 text-xs">img</span>}
+          {r.image ? <Image src={r.image} alt={r.name} width={36} height={36} className="object-cover" /> : <ImageIcon className="size-4 text-gray-300" aria-hidden="true" />}
         </div>
         <Tooltip content={r.name}>
           <span className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{r.name}</span>
@@ -88,7 +88,7 @@ export function itemCol(accessory?: (r: PricingItem) => ReactNode): DataColumn<P
   };
 }
 
-export const idCol: DataColumn<PricingItem> = { id: "id", group: "item", width: 90, header: "ID", sortable: true, sortAccessor: (r) => r.id, cell: (r) => <span className="text-sm text-gray-700">{r.id}</span> };
+export const idCol: DataColumn<PricingItem> = { id: "id", group: "item", width: 90, header: "SKU", sortable: true, sortAccessor: (r) => r.id, cell: (r) => <span className="text-sm text-gray-700">{r.id}</span> };
 const aisleCol: DataColumn<PricingItem> = { id: "aisle", group: "item", width: 120, header: "Aisle", cell: (r) => <span className="text-sm text-gray-700">{r.aisle}</span> };
 
 // Compact item columns for the change-type (pricing) views — keeps the item
@@ -143,7 +143,7 @@ export function ImpactBreakdown({ item }: { item: PricingItem }) {
     ["Sales", `${signed(item.impactSalesValue, "M")} (${signed(item.impactSalesPct, "%")})`],
     ["Units", `${signed(item.impactUnitsValue, "k")} (${signed(item.impactUnitsPct, "%")})`],
     ["Margin", `${signed(item.impactMarginPct, "%")} (${signed(item.impactMarginValue, "M")})`],
-    ["GM %", `${item.impactGmPct.toFixed(2)} (${(item.impactGmPct * 100).toFixed(2)}%)`],
+    ["GM %", `${(item.impactGmPct * 100).toFixed(1)}%`],
   ];
   return (
     <div className="flex flex-col gap-1 min-w-[160px]">

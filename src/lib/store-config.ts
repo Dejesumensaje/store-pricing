@@ -18,4 +18,8 @@ export const STORES: Store[] = [
 // The store the app boots into.
 export const DEFAULT_STORE_ID = STORES[0].id;
 
+// The demo persona: the director who manages these stores. Single source of
+// truth for anywhere the UI shows the signed-in user.
+export const DIRECTOR = { name: "Nora Larsen", initials: "NL" };
+
 export const storeById = (id: string): Store | undefined => STORES.find((s) => s.id === id);

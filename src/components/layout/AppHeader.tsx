@@ -3,6 +3,7 @@
 import { Avatar, Button, CountBadge } from "@dejesumensaje/converge-ds-experimental";
 import { Bell } from "lucide-react";
 import Link from "next/link";
+import { DIRECTOR } from "@/lib/store-config";
 
 type Props = {
   /** Count of HQ recommendations awaiting the store's action. */
@@ -42,7 +43,7 @@ export function AppHeader({ hqCount = 0, onViewHq }: Props) {
             </span>
           )}
         </div>
-        <Avatar fallback="NL" />
+        <Avatar fallback={DIRECTOR.initials} aria-label={DIRECTOR.name} />
       </div>
       </div>
     </header>

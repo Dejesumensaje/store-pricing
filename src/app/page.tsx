@@ -30,7 +30,7 @@ import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildFanoutSources, planFanout } from "@/lib/store-fanout";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem, Batch } from "@/types/pricing";
-import { pricingStrategyLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
+import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { fmtDateTime } from "@/lib/format";
 
@@ -47,6 +47,7 @@ export default function StorePricingPage() {
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
+  const confirmBatch = usePricingStore((s) => s.confirmBatch);
 
   // "To send" is a LENS over All items (not a separate destination): it focuses on
   // the batches waiting to go to SAP.
@@ -80,6 +81,10 @@ export default function StorePricingPage() {
   const [confirmedFlash, setConfirmedFlash] = useState<{ id: string; n: number } | null>(null);
   const [confirmSendBatchId, setConfirmSendBatchId] = useState<string | null>(null);
   const prevBatchStatuses = useRef(new Map<string, string>(batches.map((b) => [b.id, b.status])));
+  // Simulated SAP acknowledgment: a batch sent during this session confirms back
+  // after a short delay so Sending resolves to Live (only scheduled → submitted
+  // transitions observed here arm a timer; nothing confirms on load).
+  const confirmTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
 
@@ -96,7 +101,7 @@ export default function StorePricingPage() {
       setTrayPulse((n) => n + 1);
       // Fire a one-time onboarding toast the very first time a batch is created.
       if (prevTrayCount.current === 0) {
-        toast.success('Batch created — set a send date, then use "Send to SAP now" when ready.');
+        toast.success('Batch created — it sends automatically at the scheduled time, or open it and use "Send now".');
       }
     }
     prevTrayCount.current = batchCount;
@@ -115,6 +120,19 @@ export default function StorePricingPage() {
 
   useEffect(() => {
     batches.forEach((b) => {
+      if (
+        prevBatchStatuses.current.get(b.id) === "scheduled" &&
+        b.status === "submitted" &&
+        !confirmTimers.current.has(b.id)
+      ) {
+        confirmTimers.current.set(
+          b.id,
+          setTimeout(() => {
+            confirmTimers.current.delete(b.id);
+            confirmBatch(b.id);
+          }, 10_000)
+        );
+      }
       if (prevBatchStatuses.current.get(b.id) === "submitted" && b.status === "confirmed") {
         const count = overrides.filter((o) => o.batchId === b.id).length;
         toast.success(`"${b.name}" is now live in SAP — ${count} item${count !== 1 ? "s" : ""}`);
@@ -122,7 +140,12 @@ export default function StorePricingPage() {
       }
     });
     prevBatchStatuses.current = new Map(batches.map((b) => [b.id, b.status]));
-  }, [batches, overrides, toast]);
+  }, [batches, overrides, toast, confirmBatch]);
+
+  useEffect(() => {
+    const timers = confirmTimers.current;
+    return () => timers.forEach(clearTimeout);
+  }, []);
 
   const openBatches = useMemo(
     () => batches.filter((b) => b.status === "scheduled"),
@@ -159,7 +182,7 @@ export default function StorePricingPage() {
       { key: "itemRole", label: "Item role", options: uniqueSorted(items.map((i) => i.itemRole)) },
       { key: "nationalVsStore", label: "National vs. store", options: uniqueSorted(items.map((i) => i.nationalVsStore)) },
       { key: "sensitivity", label: "Sensitivity", options: uniqueSorted(items.map((i) => i.sensitivity)) },
-      { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyLabel)) },
+      { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyFullLabel)) },
     ],
     [items]
   );
@@ -180,7 +203,7 @@ export default function StorePricingPage() {
           continue;
         }
         const itemValue =
-          key === "strategy" ? pricingStrategyLabel(i) : (i as unknown as Record<string, string>)[key];
+          key === "strategy" ? pricingStrategyFullLabel(i) : (i as unknown as Record<string, string>)[key];
         if (!opts.includes(itemValue)) return false;
       }
       return true;
@@ -239,7 +262,7 @@ export default function StorePricingPage() {
     setBatchFlash((prev) => ({ id: batchId, n: (prev?.n ?? 0) + 1 }));
     const name = usePricingStore.getState().batches.find((b) => b.id === batchId)?.name ?? "batch";
     const items = new Set(ids.map((id) => id.split(":")[0])).size;
-    toast.success(`Added ${items} to ${name}`, {
+    toast.success(`Added ${items} item${items !== 1 ? "s" : ""} to ${name}`, {
       action: { label: "Undo", onClick: () => ids.forEach((id) => removeFromLooseTray(id)) },
     });
   };
@@ -250,7 +273,7 @@ export default function StorePricingPage() {
     scheduleBatch(scheduleBatchId, at);
     setScheduleOpen(false);
     setScheduleBatchId(null);
-    toast.success(`Scheduled for ${fmtDateTime(at)}`, { description: "Sends to SAP automatically then." });
+    toast.success(`Scheduled for ${fmtDateTime(at)}`, { description: "It will send to SAP automatically at that time." });
   };
 
   const openScheduleBatch = (batchId: string, current?: string | null) => {
@@ -328,7 +351,7 @@ export default function StorePricingPage() {
       >
         {renderBatchIdentity(
           b,
-          <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? fmtDateTime(b.scheduledAt) : "scheduled"}</>,
+          <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? fmtDateTime(b.scheduledAt) : "Scheduled"}</>,
           flashing
         )}
         <div className="flex shrink-0 items-center gap-1.5">
@@ -674,7 +697,7 @@ export default function StorePricingPage() {
             open={confirmSendBatchId != null}
             onOpenChange={(open) => { if (!open) setConfirmSendBatchId(null); }}
             headline={storeCount > 1 ? `Send "${sendBatch?.name}" to ${storeCount} stores now?` : `Send "${sendBatch?.name}" to SAP now?`}
-            description={`This sends ${sendCount} price change${sendCount !== 1 ? "s" : ""}${scopeSuffix} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
+            description={`This sends changes to ${sendCount} item${sendCount !== 1 ? "s" : ""}${scopeSuffix} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
             confirmLabel={storeCount > 1 ? "Send to all stores now" : "Send to SAP now"}
             onConfirm={() => {
               if (!confirmSendBatchId) return;

@@ -103,7 +103,7 @@ test.describe("HQ review flow", () => {
     // Active-filter bar replaces the banner
     await expect(page.getByText(/items that need review/i)).toBeVisible();
     // Exit filter
-    await page.getByRole("button", { name: /Show all items/i }).click();
+    await page.getByRole("button", { name: /Back to all items/i }).click();
     await expect(page.getByRole("heading", { name: /All items/i })).toBeVisible();
   });
 
@@ -369,7 +369,7 @@ test("no console errors across main flows (desktop)", async ({ page, isMobile })
   // Open HQ review
   await page.getByRole("button", { name: /HQ sent.*recommendation/i }).click();
   await expect(page.getByText(/items that need review/i)).toBeVisible();
-  await page.getByRole("button", { name: /Show all items/i }).click();
+  await page.getByRole("button", { name: /Back to all items/i }).click();
 
   // Open batches
   await page.getByRole("button", { name: /^Batches$/i }).click();

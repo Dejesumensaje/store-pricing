@@ -39,6 +39,9 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
 
   const batch = batches.find((b) => b.id === batchId) ?? null;
   const batchOverrides = overrides.filter((o) => o.batchId === batchId);
+  // Distinct items in the batch — the send confirm counts items, matching the
+  // Batches-list dialog so both entry points read identically.
+  const batchItemCount = new Set(batchOverrides.map((o) => o.itemId)).size;
   // Scheduled batches are still editable (not yet sent to SAP).
   const isScheduled = batch?.status === "scheduled";
   // Multi-store fan-out: the stores this batch applies to (defaults to origin).
@@ -276,7 +279,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
       open={confirmSend}
       onOpenChange={setConfirmSend}
       headline={isMultiStore ? `Send "${batch?.name}" to ${currentTargetIds.length} stores now?` : `Send "${batch?.name}" to SAP now?`}
-      description={`This sends ${batchOverrides.length} price change${batchOverrides.length !== 1 ? "s" : ""}${isMultiStore ? ` across ${currentTargetIds.length} stores` : ""} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
+      description={`This sends changes to ${batchItemCount} item${batchItemCount !== 1 ? "s" : ""}${isMultiStore ? ` across ${currentTargetIds.length} stores` : ""} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
       confirmLabel={isMultiStore ? "Send to all stores now" : "Send to SAP now"}
       onConfirm={() => {
         if (!batch) return;
