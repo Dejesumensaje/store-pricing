@@ -96,7 +96,7 @@ function YellowTag({
       </div>
       {proposed && (
         <span className="absolute -top-2 right-2 rounded-full bg-white px-1.5 text-[9px] font-semibold text-amber-700 shadow-sm">
-          proposed
+          Proposed
         </span>
       )}
     </div>

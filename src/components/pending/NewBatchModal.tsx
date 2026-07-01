@@ -113,7 +113,7 @@ export function NewBatchModal({ open, onOpenChange, candidates, initialSelectedI
           </Button>
           <Button variant="primary" onClick={handleCreate} disabled={!canCreate}>
             {multiStore
-              ? `Create batch · ${targetIds.size} stores (${checked.size} change${checked.size !== 1 ? "s" : ""})`
+              ? `Create batch · ${targetIds.size} stores (${checked.size} item${checked.size !== 1 ? "s" : ""})`
               : `Create batch (${checked.size} item${checked.size !== 1 ? "s" : ""})`}
           </Button>
         </div>
@@ -282,7 +282,7 @@ function FanoutPreview({
         )}
         {totalLocked > 0 && (
           <Badge tone="neutral" size="sm">
-            {totalLocked} in flight
+            {totalLocked} already sending
           </Badge>
         )}
       </div>
@@ -304,7 +304,7 @@ function FanoutPreview({
       )}
       {hasExceptions && (
         <p className="mt-2 text-[11px] leading-snug text-gray-500">
-          Conflicting changes are overwritten with this price. Missing SKUs and in-flight changes are skipped.
+          Conflicting changes are overwritten with this price. Missing SKUs and already-sending changes are skipped.
         </p>
       )}
     </div>
@@ -340,7 +340,7 @@ function StoreRow({ storeId, plan }: { storeId: string; plan: StorePlan }) {
           {plan.locked.map((e) => (
             <span key={`l-${e.itemId}-${e.priceField}`} className="flex items-center gap-1.5">
               <Lock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
-              <span className="truncate">Skipped {e.itemName} — a change is already in flight</span>
+              <span className="truncate">Skipped {e.itemName} — a change is already sending</span>
             </span>
           ))}
         </div>

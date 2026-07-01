@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { Image as ImageIcon } from "lucide-react";
 import { PricingItem, Batch } from "@/types/pricing";
 import { PriceCell, FuelSaverCell, StatusCell } from "./buildStoreColumns";
 import { hqReviewNeeded } from "@/lib/item-status";
@@ -42,7 +43,7 @@ export function MobileItemList({ rows, batches, onRowClick }: Props) {
                 {item.image ? (
                   <Image src={item.image} alt={item.name} width={40} height={40} className="object-cover" />
                 ) : (
-                  <span className="text-xs text-gray-300">img</span>
+                  <ImageIcon className="size-4 text-gray-300" aria-hidden="true" />
                 )}
               </div>
 

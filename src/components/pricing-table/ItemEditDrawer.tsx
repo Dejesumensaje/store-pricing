@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useId } from "react";
 import Image from "next/image";
-import { Drawer, Button, Badge, Select, useToast } from "@dejesumensaje/converge-ds-experimental";
+import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, OverrideStatus, Batch } from "@/types/pricing";
@@ -344,7 +344,7 @@ export function ItemEditDrawer({
             </div>
             <div className="min-w-0 flex flex-col gap-1.5">
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-                <dt className="text-gray-400">SKU ID</dt>
+                <dt className="text-gray-400">SKU</dt>
                 <dd className="font-medium tabular-nums text-gray-700">{item.id}</dd>
                 <dt className="text-gray-400">Vendor</dt>
                 <dd className="text-gray-700">{item.vendorName ?? item.brand}</dd>
@@ -362,8 +362,16 @@ export function ItemEditDrawer({
               <div className="flex flex-wrap items-center gap-1">
                 {hqReviewNeeded(item) && <HqBadge />}
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
-                {isEdlp && <Badge tone="success" size="sm">EDLP</Badge>}
-                {item.isKvi && <Badge tone="warning" size="sm">KVI</Badge>}
+                {isEdlp && (
+                  <Tooltip content="Everyday low price — a permanent markdown to stay consistently low.">
+                    <span className="inline-flex cursor-default"><Badge tone="success" size="sm">EDLP</Badge></span>
+                  </Tooltip>
+                )}
+                {item.isKvi && (
+                  <Tooltip content="Key value item — a price shoppers know and compare; changes are high-visibility.">
+                    <span className="inline-flex cursor-default"><Badge tone="warning" size="sm">KVI</Badge></span>
+                  </Tooltip>
+                )}
               </div>
             </div>
           </div>
@@ -815,8 +823,8 @@ export function ItemEditDrawer({
                         </div>
                         <div className="flex items-center gap-2 tabular-nums">
                           <span className="text-sm text-gray-700">{fmt(c.price)}</span>
-                          <span className={`w-20 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500"}`}>
-                            {diff > 0 ? `+${fmt(diff)} hi` : diff < 0 ? `${fmt(diff)} lo` : "match"}
+                          <span className={`w-24 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500"}`}>
+                            {diff > 0 ? `+${fmt(diff)} higher` : diff < 0 ? `${fmt(diff)} lower` : "matches"}
                           </span>
                         </div>
                       </div>
