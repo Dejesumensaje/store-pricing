@@ -225,11 +225,24 @@ label:has(> input:not(:disabled)) {
  */
 .search-widget:has(input[tabindex="0"]) > div:first-child {
   display: flex !important;
+  width: 100% !important;
   transition: width 250ms cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 @media (min-width: 48rem) {
   .search-widget:has(input[tabindex="0"]) > div:first-child {
     width: 300px !important;
+  }
+}
+
+/* Mobile only: once the search starts collapsing, snap its width back
+ * instantly instead of animating it. The action cluster's display:none→flex
+ * swap below is already instant, so an animated shrink here made the two
+ * fall out of sync — the buttons popped back before the search had visually
+ * shrunk, reading as a jump. Desktop is unaffected (actions never hide there,
+ * so its collapse animation was never part of the problem). */
+@media (max-width: 47.999rem) {
+  .search-widget > div:first-child {
+    transition: none !important;
   }
 }
 
