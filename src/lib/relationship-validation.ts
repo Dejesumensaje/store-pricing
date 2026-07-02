@@ -196,3 +196,20 @@ export function committedSoftWarnings(
     itemsById
   ).filter((v) => v.kind === "soft");
 }
+
+/**
+ * Catalog-wide read of `committedSoftWarnings`: the ids of every item that
+ * currently carries an unresolved narrow-gap warning — powers the "Pricing
+ * conflicts" filter facet so a director can see these before batching,
+ * without opening each item's drawer one by one.
+ */
+export function itemIdsWithSoftViolations(
+  items: PricingItem[],
+  itemsById: Map<string, PricingItem>
+): Set<string> {
+  const ids = new Set<string>();
+  for (const item of items) {
+    if (committedSoftWarnings(item.id, itemsById).length > 0) ids.add(item.id);
+  }
+  return ids;
+}

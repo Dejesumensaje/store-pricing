@@ -223,6 +223,14 @@ switching? Do they understand their work in the first store is preserved?
 
 ---
 
+### Task 12 — Notice an active filter (optional)
+> While a filter is applied (e.g. after Task 11), ask: "How would you remove just that filter?"
+
+**Success:** uses the removable chip below the toolbar (or the drawer's per-facet Clear) — doesn't have to reopen the drawer to know something is filtered.
+**What to watch:** Do they notice the chip at all? Do they try the "Filters (N)" button instead, not realizing the chip is faster?
+
+---
+
 ## 6. Post-task questions (after each one)
 
 1. SEQ: *"On a scale of 1 to 7, how easy was that?"* (and why)

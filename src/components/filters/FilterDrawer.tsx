@@ -181,7 +181,14 @@ export function FilterDrawer({ open, onOpenChange, facets, value, onApply }: Pro
       headerActions={total > 0 ? <Badge tone="in-progress" size="sm">{total}</Badge> : undefined}
       footer={
         <div className="flex items-center gap-2">
-          <Button variant="tertiary" onClick={() => setDraft({})}>
+          <Button
+            variant="tertiary"
+            onClick={() => {
+              setDraft({});
+              onApply({});
+              onOpenChange(false);
+            }}
+          >
             Reset filters
           </Button>
           <div className="flex-1" />

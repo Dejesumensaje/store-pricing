@@ -24,6 +24,7 @@ import { DataTable } from "@/components/pricing-table/DataTable";
 import { buildStoreColumns, STORE_OPTIONAL_COLUMNS, shelfTagKind, SHELF_TAG_META } from "@/components/store/buildStoreColumns";
 import { ItemEditDrawer } from "@/components/pricing-table/ItemEditDrawer";
 import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/FilterDrawer";
+import { FilterChips } from "@/components/filters/FilterChips";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
@@ -33,9 +34,27 @@ import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
+import { itemIdsWithSoftViolations } from "@/lib/relationship-validation";
 import { fmtDateTime } from "@/lib/format";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
+
+// Empty-state copy for the zero-rows case, accurate to what's actually
+// narrowing the list — a director clearing "your filters" shouldn't be told
+// to "try a different search" when they never typed one (and vice versa).
+function emptyStateCopy(hasSearch: boolean, hasFilters: boolean, reviewActive: boolean) {
+  const scope = reviewActive ? "your review queue" : "more items";
+  if (hasFilters && hasSearch) {
+    return { title: "No items match your search and filters", hint: `Clear filters or try a different search to see ${scope}.` };
+  }
+  if (hasFilters) {
+    return { title: "No items match your filters", hint: `Clear filters to see ${scope}.` };
+  }
+  if (hasSearch) {
+    return { title: "No items match your search", hint: "Try a different search term." };
+  }
+  return { title: "No items match", hint: "Try a different search or clear the filters." };
+}
 
 export default function StorePricingPage() {
   const toast = useToast();
@@ -184,6 +203,14 @@ export default function StorePricingPage() {
       .map((id) => itemsById.get(id))
       .filter((i): i is PricingItem => i != null);
 
+  // Items with an unresolved narrow-gap pricing-relationship warning — powers
+  // the "Pricing conflicts" facet so a director can spot these before batching
+  // without opening every item's drawer.
+  const conflictIds = useMemo(
+    () => itemIdsWithSoftViolations(items, itemsById),
+    [items, itemsById]
+  );
+
   // ── Faceted filtering (All items / HQ tabs) ──────────────────────────────
   const facets: FilterFacet[] = useMemo(
     () => [
@@ -203,8 +230,16 @@ export default function StorePricingPage() {
       { key: "nationalVsStore", label: "National vs. store", options: uniqueSorted(items.map((i) => i.nationalVsStore)) },
       { key: "sensitivity", label: "Sensitivity", options: uniqueSorted(items.map((i) => i.sensitivity)) },
       { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyFullLabel)) },
+      // Gated on data actually present, like Change type above — neither shows
+      // as a dead option on a clean seed.
+      ...(items.some((i) => i.hasAlert)
+        ? [{ key: "hasAlert", label: "Alerts", options: ["Flagged"] }]
+        : []),
+      ...(conflictIds.size > 0
+        ? [{ key: "conflicts", label: "Pricing conflicts", options: ["Has a guardrail warning"] }]
+        : []),
     ],
-    [items]
+    [items, conflictIds]
   );
 
   const activeFilterCount = useMemo(
@@ -226,13 +261,24 @@ export default function StorePricingPage() {
           if (!i.hqChangeReason || !opts.includes(REASON_META[i.hqChangeReason].label)) return false;
           continue;
         }
+        // Boolean facets: the generic string-equality branch below would
+        // silently no-op on these (opts.includes() against a boolean, or
+        // against a key that isn't a PricingItem property at all).
+        if (key === "hasAlert") {
+          if (!i.hasAlert) return false;
+          continue;
+        }
+        if (key === "conflicts") {
+          if (!conflictIds.has(i.id)) return false;
+          continue;
+        }
         const itemValue =
           key === "strategy" ? pricingStrategyFullLabel(i) : (i as unknown as Record<string, string>)[key];
         if (!opts.includes(itemValue)) return false;
       }
       return true;
     },
-    [filters]
+    [filters, conflictIds]
   );
 
   // When each item was last edited — so recently-decided items rise to the top of
@@ -500,6 +546,9 @@ export default function StorePricingPage() {
             )}
 
             <div className="mt-4 flex-1 md:min-h-0 flex flex-col">
+              {!hangLensOn && activeFilterCount > 0 && (
+                <FilterChips facets={facets} value={filters} onChange={setFilters} />
+              )}
               {!hangLensOn && hqCount > 0 && !reviewActive && (
                 <button
                   type="button"
@@ -578,8 +627,7 @@ export default function StorePricingPage() {
               {!hangLensOn && (rows.length === 0 ? (
                 <EmptyState
                   icon={SearchX}
-                  title={activeFilterCount > 0 && !search ? "No items match your filters" : "No items match"}
-                  hint="Try a different search or clear the filters."
+                  {...emptyStateCopy(!!search, activeFilterCount > 0, reviewActive)}
                   className="py-20"
                   action={
                     (search || activeFilterCount > 0) && (
