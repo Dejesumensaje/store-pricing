@@ -3,9 +3,11 @@
 import { Loader2, Fuel } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
-import { PricingItem, Batch } from "@/types/pricing";
+import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
+import { REASON_META } from "@/lib/price-change-reason";
 import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
+import { perUnit } from "@/lib/pricing-math";
 import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 
 export const STORE_OPTIONAL_COLUMNS: { id: string; label: string }[] = [
@@ -121,13 +123,15 @@ export function ShelfTagCell({ item }: { item: PricingItem }) {
 //
 // HQ wears the Hy-Vee red — HQ *is* Hy-Vee headquarters, so the brand red reads as
 // "this came from HQ, look here". A subtle pulse (.hq-pulse) draws the eye without
-// shouting.
-export function HqBadge() {
+// shouting. The change reason rides along in the tooltip — secondary info, on
+// demand, never its own table furniture.
+export function HqBadge({ reason }: { reason?: HqChangeReason }) {
+  const why = reason ? `${REASON_META[reason].label} — HQ recommends a price change.` : "HQ recommends a price change.";
   return (
-    <Tooltip content="HQ recommends a price change — review and decide.">
+    <Tooltip content={`${why} Review and decide.`}>
       <span
         className="hq-pulse shrink-0 cursor-default rounded bg-hyvee-red/10 px-1.5 py-px text-[10px] font-bold uppercase tracking-wide text-hyvee-red ring-1 ring-inset ring-hyvee-red/30"
-        aria-label="HQ recommends a price change"
+        aria-label={why}
       >
         HQ
       </span>
@@ -186,7 +190,13 @@ function hasRetailRow(item: PricingItem): boolean {
 }
 
 function baseMovePct(item: PricingItem): number {
-  const target = item.newBasePrice ?? (item.hqReviewPending ? item.recommendedBasePrice : null);
+  // A pack-size base moves by its per-unit price, not the deal total.
+  const target =
+    item.newBasePrice != null
+      ? perUnit(item.newBasePrice, item.newBaseQty)
+      : item.hqReviewPending
+        ? item.recommendedBasePrice
+        : null;
   if (target == null || !(item.currentBasePrice > 0)) return 0;
   return Math.abs((target - item.currentBasePrice) / item.currentBasePrice) * 100;
 }
@@ -196,11 +206,13 @@ export function PriceCell({ item }: { item: PricingItem }) {
   const showRetail = hasRetailRow(item);
 
   const baseTarget = item.newBasePrice != null ? item.newBasePrice : item.hqReviewPending ? item.recommendedBasePrice : null;
+  // Only a decided base can be a pack-size deal (HQ recs are always single-unit).
+  const baseQty = item.newBasePrice != null ? item.newBaseQty ?? 1 : 1;
   const baseLine = (
     <MoveLine
       label={showRetail ? "Base" : undefined}
       original={item.currentBasePrice}
-      display={baseTarget != null ? fmt(baseTarget) : null}
+      display={baseTarget != null ? (baseQty > 1 ? fmtQtyPrice(baseQty, baseTarget) : fmt(baseTarget)) : null}
       tag="white"
       setMode={isNew}
     />
@@ -349,7 +361,7 @@ export function buildStoreColumns(
 
   return [
     idCol,
-    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge /> : null)),
+    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge reason={r.hqChangeReason} /> : null)),
     textCol("category", "Category", (r) => r.category, 140),
     {
       id: "price",

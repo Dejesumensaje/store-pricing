@@ -15,6 +15,9 @@ export type CompetitorPrice = {
   distanceMi?: number;
 };
 export type NationalVsStore = "National" | "Store";
+/** Why HQ proposed a price change. A director's own price is a "local ad hoc"
+ *  decision — that value is derived, never stored (see price-change-reason.ts). */
+export type HqChangeReason = "cost_change" | "competitor_move" | "category_review";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
 export type OverrideStatus = "pending" | "in_batch" | "submitted" | "confirmed";
@@ -44,6 +47,8 @@ export type PricingItem = {
   cost: number;
   recommendedBasePrice: number;
   newBasePrice: number | null; // null = using recommended
+  /** Total price for `newBaseQty` units (pack-size deal). qty 1 (or null) = single-unit price. */
+  newBaseQty?: number | null;
   // Temp allowance fields (only for temporary_allowance category)
   currentRetailPrice?: number;
   /** Net cost during the allowance period (vendor-funded discount applied). */
@@ -70,10 +75,10 @@ export type PricingItem = {
   /** Ids of items frequently bought/priced together (cross-sell context). */
   relatedItemIds?: string[];
   /**
-   * Line-price group key. Items sharing a key are priced as a line — editing
-   * one suggests propagating the same price across the group.
+   * Family key. Items sharing a family are priced as one — editing any
+   * member updates the whole family.
    */
-  linePriceGroup?: string;
+  familyId?: string;
   // Impact (computed/received from HQ)
   impactSalesValue: number;
   impactSalesPct: number;
@@ -99,6 +104,8 @@ export type PricingItem = {
    * The queue clears the item once it's decided.
    */
   hqReviewPending?: boolean;
+  /** The reason HQ attached to its recommendation (set alongside hqReviewPending). */
+  hqChangeReason?: HqChangeReason;
   /**
    * Demo-only: the last send to SAP failed. Renders a "Failed" status badge.
    * Visual state only — no real retry/timed-revert is wired.

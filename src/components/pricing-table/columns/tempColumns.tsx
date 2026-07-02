@@ -55,7 +55,7 @@ export function buildTempColumns(
       header: "New price",
       cell: (r) => (
         <DecisionCell
-          display={r.newBasePrice != null ? fmt(r.newBasePrice) : null}
+          display={r.newBasePrice != null ? fmtQtyPrice(r.newBaseQty, r.newBasePrice) : null}
           state={derivePriceState({ value: r.newBasePrice, status: r.baseOverrideStatus, hasAlert: r.hasAlert })}
         />
       ),

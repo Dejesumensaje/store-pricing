@@ -1,5 +1,6 @@
 import { PricingItem, PricingCategory } from "@/types/pricing";
 import { fmt, fmtQtyPrice } from "./format";
+import { perUnit } from "./pricing-math";
 
 // ─── Pricing strategy (the item's current pricing model) ─────────────────────
 // Distinct from the Change Summary: this names the model, never an action.
@@ -81,7 +82,11 @@ function baseLineEntry(item: PricingItem): ChangeEntry | null {
     if (item.itemStatus === "discontinued") {
       return { kind: "discontinued", label: "Marked for Discontinuation", detail: "" };
     }
-    return { kind: "initial_price", label: "Set Initial Price", detail: fmt(item.newBasePrice ?? item.currentBasePrice) };
+    return {
+      kind: "initial_price",
+      label: "Set Initial Price",
+      detail: item.newBasePrice != null ? fmtQtyPrice(item.newBaseQty, item.newBasePrice) : fmt(item.currentBasePrice),
+    };
   }
 
   if (item.newBasePrice == null) return null;
@@ -94,12 +99,15 @@ function baseLineEntry(item: PricingItem): ChangeEntry | null {
     return { kind: "edlp_updated", label: "Updated EDLP Price", detail: transition(item.currentBasePrice, item.newBasePrice) };
   }
 
-  if (item.newBasePrice === item.currentBasePrice) return null;
-  const up = item.newBasePrice > item.currentBasePrice;
+  // A pack-size deal is a change even at the same per-unit price; direction
+  // compares per-unit (the total of "3 for $6.00" says nothing on its own).
+  const qty = item.newBaseQty ?? 1;
+  if (qty <= 1 && item.newBasePrice === item.currentBasePrice) return null;
+  const up = perUnit(item.newBasePrice, qty) > item.currentBasePrice;
   return {
     kind: up ? "base_increase" : "base_decrease",
     label: up ? "Increased Base Price" : "Decreased Base Price",
-    detail: transition(item.currentBasePrice, item.newBasePrice),
+    detail: `${fmt(item.currentBasePrice)} → ${fmtQtyPrice(qty, item.newBasePrice)}`,
   };
 }
 
