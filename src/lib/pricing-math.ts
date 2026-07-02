@@ -7,6 +7,11 @@ export function grossMarginPct(price: number, cost: number): number {
   return ((price - cost) / price) * 100;
 }
 
+/** Per-unit price of a possibly multi-unit deal total ("3 for $6.00" → $2.00). */
+export function perUnit(total: number, qty?: number | null): number {
+  return total / Math.max(1, qty ?? 1);
+}
+
 /** "39.5%" */
 export function fmtPct(value: number, digits = 1): string {
   return `${value.toFixed(digits)}%`;
@@ -16,4 +21,15 @@ export function fmtPct(value: number, digits = 1): string {
 export function fmtPpDelta(value: number, digits = 1): string {
   const sign = value >= 0 ? "+" : "−";
   return `${sign}${Math.abs(value).toFixed(digits)}pp`;
+}
+
+/** Round to cents. */
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Signed percentage from a fraction, e.g. −0.6503 → "−65.0%", 0.047 → "+4.7%". */
+export function fmtSignedPct(fraction: number, digits = 1): string {
+  const sign = fraction >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(fraction * 100).toFixed(digits)}%`;
 }

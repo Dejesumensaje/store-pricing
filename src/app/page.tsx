@@ -29,9 +29,10 @@ import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
 import { buildFanoutSources, planFanout } from "@/lib/store-fanout";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
-import { PricingItem, Batch } from "@/types/pricing";
+import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
+import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
 import { fmtDateTime } from "@/lib/format";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
@@ -87,6 +88,20 @@ export default function StorePricingPage() {
   const confirmTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
+
+  // Pending HQ recommendations broken down by change reason. Deliberately quiet:
+  // it renders as a plain-text summary in the review banner (secondary info),
+  // with per-reason filtering tucked into the Filters drawer as a facet.
+  const hqReasonSummary = useMemo(() => {
+    const counts: Partial<Record<HqChangeReason, number>> = {};
+    for (const i of items) {
+      if (!hqReviewNeeded(i) || !i.hqChangeReason) continue;
+      counts[i.hqChangeReason] = (counts[i.hqChangeReason] ?? 0) + 1;
+    }
+    return HQ_REASONS.filter((r) => (counts[r] ?? 0) > 0)
+      .map((r) => `${counts[r]} ${REASON_META[r].summary}`)
+      .join(" · ");
+  }, [items]);
 
   const batchCount = useMemo(
     () => batches.filter((b) => b.status === "scheduled").length,
@@ -177,6 +192,11 @@ export default function StorePricingPage() {
       { key: "changeType", label: "Change type", options: CHANGE_FILTER_OPTIONS.filter((o) =>
         items.some((i) => itemChangeGroups(i).includes(o))
       ) },
+      // HQ's change reason — deliberately a facet (not table furniture): filter
+      // the review queue by reason without the reason crowding the rows.
+      { key: "hqReason", label: "HQ reason", options: uniqueSorted(
+        items.filter(hqReviewNeeded).map((i) => i.hqChangeReason && REASON_META[i.hqChangeReason].label).filter((l): l is string => l != null)
+      ) },
       { key: "brand", label: "Brand", options: uniqueSorted(items.map((i) => i.brand)) },
       { key: "category", label: "Category", options: uniqueSorted(items.map((i) => i.category)) },
       { key: "itemRole", label: "Item role", options: uniqueSorted(items.map((i) => i.itemRole)) },
@@ -200,6 +220,10 @@ export default function StorePricingPage() {
         // groups is selected (so a multi-change item shows under each one).
         if (key === "changeType") {
           if (!itemChangeGroups(i).some((g) => opts.includes(g))) return false;
+          continue;
+        }
+        if (key === "hqReason") {
+          if (!i.hqChangeReason || !opts.includes(REASON_META[i.hqChangeReason].label)) return false;
           continue;
         }
         const itemValue =
@@ -230,7 +254,8 @@ export default function StorePricingPage() {
 
   const rows = useMemo(() => {
     let list = items;
-    // "HQ sent N" banner: narrow to items still awaiting the director's review.
+    // "HQ sent N" banner: narrow to items still awaiting the director's review,
+    // optionally scoped to one change reason via the triage chips.
     if (reviewActive) list = list.filter(hqReviewNeeded);
     list = list.filter(matchesFilters);
     if (search.trim()) {
@@ -487,7 +512,10 @@ export default function StorePricingPage() {
                       <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
                     </span>
                     <span className="text-sm text-gray-800">
-                      <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review<span className="hidden md:inline"> — proposed price changes awaiting your call</span>.
+                      <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review
+                      {/* The reason breakdown replaces the old filler phrase — the
+                          same muted register, but it says something. */}
+                      {hqReasonSummary && <span className="hidden text-gray-500 md:inline"> — {hqReasonSummary}</span>}.
                     </span>
                   </span>
                   <span
@@ -506,7 +534,8 @@ export default function StorePricingPage() {
                       <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
                     </span>
                     <span className="text-sm text-gray-800">
-                      Showing <span className="font-semibold">{hqCount} item{hqCount === 1 ? "" : "s"} that need review</span><span className="hidden md:inline"> — Accept or override each price — then add to a batch to send to SAP</span>.
+                      Showing <span className="font-semibold">{rows.length} item{rows.length === 1 ? "" : "s"} that need review</span>
+                      {hqReasonSummary && <span className="hidden text-gray-500 md:inline"> — {hqReasonSummary}</span>}.
                     </span>
                   </span>
                   <Button variant="tertiary" size="sm" onClick={() => setReviewOnly(false)}>

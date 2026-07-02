@@ -16,7 +16,7 @@ type PricingStore = {
   items: PricingItem[];
   overrides: Override[];
   batches: Batch[];
-  updateBasePrice: (itemId: string, newPrice: number | null) => void;
+  updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
   updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
@@ -160,13 +160,15 @@ export const usePricingStore = create<PricingStore>((set) => ({
       };
     }),
 
-  updateBasePrice: (itemId, newPrice) =>
+  updateBasePrice: (itemId, newPrice, qty) =>
     set((state) => {
       const source = state.items.find((i) => i.id === itemId);
       if (!source) return {};
-      // Line price: items in a line share one price — editing one applies to all.
-      const groupIds = source.linePriceGroup
-        ? state.items.filter((i) => i.linePriceGroup === source.linePriceGroup).map((i) => i.id)
+      // Pack-size deal: `newPrice` is the total for `normQty` units (mirrors retail).
+      const normQty = newPrice == null ? null : Math.max(1, Math.floor(qty ?? 1) || 1);
+      // Family price: items in a family share one price — editing one applies to all.
+      const groupIds = source.familyId
+        ? state.items.filter((i) => i.familyId === source.familyId).map((i) => i.id)
         : [itemId];
       let overrides = state.overrides;
       let batches = state.batches;
@@ -174,7 +176,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
       for (const id of groupIds) {
         const it = state.items.find((i) => i.id === id);
         if (!it) continue;
-        const r = upsertOverride({ overrides, batches }, it, "base", newPrice);
+        const r = upsertOverride({ overrides, batches }, it, "base", newPrice, normQty ?? undefined);
         overrides = r.overrides;
         batches = r.batches;
         statusById[id] = r.status;
@@ -182,7 +184,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
       return {
         items: state.items.map((item) => {
           if (!groupIds.includes(item.id)) return item;
-          let next: PricingItem = { ...item, newBasePrice: newPrice, baseOverrideStatus: statusById[item.id] };
+          let next: PricingItem = { ...item, newBasePrice: newPrice, newBaseQty: normQty, baseOverrideStatus: statusById[item.id] };
           // Deciding on an HQ rec (accept or override) reviews it for good — it
           // must not return to the queue when the override later goes submitted.
           if (newPrice != null && item.hqReviewPending) next.reviewed = true;
@@ -314,7 +316,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
         if (!ov || item.id !== ov.itemId) return item;
         const next =
           ov.priceField === "base"
-            ? { ...item, newBasePrice: null, baseOverrideStatus: undefined }
+            ? { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined }
             : { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined };
         return withOverrideFlags(next);
       };

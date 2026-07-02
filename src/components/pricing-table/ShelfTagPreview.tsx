@@ -3,6 +3,7 @@
 import { Fuel } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
 import { fmt, fmtQtyPrice } from "@/lib/format";
+import { perUnit } from "@/lib/pricing-math";
 import { shelfTagKind, fmtShortDate } from "../store/buildStoreColumns";
 import { useActiveStore } from "@/store/pricing-store";
 
@@ -30,22 +31,26 @@ function FuelChip({ amount }: { amount: number }) {
 function WhiteTag({
   name,
   price,
+  qty,
   kicker,
   crossed,
   fuel,
 }: {
   name: string;
+  /** Total price for `qty` units — a pack-size base prints "3 for $6.00". */
   price: number;
+  qty?: number | null;
   kicker?: string;
   crossed?: boolean;
   fuel?: number | null;
 }) {
+  const isDeal = qty != null && qty > 1;
   return (
     <div className={`relative min-w-[116px] rounded-md border border-gray-300 bg-white px-3 py-2 shadow-sm ${crossed ? "opacity-80" : ""}`}>
       {kicker && <p className="text-[9px] font-bold uppercase tracking-wide text-gray-500">{kicker}</p>}
       <p className="max-w-[140px] truncate text-[10px] text-gray-500">{name}</p>
-      <p className="text-xl font-bold tabular-nums leading-tight text-gray-900">{fmt(price)}</p>
-      <p className="text-[10px] text-gray-400">ea</p>
+      <p className="text-xl font-bold tabular-nums leading-tight text-gray-900">{isDeal ? fmtQtyPrice(qty, price) : fmt(price)}</p>
+      {!isDeal && <p className="text-[10px] text-gray-400">ea</p>}
       {!crossed && fuel != null && fuel > 0 && (
         <div className="mt-1">
           <FuelChip amount={fuel} />
@@ -111,6 +116,9 @@ export function ShelfTagPreview({ item }: { item: PricingItem }) {
   const store = useActiveStore();
   const kind = shelfTagKind(item);
   const whiteNew = item.newBasePrice ?? item.currentBasePrice;
+  // Only a decided base can be a pack-size deal; the current price never is.
+  const whiteQty = item.newBasePrice != null ? item.newBaseQty ?? 1 : 1;
+  const whiteUnit = perUnit(whiteNew, whiteQty);
 
   // The yellow promo tag (temporary allowance only).
   let yellow: React.ReactNode = null;
@@ -119,11 +127,11 @@ export function ShelfTagPreview({ item }: { item: PricingItem }) {
     const decided = item.newRetailPrice != null;
     const total = item.newRetailPrice ?? (item.hqReviewPending ? item.recommendedRetailPrice ?? null : null);
     if (total != null) {
-      const perUnit = total / Math.max(1, qty);
+      const retailUnit = perUnit(total, qty);
       const deal = qty > 1 ? fmtQtyPrice(qty, total) : fmt(total);
-      // Savings measured off the regular (white-tag) price; multi-unit shows the
-      // whole-deal savings the way the shelf tag does.
-      const save = (whiteNew - perUnit) * qty;
+      // Savings measured off the regular (white-tag) per-unit price; multi-unit
+      // shows the whole-deal savings the way the shelf tag does.
+      const save = (whiteUnit - retailUnit) * qty;
       const start = fmtShortDate(item.allowanceStartDate);
       const end = fmtShortDate(item.allowanceEndDate);
       const dates = end ? (start ? `${start} – ${end}` : `ends ${end}`) : null;
@@ -149,13 +157,14 @@ export function ShelfTagPreview({ item }: { item: PricingItem }) {
   // The white tag's framing varies by lifecycle.
   const white =
     kind === "new" ? (
-      <WhiteTag name={item.name} price={item.newBasePrice ?? item.recommendedBasePrice} kicker="New item" fuel={whiteFuel} />
+      <WhiteTag name={item.name} price={item.newBasePrice ?? item.recommendedBasePrice} qty={whiteQty} kicker="New item" fuel={whiteFuel} />
     ) : kind === "clearance" ? (
-      <WhiteTag name={item.name} price={whiteNew} kicker="Clearance" fuel={whiteFuel} />
+      <WhiteTag name={item.name} price={whiteNew} qty={whiteQty} kicker="Clearance" fuel={whiteFuel} />
     ) : (
       <WhiteTag
         name={item.name}
         price={whiteNew}
+        qty={whiteQty}
         kicker={kind === "edlp" ? "Every day" : undefined}
         // Once a yellow promo hangs, the white tag's regular price is crossed out
         // — the active price is the yellow one.

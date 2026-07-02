@@ -5,7 +5,7 @@ import { DataColumn } from "../DataTable";
 import { PricingItem } from "@/types/pricing";
 import { Chip, Badge, Checkbox, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 import Image from "next/image";
-import { Check, AlertCircle, Image as ImageIcon } from "lucide-react";
+import { Check, AlertCircle, Image as ImageIcon, Link2 } from "lucide-react";
 import { PriceCellState } from "../PriceInputCell";
 
 export { fmt } from "@/lib/format";
@@ -82,6 +82,13 @@ export function itemCol(accessory?: (r: PricingItem) => ReactNode): DataColumn<P
         <Tooltip content={r.name}>
           <span className="text-sm font-medium text-gray-900 truncate max-w-[150px]">{r.name}</span>
         </Tooltip>
+        {r.familyId != null && (
+          <Tooltip content="Family-priced — updates apply to the whole family">
+            <span role="img" aria-label="Family-priced" className="inline-flex shrink-0 cursor-default">
+              <Link2 className="size-3.5 text-gray-400" aria-hidden="true" />
+            </span>
+          </Tooltip>
+        )}
         {accessory?.(r)}
       </div>
     ),

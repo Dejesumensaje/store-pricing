@@ -129,7 +129,7 @@ export function applyFanoutToSlice(
       if (!createdSet.has(key)) continue;
       const src = srcByKey.get(key)!;
       if (field === "base") {
-        next = { ...next, newBasePrice: src.newPrice, baseOverrideStatus: "in_batch", hasOverride: true };
+        next = { ...next, newBasePrice: src.newPrice, newBaseQty: normQty(src.qty) ?? 1, baseOverrideStatus: "in_batch", hasOverride: true };
         if (next.category_type === "no_change") {
           next = { ...next, category_type: "base", autoTypedFrom: "no_change" };
         }
@@ -199,7 +199,7 @@ export function revertFanoutInSlice(slice: StoreSlice, batchId: string): StoreSl
       if (ov.itemId !== item.id) continue;
       next =
         ov.priceField === "base"
-          ? { ...next, newBasePrice: null, baseOverrideStatus: undefined }
+          ? { ...next, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined }
           : { ...next, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined };
     }
     if (next === item) return item;

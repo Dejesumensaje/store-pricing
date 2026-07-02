@@ -1,20 +1,18 @@
-import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity } from "@/types/pricing";
+import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
+import { PRODUCT_RELATIONSHIPS } from "@/lib/product-relationships";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Items that share a line-price group: priced together as a line (same price).
-// Their base/recommended prices are kept aligned below so the line is coherent.
-const LINE_PRICE_GROUPS: Record<string, string> = {
-  "RBCS5-1": "fl-tortilla",
-  "RBCS5-7": "fl-tortilla",
-  "RBCS5-8": "fl-tortilla",
-};
-
-// Display names for line-price groups — shown in the drawer as the price family.
-const PRICE_FAMILY_NAMES: Record<string, string> = {
-  "fl-tortilla": "Reg Tortilla Chips 9–11 oz",
-};
+// Families are defined in product-relationships.ts (single source of truth).
+// Derive the item→familyId and familyId→display-name maps from it.
+const FAMILY_IDS: Record<string, string> = {};
+const FAMILY_NAMES: Record<string, string> = {};
+for (const rel of PRODUCT_RELATIONSHIPS) {
+  if (rel.type !== "family") continue;
+  FAMILY_NAMES[rel.id] = rel.name;
+  for (const id of rel.itemIds) FAMILY_IDS[id] = rel.id;
+}
 
 // A few hand-picked "frequently priced together" relationships.
 const RELATED_ITEMS: Record<string, string[]> = {
@@ -35,17 +33,17 @@ function enrichItemContext(item: PricingItem): PricingItem {
     { name: "Target", price: round2(base * 1.04), distanceMi: 3.4 },
     { name: "Aldi", price: round2(base * 0.89), distanceMi: 5.2 },
   ];
-  const lineGroup = LINE_PRICE_GROUPS[item.id];
+  const familyId = FAMILY_IDS[item.id];
   return {
     ...item,
     competitors,
     relatedItemIds: RELATED_ITEMS[item.id],
-    linePriceGroup: lineGroup,
+    familyId,
     // Identity context shown in the drawer's item-info block.
     vendorName: item.vendorName ?? `${item.brand} Distribution`,
     // High-sensitivity SKUs are the prices shoppers watch — flag them KVI.
     isKvi: item.isKvi ?? item.sensitivity === "H",
-    priceFamilyName: item.priceFamilyName ?? (lineGroup ? PRICE_FAMILY_NAMES[lineGroup] : undefined),
+    priceFamilyName: item.priceFamilyName ?? (familyId ? FAMILY_NAMES[familyId] : undefined),
     // Temp-allowance defaults (retail overrides are seeded explicitly below).
     currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
     allowanceCost: item.allowanceCost ?? round2(item.cost * 0.8),
@@ -255,7 +253,7 @@ const baseMockItems: PricingItem[] = [
     packSize: "9.25oz",
     keyAttributes: ["Original", "Corn"],
     category_type: "everyday_low_price",
-    // Aligned with the fl-tortilla line price (RBCS5-1 / RBCS5-8).
+    // Aligned with the fl-tortilla family (RBCS5-1 / RBCS5-8).
     currentBasePrice: 5.49,
     cost: 3.6,
     recommendedBasePrice: 5.79,
@@ -269,14 +267,36 @@ const baseMockItems: PricingItem[] = [
     packSize: "7.5oz",
     keyAttributes: ["Kettle cooked", "Sea salt"],
     category_type: "base",
-    // Aligned with the fl-tortilla line price (RBCS5-1 / RBCS5-7).
+    // Aligned with the fl-tortilla family (RBCS5-1 / RBCS5-7).
     currentBasePrice: 5.49,
     cost: 3.6,
     recommendedBasePrice: 5.79,
   },
+  {
+    ...baseItem,
+    id: "RBCS5-10",
+    name: "Lay's Classic Potato Chips 7.75oz",
+    packSize: "7.75oz",
+    keyAttributes: ["Classic", "Single serve"],
+    itemRole: "Traffic driver",
+    currentBasePrice: 2.99,
+    cost: 1.9,
+    recommendedBasePrice: 2.99,
+  },
+  {
+    ...baseItem,
+    id: "RBCS5-11",
+    name: "Lay's Classic Potato Chips 13oz",
+    packSize: "13oz",
+    keyAttributes: ["Classic", "Share size"],
+    itemRole: "Traffic driver",
+    currentBasePrice: 3.99,
+    cost: 2.55,
+    recommendedBasePrice: 3.99,
+  },
 ];
 
-// Featured snack items, each carrying competitor / related / line-price + temp
+// Featured snack items, each carrying competitor / related / family + temp
 // allowance context so the drawer has real data to motivate an override.
 const baseCatalog: PricingItem[] = baseMockItems.map(enrichItemContext);
 
@@ -495,13 +515,32 @@ const HQ_REVIEW_IDS = new Set([
   "HQ-101", "HQ-102", "HQ-103", "HQ-104", "HQ-105", "HQ-106", "HQ-107", "HQ-108",
 ]);
 
+// Every HQ recommendation carries the reason behind it — the director triages
+// the queue by these (competitor moves are time-sensitive, cost changes are
+// margin upkeep, category reviews can batch for later).
+const HQ_CHANGE_REASONS: Record<string, HqChangeReason> = {
+  "RBCS5-7": "cost_change",
+  "RBCS5-8": "cost_change",
+  "HQ-101": "cost_change",
+  "HQ-102": "cost_change",
+  "HQ-105": "cost_change",
+  "EDLP-1": "competitor_move",
+  "HQ-103": "competitor_move",
+  "HQ-106": "competitor_move",
+  "HQ-108": "competitor_move",
+  "ND-4": "category_review",
+  "RBCS5-9": "category_review",
+  "HQ-104": "category_review",
+  "HQ-107": "category_review",
+};
+
 function applyHqReview(item: PricingItem): PricingItem {
   if (!HQ_REVIEW_IDS.has(item.id)) return item;
-  return { ...item, hqReviewPending: true };
+  return { ...item, hqReviewPending: true, hqChangeReason: HQ_CHANGE_REASONS[item.id] };
 }
 
 // ─── Synthetic catalog (scale) ───────────────────────────────────────────────
-// The hand-crafted items above drive the demo flows (line groups, HQ recs,
+// The hand-crafted items above drive the demo flows (families, HQ recs,
 // overrides). To exercise the filters at realistic scale we add a broad,
 // deterministic catalog of "live" (no-change) SKUs across many categories,
 // subcategories and brands — so the Category/Brand facets get a searchable,

@@ -1,26 +1,31 @@
 "use client";
 
-import { useMemo, useState, useEffect, useId } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore } from "@/store/pricing-store";
 import { PricingItem, OverrideStatus, Batch } from "@/types/pricing";
-import { PriceInputCell, derivePriceState } from "./PriceInputCell";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
+import { BasePriceMethodField } from "./BasePriceMethodField";
 import { BatchPickerModal } from "../store/BatchPickerModal";
 import { HqBadge } from "../store/buildStoreColumns";
 import { ShelfTagPreview } from "./ShelfTagPreview";
+import { ProductRelationships } from "./ProductRelationships";
+import { CollapsibleSection } from "./CollapsibleSection";
+import { BlockedPriceChangeModal } from "./BlockedPriceChangeModal";
+import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
+import { REASON_META, changeReasonFor } from "@/lib/price-change-reason";
 import { ImpactBreakdown } from "./columns/shared";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateTime, fmtDateRange } from "@/lib/format";
-import { grossMarginPct, fmtPct, fmtPpDelta } from "@/lib/pricing-math";
+import { grossMarginPct, fmtPct, fmtPpDelta, perUnit, round2, fmtSignedPct } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
-import { RotateCcw, Trash2, Check, Package, Link2, ChevronDown, Lock, Info, Pencil, CalendarClock, AlertCircle } from "lucide-react";
+import { RotateCcw, Trash2, Check, Package, Link2, Lock, Info, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -141,6 +146,13 @@ export function ItemEditDrawer({
   const [confirmRevert, setConfirmRevert] = useState<"base" | "retail" | null>(null);
   const [batchPromptOpen, setBatchPromptOpen] = useState(false);
   const [movePickerOpen, setMovePickerOpen] = useState(false);
+  // A proposed base price that failed hard validation — parked here (NOT
+  // committed) while the blocking modal asks the director to revert or scale.
+  const [blockedProposal, setBlockedProposal] = useState<{
+    total: number;
+    qty?: number;
+    evaluation: BaseChangeEvaluation;
+  } | null>(null);
   useEffect(() => {
     setEditingFuelSaver(false);
     setEditingBase(false);
@@ -148,6 +160,7 @@ export function ItemEditDrawer({
     setConfirmRevert(null);
     setBatchPromptOpen(false);
     setMovePickerOpen(false);
+    setBlockedProposal(null);
   }, [itemId]);
 
   // Deliberately no auto-advance — hopping to the next item added noise without helping the decide-then-send task.
@@ -157,21 +170,70 @@ export function ItemEditDrawer({
   const relatedItems = (item?.relatedItemIds ?? [])
     .map((id) => itemsById.get(id))
     .filter((i): i is PricingItem => i != null);
-  const lineItems = item?.linePriceGroup
-    ? [...itemsById.values()].filter((i) => i.linePriceGroup === item.linePriceGroup && i.id !== item.id)
+  const familyItems = item?.familyId
+    ? [...itemsById.values()].filter((i) => i.familyId === item.familyId && i.id !== item.id)
     : [];
 
-  // Commit a base price. Line-price items share one price, so the store
-  // propagates to the whole group — tell the user and offer a one-click Undo.
-  const commitBase = (v: number | null) => {
+  // Soft constraint warnings in the committed prices (narrow gaps vs related
+  // items) — derived every render, so the banner persists while the violation
+  // exists and disappears the moment the price is fixed or reverted.
+  const softWarnings = item ? committedSoftWarnings(item.id, itemsById) : [];
+
+  // Commit a base price. Family items share one price, so the store
+  // propagates to the whole family — tell the user and offer a one-click Undo.
+  // Hard constraint violations (order inversions vs related items) block the
+  // commit: the proposal parks in `blockedProposal` and a modal asks the
+  // director to revert or scale. Clearing a price (null) restores the current
+  // price, which can't break a ladder — no validation on that path.
+  const commitBase = (v: number | null, qty?: number) => {
     if (!item) return;
-    const prev = item.newBasePrice ?? null;
-    updateBasePrice(item.id, v);
-    if (lineItems.length > 0 && v != null) {
-      toast.success(`Updated ${lineItems.length + 1} line-price items`, {
-        action: { label: "Undo", onClick: () => updateBasePrice(item.id, prev) },
+    if (v != null) {
+      const evaluation = evaluateBaseChange(item.id, perUnit(v, qty), itemsById);
+      if (evaluation.hard.length > 0) {
+        setBlockedProposal({ total: v, qty, evaluation });
+        return;
+      }
+    }
+    const prevPrice = item.newBasePrice ?? null;
+    const prevQty = item.newBaseQty ?? undefined;
+    updateBasePrice(item.id, v, qty);
+    if (familyItems.length > 0 && v != null) {
+      toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+        action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
       });
     }
+  };
+
+  // Resolve a blocked proposal by committing it AND repositioning the affected
+  // SKUs by the same % — the ladder keeps its shape. Calls updateBasePrice
+  // directly (not commitBase): scaled prices are NOT re-validated against
+  // their own other relationships (single pass, accepted prototype limit) and
+  // the family toast is suppressed in favor of one summary toast.
+  const scaleBlocked = () => {
+    if (!item || !blockedProposal) return;
+    const { total, qty, evaluation } = blockedProposal;
+    updateBasePrice(item.id, total, qty);
+    const done = new Set(evaluation.changedIds);
+    let scaled = 0;
+    for (const id of evaluation.scaleTargets) {
+      if (done.has(id)) continue;
+      const target = itemsById.get(id);
+      if (!target) continue;
+      // The % applies to the live price; an existing pending edit on the
+      // target is replaced in place (its batch membership is preserved).
+      updateBasePrice(id, round2(target.currentBasePrice * (1 + evaluation.deltaPct)));
+      scaled++;
+      done.add(id);
+      // A scaled family member propagates to its siblings — don't write twice.
+      if (target.familyId) {
+        for (const f of itemsById.values()) if (f.familyId === target.familyId) done.add(f.id);
+      }
+    }
+    toast.success(
+      `Price saved — scaled ${scaled} related SKU${scaled === 1 ? "" : "s"} by ${fmtSignedPct(evaluation.deltaPct)}`
+    );
+    setBlockedProposal(null);
+    setEditingBase(false);
   };
 
   // Revert one price field back to its current value. Base and retail are
@@ -184,6 +246,12 @@ export function ItemEditDrawer({
     const status = field === "base" ? item.baseOverrideStatus : item.retailOverrideStatus;
     if (inBatchOrSent(status)) {
       setConfirmRevert(field);
+      return;
+    }
+    // Family members share one price — reverting one member must revert them
+    // all, or the family the UI advertises as "one price" falls out of sync.
+    if (field === "base" && item.familyId) {
+      updateBasePrice(item.id, null);
       return;
     }
     removeFromLooseTray(`${item.id}:${field}`);
@@ -276,26 +344,28 @@ export function ItemEditDrawer({
             />
           ) : (
             <>
-              <PriceInputCell
-                autoFocus
-                ariaLabel={priceLabel}
+              <BasePriceMethodField
                 recommended={basePlaceholder}
-                value={item.newBasePrice}
-                state={derivePriceState({ value: item.newBasePrice, status: item.baseOverrideStatus, hasAlert: item.hasAlert })}
-                onCommit={commitBase}
+                qty={item.newBaseQty ?? null}
+                price={item.newBasePrice}
+                status={item.baseOverrideStatus}
+                hasAlert={item.hasAlert}
+                onCommit={(qty, price) => commitBase(price, qty)}
               />
               {isHq && item.newBasePrice != null && (
                 <p className="mt-1.5 text-xs tabular-nums text-gray-500">
                   HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
-                  <span className="font-medium text-gray-700">{fmt(item.newBasePrice)}</span>
+                  <span className="font-medium text-gray-700">{fmtQtyPrice(item.newBaseQty, item.newBasePrice)}</span>
                 </p>
               )}
             </>
           )}
         </Field>
-        {lineItems.length > 0 && (
+        {familyItems.length > 0 && (
           <p className="flex items-center gap-1.5 text-xs text-gray-500">
-            <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Applies to the whole line ({lineItems.length + 1} items)
+            <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Family price — updating this updates all {familyItems.length + 1} items in
+            {" "}
+            {item.priceFamilyName ? <>“{item.priceFamilyName}”</> : "the family"}
           </p>
         )}
       </div>
@@ -310,7 +380,7 @@ export function ItemEditDrawer({
         if (!o) onClose();
       }}
       title={item?.name ?? "Item"}
-      size="md"
+      size="lg"
       className="max-md:!w-full"
       headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
       footer={
@@ -354,7 +424,7 @@ export function ItemEditDrawer({
                 </dd>
                 {item.priceFamilyName && (
                   <>
-                    <dt className="text-gray-400">Price family</dt>
+                    <dt className="text-gray-400">Family</dt>
                     <dd className="text-gray-700">{item.priceFamilyName}</dd>
                   </>
                 )}
@@ -376,7 +446,7 @@ export function ItemEditDrawer({
             </div>
           </div>
 
-          <ShelfTagPreview key={`${item.id}-${item.newBasePrice ?? 'none'}`} item={item} />
+          <ShelfTagPreview key={`${item.id}-${item.newBasePrice ?? 'none'}-${item.newBaseQty ?? 1}`} item={item} />
 
           {sending && (
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
@@ -400,7 +470,13 @@ export function ItemEditDrawer({
           {hqReviewNeeded(item) && (
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
-              <span className="text-gray-700">{hqRecRationale(item)}</span>
+              <span className="text-gray-700">
+                {/* The change reason leads the sentence — context, not a chip. */}
+                {item.hqChangeReason && (
+                  <span className="font-medium text-gray-800">{REASON_META[item.hqChangeReason].label} — </span>
+                )}
+                {hqRecRationale(item)}
+              </span>
             </div>
           )}
 
@@ -443,7 +519,7 @@ export function ItemEditDrawer({
                           <>
                             <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
                             <span aria-hidden="true" className="text-gray-300">→</span>
-                            <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice)}</span>
+                            <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice)}</span>
                           </>
                         ) : (
                           <span className="text-base font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
@@ -463,7 +539,11 @@ export function ItemEditDrawer({
                             <span aria-hidden="true" className="text-gray-300">→</span>
                           </>
                         )}
-                        <span className="text-base font-semibold text-gray-900">{fmt(item.newBasePrice ?? item.currentBasePrice)}</span>
+                        <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice)}</span>
+                        {(() => {
+                          const reason = changeReasonFor(item);
+                          return reason && <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
+                        })()}
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingBase(true)}>Change</Button>
@@ -511,6 +591,16 @@ export function ItemEditDrawer({
                       </Button>
                     </div>
                   )}
+                  {softWarnings.length > 0 && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+                      <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+                      <div className="flex flex-col gap-1 tabular-nums text-amber-900">
+                        {softWarnings.map((w) => (
+                          <span key={`${w.relationship.id}:${w.offenderId}:${w.comparatorId}`}>{w.message}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </section>
             );
@@ -519,8 +609,9 @@ export function ItemEditDrawer({
           {(() => {
             const recRetail = item.recommendedRetailPrice ?? item.currentBasePrice;
             // % / $ reductions are taken off the base (white-tag) price — the new
-            // base if the director set one, otherwise the current base.
-            const baseRef = item.newBasePrice ?? item.currentBasePrice;
+            // base if the director set one, otherwise the current base. A pack-size
+            // base ("3 for $6.00") reduces off its per-unit price.
+            const baseRef = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
             const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
             const retailDecided = item.newRetailPrice != null;
             // Accept-first only for a TA whose HQ promo rec is still undecided.
@@ -579,6 +670,10 @@ export function ItemEditDrawer({
                             <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
                             <span aria-hidden="true" className="text-gray-300">→</span>
                             <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
+                            {(() => {
+                              const reason = changeReasonFor(item);
+                              return reason && <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
+                            })()}
                           </div>
                           {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) && (
                             <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
@@ -772,6 +867,8 @@ export function ItemEditDrawer({
             </div>
           </section>
 
+          <ProductRelationships item={item} itemsById={itemsById} relatedFallback={relatedItems} softViolations={softWarnings} />
+
           <CollapsibleSection title="Projected impact">
             {(() => {
               if (isTemp) {
@@ -796,7 +893,7 @@ export function ItemEditDrawer({
                   <MarginRow
                     label="Gross margin"
                     current={grossMarginPct(item.currentBasePrice, item.cost)}
-                    next={grossMarginPct(item.newBasePrice ?? (hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice), item.cost)}
+                    next={grossMarginPct(item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice, item.cost)}
                   />
                 </div>
               );
@@ -805,7 +902,8 @@ export function ItemEditDrawer({
           </CollapsibleSection>
 
           {item.competitors && item.competitors.length > 0 && (() => {
-            const ourPrice = item.newBasePrice ?? item.currentBasePrice;
+            // Compare per-unit — a pack-size base competes on its unit price.
+            const ourPrice = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
             return (
               <CollapsibleSection title="Competitor prices" count={item.competitors.length}>
                 <div className="-mx-4 -my-3">
@@ -835,45 +933,37 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {(() => {
-            const lineIds = new Set(lineItems.map((li) => li.id));
-            const merged = [...lineItems, ...relatedItems.filter((ri) => !lineIds.has(ri.id))];
-            if (merged.length === 0) return null;
-            return (
-              <CollapsibleSection title="Related items" count={merged.length}>
-                <div className="-mx-4 -my-3">
-                  {merged.map((ri) => (
-                    <div key={ri.id} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-gray-700">{ri.name}</p>
-                        <p className="text-xs text-gray-500">{ri.id}</p>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        {lineIds.has(ri.id) && <Badge tone="neutral" size="sm">Line</Badge>}
-                        <span className="text-sm tabular-nums text-gray-500">{fmt(ri.newBasePrice ?? ri.currentBasePrice)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CollapsibleSection>
-            );
-          })()}
         </div>
       )}
     </Drawer>
+    <BlockedPriceChangeModal
+      open={blockedProposal != null}
+      evaluation={blockedProposal?.evaluation ?? null}
+      itemsById={itemsById}
+      onRevert={() => {
+        // Nothing was committed — collapsing the editor drops the stale draft.
+        setBlockedProposal(null);
+        setEditingBase(false);
+      }}
+      onScale={scaleBlocked}
+    />
     <ConfirmDialog
       open={confirmRevert != null}
       onOpenChange={(o) => { if (!o) setConfirmRevert(null); }}
       headline="Revert this price change?"
       description={
         item
-          ? `${item.name} returns to its current ${confirmRevert === "retail" ? "retail" : "base"} price and leaves its batch.`
+          ? confirmRevert === "base" && familyItems.length > 0
+            ? `All ${familyItems.length + 1} items in ${item.priceFamilyName ? `“${item.priceFamilyName}”` : "this family"} return to their current base price and leave their batch.`
+            : `${item.name} returns to its current ${confirmRevert === "retail" ? "retail" : "base"} price and leaves its batch.`
           : undefined
       }
       confirmLabel="Revert"
       destructive
       onConfirm={() => {
-        if (item && confirmRevert) removeFromLooseTray(`${item.id}:${confirmRevert}`);
+        if (!item || !confirmRevert) return;
+        if (confirmRevert === "base" && item.familyId) updateBasePrice(item.id, null);
+        else removeFromLooseTray(`${item.id}:${confirmRevert}`);
       }}
     />
 
@@ -903,44 +993,5 @@ export function ItemEditDrawer({
       onNewBatch={() => { onNewBatch(inBatchIds); setMovePickerOpen(false); }}
     />
     </>
-  );
-}
-
-// Collapsed-by-default context panel. Keeps supporting info (competitors,
-// related items, projected impact) available without pushing the price decision
-// down — the decision stays above the fold, context is one click away.
-function CollapsibleSection({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count?: number;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const panelId = useId();
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-controls={panelId}
-        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left"
-      >
-        <span className="text-sm font-semibold text-gray-700">
-          {title}
-          {count != null && <span className="ml-1 font-normal text-gray-400">({count})</span>}
-        </span>
-        <ChevronDown
-          aria-hidden="true"
-          className={`size-4 text-gray-500 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      <div id={panelId} hidden={!open} className="border-t border-gray-100 px-4 py-3 text-gray-600">
-        {children}
-      </div>
-    </div>
   );
 }
