@@ -15,9 +15,7 @@ type Props = {
 // this stays consistent whether or not the drawer happens to be open.
 export function FilterChips({ facets, value, onChange }: Props) {
   const remove = (key: string, option: string) => {
-    const next = value[key]?.filter((o) => o !== option) ?? [];
-    const { [key]: _omit, ...rest } = value;
-    onChange(next.length > 0 ? { ...rest, [key]: next } : rest);
+    onChange({ ...value, [key]: value[key]?.filter((o) => o !== option) ?? [] });
   };
 
   const chips = facets.flatMap((facet) =>
