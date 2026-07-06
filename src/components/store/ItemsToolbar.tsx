@@ -1,7 +1,7 @@
 "use client";
 
-import { SearchInput, Button } from "@dejesumensaje/converge-ds-experimental";
-import { SlidersHorizontal, ScanLine } from "lucide-react";
+import { SearchInput, Button, Tooltip, CountBadge } from "@dejesumensaje/converge-ds-experimental";
+import { ListFilter, ScanLine } from "lucide-react";
 import { ColumnsMenu, ColumnOption } from "../pricing-table/ColumnsMenu";
 
 type Props = {
@@ -52,15 +52,24 @@ export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFil
         >
           Scan
         </Button>
-        <Button
-          variant={activeFilterCount > 0 ? "secondary" : "tertiary"}
-          size="sm"
-          iconLeft={SlidersHorizontal}
-          aria-label="Filters"
-          onClick={onOpenFilter}
-        >
-          {activeFilterCount > 0 ? `Filters (${activeFilterCount})` : "Filters"}
-        </Button>
+        {/* Icon-only with a tooltip; the active-filter count rides as a badge
+            (label removed to match the columns action's compact register). */}
+        <Tooltip content="Filters">
+          <span className="relative inline-flex">
+            <Button
+              variant={activeFilterCount > 0 ? "secondary" : "tertiary"}
+              size="sm"
+              iconLeft={ListFilter}
+              aria-label={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : "Filters"}
+              onClick={onOpenFilter}
+            />
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 pointer-events-none">
+                <CountBadge count={activeFilterCount} tone="neutral" />
+              </span>
+            )}
+          </span>
+        </Tooltip>
         <ColumnsMenu options={columnOptions} onToggle={onToggleColumn} />
       </div>
     </div>

@@ -7,12 +7,13 @@ import {
   Badge,
   CountBadge,
   Modal,
+  Select,
   ToggleGroup,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
 import { DateField, todayIso } from "@/components/shared/DateField";
 import { TimeField, DEFAULT_SEND_TIME } from "@/components/shared/TimeField";
-import { SearchX, ArrowLeft, ListFilter, CheckCircle2, CalendarClock, Plus, Package, Loader2, ChevronRight } from "lucide-react";
+import { SearchX, ArrowLeft, CheckCircle2, CalendarClock, Plus, Package, Loader2, ChevronRight } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
@@ -38,6 +39,10 @@ import { itemIdsWithSoftViolations } from "@/lib/relationship-validation";
 import { fmtDateTime } from "@/lib/format";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
+
+// Only include a facet definition when its backing data is actually present,
+// so it never shows as a dead option on a clean seed.
+const maybeFacet = (present: boolean, facet: FilterFacet): FilterFacet[] => (present ? [facet] : []);
 
 // Empty-state copy for the zero-rows case, accurate to what's actually
 // narrowing the list — a director clearing "your filters" shouldn't be told
@@ -72,10 +77,11 @@ export default function StorePricingPage() {
   // "To send" is a LENS over All items (not a separate destination): it focuses on
   // the batches waiting to go to SAP.
   const [hangLensOn, setHangLensOn] = useState(false);
-  // HQ review is an in-place filter over All items, not a separate screen: the
-  // "HQ sent N" banner narrows the table to items still awaiting the director's
-  // call. Decisions happen in the row drawer, just like any other edit.
-  const [reviewOnly, setReviewOnly] = useState(false);
+  // The active view lens over All items — segmented, not separate screens. HQ
+  // review, cost-driven and competitor-driven items are all in-place filters over
+  // the same table; decisions happen in the row drawer, just like any other edit.
+  // "hq" is the old review queue; "cost"/"competitor" are store-originated changes.
+  const [storeView, setStoreView] = useState<"all" | "hq" | "cost" | "competitor">("all");
   // To-send lifecycle: Scheduled (upcoming) vs Sent. Every batch is scheduled at
   // creation, so there's no draft/pending bucket.
   const [toSendSegment, setToSendSegment] = useState<"scheduled" | "sent">("scheduled");
@@ -107,6 +113,28 @@ export default function StorePricingPage() {
   const confirmTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
+  // Store-originated lenses: items the store must react to with no HQ rec. Each
+  // count equals the rows that lens shows (a browsable set, unlike the HQ queue
+  // which clears as items are decided).
+  const costCount = useMemo(
+    () => items.filter((i) => i.storeSignals?.includes("cost_change")).length,
+    [items]
+  );
+  const compCount = useMemo(
+    () => items.filter((i) => i.storeSignals?.includes("competitor_move")).length,
+    [items]
+  );
+  // View-lens segments. "All items" is always present; the HQ / cost / competitor
+  // lenses appear only when they have items (no dead, empty tabs).
+  const viewOptions = useMemo(
+    () => [
+      { value: "all", label: "All items" },
+      ...(hqCount > 0 ? [{ value: "hq", label: `HQ recs (${hqCount})` }] : []),
+      ...(costCount > 0 ? [{ value: "cost", label: `Cost changes (${costCount})` }] : []),
+      ...(compCount > 0 ? [{ value: "competitor", label: `Competitor moves (${compCount})` }] : []),
+    ],
+    [hqCount, costCount, compCount]
+  );
 
   // Pending HQ recommendations broken down by change reason. Deliberately quiet:
   // it renders as a plain-text summary in the review banner (secondary info),
@@ -146,11 +174,11 @@ export default function StorePricingPage() {
   // so we never fire on the very first render when hqCount may already be 0.
   const prevHqCount = useRef(hqCount);
   useEffect(() => {
-    if (prevHqCount.current > 0 && hqCount === 0 && reviewOnly) {
+    if (prevHqCount.current > 0 && hqCount === 0 && storeView === "hq") {
       toast.success("All HQ recommendations reviewed — add your changes to a batch to send to SAP.");
     }
     prevHqCount.current = hqCount;
-  }, [hqCount, reviewOnly, toast]);
+  }, [hqCount, storeView, toast]);
 
   useEffect(() => {
     batches.forEach((b) => {
@@ -230,14 +258,8 @@ export default function StorePricingPage() {
       { key: "nationalVsStore", label: "National vs. store", options: uniqueSorted(items.map((i) => i.nationalVsStore)) },
       { key: "sensitivity", label: "Sensitivity", options: uniqueSorted(items.map((i) => i.sensitivity)) },
       { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyFullLabel)) },
-      // Gated on data actually present, like Change type above — neither shows
-      // as a dead option on a clean seed.
-      ...(items.some((i) => i.hasAlert)
-        ? [{ key: "hasAlert", label: "Alerts", options: ["Flagged"] }]
-        : []),
-      ...(conflictIds.size > 0
-        ? [{ key: "conflicts", label: "Pricing conflicts", options: ["Has a guardrail warning"] }]
-        : []),
+      ...maybeFacet(items.some((i) => i.hasAlert), { key: "hasAlert", label: "Alerts", options: ["Flagged"] }),
+      ...maybeFacet(conflictIds.size > 0, { key: "conflicts", label: "Pricing conflicts", options: ["Has a guardrail warning"] }),
     ],
     [items, conflictIds]
   );
@@ -293,16 +315,29 @@ export default function StorePricingPage() {
     return m;
   }, [overrides]);
 
-  // The review filter is only "live" while recommendations remain — once the last
+  // The HQ review lens is only "live" while recommendations remain — once the last
   // one is decided it falls away on its own, so the director isn't left staring at
   // an empty table (no effect/setState needed; it's derived).
-  const reviewActive = reviewOnly && hqCount > 0;
+  const reviewActive = storeView === "hq" && hqCount > 0;
+  // The effective lens: HQ falls back to "all" once its queue empties.
+  const activeView = storeView === "hq" && hqCount === 0 ? "all" : storeView;
+  // Per-view heading + one quiet context line. The toggle handles navigation and
+  // counts; this line carries only what the toggle can't — the HQ reason breakdown,
+  // or a short "what is this view" descriptor for the store-originated lenses.
+  const viewInfo = {
+    all: { title: "All items", blurb: "" },
+    hq: { title: "HQ recommendations", blurb: hqReasonSummary },
+    cost: { title: "Cost changes", blurb: "Store-level reactions to a recent cost change — no HQ recommendation." },
+    competitor: { title: "Competitor moves", blurb: "Store-level reactions to a recent competitor move — no HQ recommendation." },
+  }[activeView];
 
   const rows = useMemo(() => {
     let list = items;
-    // "HQ sent N" banner: narrow to items still awaiting the director's review,
-    // optionally scoped to one change reason via the triage chips.
-    if (reviewActive) list = list.filter(hqReviewNeeded);
+    // Narrow to the active view lens (HQ review queue / cost-driven / competitor-
+    // driven), then apply facet filters + search on top.
+    if (activeView === "hq") list = list.filter(hqReviewNeeded);
+    else if (activeView === "cost") list = list.filter((i) => i.storeSignals?.includes("cost_change"));
+    else if (activeView === "competitor") list = list.filter((i) => i.storeSignals?.includes("competitor_move"));
     list = list.filter(matchesFilters);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -311,7 +346,7 @@ export default function StorePricingPage() {
     // Recent-first: items with an active edit float to the top, newest first;
     // everything else keeps its order (V8 sort is stable).
     return [...list].sort((a, b) => (activeAtById.get(b.id) ?? 0) - (activeAtById.get(a.id) ?? 0));
-  }, [items, reviewActive, matchesFilters, search, activeAtById]);
+  }, [items, activeView, matchesFilters, search, activeAtById]);
 
   // The table is read-only — every decision is made in the drawer and forced into
   // a batch, so there's no row selection / bulk bar.
@@ -465,7 +500,7 @@ export default function StorePricingPage() {
         onViewHq={() => {
           if (hqCount > 0) {
             setHangLensOn(false);
-            setReviewOnly(true);
+            setStoreView("hq");
           }
         }}
       />
@@ -524,73 +559,69 @@ export default function StorePricingPage() {
                 </div>
               </div>
             ) : (
-              <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <h2 className="text-xl font-bold text-gray-900">
-                  All items{" "}
-                  <span className="ml-1 text-sm font-normal text-gray-400">
-                    {activeFilterCount > 0 || search
-                      ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}`
-                      : TOTAL_ITEM_COUNT.toLocaleString()}
-                  </span>
-                </h2>
-                <ItemsToolbar
-                  search={search}
-                  onSearch={setSearch}
-                  onOpenFilter={() => setFilterOpen(true)}
-                  onScan={() => setScanOpen(true)}
-                  activeFilterCount={activeFilterCount}
-                  columnOptions={columnOptions}
-                  onToggleColumn={onToggleColumn}
-                />
-              </div>
+              <>
+                <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <h2 className="text-xl font-bold text-gray-900">
+                    {viewInfo.title}{" "}
+                    <span className="ml-1 text-sm font-normal text-gray-400">
+                      {activeView !== "all"
+                        ? (activeFilterCount > 0 || search ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}` : rows.length)
+                        : activeFilterCount > 0 || search
+                        ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}`
+                        : TOTAL_ITEM_COUNT.toLocaleString()}
+                    </span>
+                  </h2>
+                  <ItemsToolbar
+                    search={search}
+                    onSearch={setSearch}
+                    onOpenFilter={() => setFilterOpen(true)}
+                    onScan={() => setScanOpen(true)}
+                    activeFilterCount={activeFilterCount}
+                    columnOptions={columnOptions}
+                    onToggleColumn={onToggleColumn}
+                  />
+                </div>
+                {/* View lenses — shown only when there's more than "All items" to
+                    switch between (an HQ / cost / competitor set exists). The toggle
+                    is the single navigation model: no separate "review" banner.
+                    Four segments overflow a phone, so mobile gets a dropdown picker
+                    (every view reachable) and md+ gets the segmented control. */}
+                {viewOptions.length > 1 && (
+                  <>
+                    <div className="mt-3 hidden md:block">
+                      <ToggleGroup
+                        aria-label="Item view"
+                        value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
+                        onValueChange={(v) => setStoreView(v as "all" | "hq" | "cost" | "competitor")}
+                        options={viewOptions}
+                      />
+                    </div>
+                    <div className="mt-3 md:hidden">
+                      <Select
+                        label="View"
+                        value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
+                        onChange={(v) => setStoreView(v as "all" | "hq" | "cost" | "competitor")}
+                        options={viewOptions}
+                      />
+                    </div>
+                  </>
+                )}
+                {/* One quiet context line — only what the toggle can't convey. */}
+                {viewInfo.blurb && (
+                  <p className="mt-2 flex items-center gap-2 text-sm text-gray-500">
+                    <span className="relative flex size-2 shrink-0">
+                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
+                      <span className="relative inline-flex size-2 rounded-full bg-brand" />
+                    </span>
+                    {viewInfo.blurb}
+                  </p>
+                )}
+              </>
             )}
 
             <div className="mt-4 flex-1 md:min-h-0 flex flex-col">
               {!hangLensOn && activeFilterCount > 0 && (
                 <FilterChips facets={facets} value={filters} onChange={setFilters} />
-              )}
-              {!hangLensOn && hqCount > 0 && !reviewActive && (
-                <button
-                  type="button"
-                  onClick={() => setReviewOnly(true)}
-                  className="mb-4 flex w-full flex-col items-start gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3 text-left transition-colors hover:bg-brand/10 md:flex-row md:items-center md:justify-between"
-                >
-                  <span className="flex items-center gap-2.5">
-                    <span className="relative flex size-2.5 shrink-0">
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
-                      <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
-                    </span>
-                    <span className="text-sm text-gray-800">
-                      <span className="font-semibold">HQ sent {hqCount} recommendation{hqCount === 1 ? "" : "s"}</span> to review
-                      {/* The reason breakdown replaces the old filler phrase — the
-                          same muted register, but it says something. */}
-                      {hqReasonSummary && <span className="hidden text-gray-500 md:inline"> — {hqReasonSummary}</span>}.
-                    </span>
-                  </span>
-                  <span
-                    className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-brand"
-                    aria-label={`Review ${hqCount} HQ recommendation${hqCount !== 1 ? 's' : ''}`}
-                  >
-                    <ListFilter className="size-4" aria-hidden="true" /> Review recommendations
-                  </span>
-                </button>
-              )}
-              {!hangLensOn && reviewActive && (
-                <div className="mb-4 flex w-full flex-col items-start gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-3 md:flex-row md:items-center md:justify-between">
-                  <span className="flex items-center gap-2.5">
-                    <span className="relative flex size-2.5 shrink-0">
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
-                      <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
-                    </span>
-                    <span className="text-sm text-gray-800">
-                      Showing <span className="font-semibold">{rows.length} item{rows.length === 1 ? "" : "s"} that need review</span>
-                      {hqReasonSummary && <span className="hidden text-gray-500 md:inline"> — {hqReasonSummary}</span>}.
-                    </span>
-                  </span>
-                  <Button variant="tertiary" size="sm" onClick={() => setReviewOnly(false)}>
-                    Back to all items
-                  </Button>
-                </div>
               )}
               {hangLensOn && toSendSegment === "scheduled" && (
                 <div className="mb-5">
@@ -688,6 +719,7 @@ export default function StorePricingPage() {
       <ItemEditDrawer
         itemId={drawerItemId}
         flow="all"
+        originView={activeView}
         openBatches={openBatches}
         onAddToBatch={addOverridesToBatch}
         onNewBatch={openNewBatch}

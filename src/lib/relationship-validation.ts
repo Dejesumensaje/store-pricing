@@ -207,9 +207,9 @@ export function itemIdsWithSoftViolations(
   items: PricingItem[],
   itemsById: Map<string, PricingItem>
 ): Set<string> {
-  const ids = new Set<string>();
-  for (const item of items) {
-    if (committedSoftWarnings(item.id, itemsById).length > 0) ids.add(item.id);
-  }
-  return ids;
+  return new Set(
+    items
+      .filter((item) => committedSoftWarnings(item.id, itemsById).length > 0)
+      .map((item) => item.id)
+  );
 }

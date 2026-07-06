@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore } from "@/store/pricing-store";
-import { PricingItem, OverrideStatus, Batch } from "@/types/pricing";
+import { PricingItem, OverrideStatus, Batch, StoreOriginReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
@@ -16,7 +16,8 @@ import { ProductRelationships } from "./ProductRelationships";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { BlockedPriceChangeModal } from "./BlockedPriceChangeModal";
 import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
-import { REASON_META, changeReasonFor } from "@/lib/price-change-reason";
+import { REASON_META, changeReasonFor, defaultStoreReason, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
+import { orderCompetitors } from "@/lib/competitors";
 import { ImpactBreakdown } from "./columns/shared";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -31,6 +32,11 @@ type Props = {
   itemId: string | null;
   /** Which flow opened the drawer — sets the footer's primary action. */
   flow: "all" | "hq";
+  /**
+   * The view lens the drawer was opened from. For a store-originated item it
+   * seeds the default change reason (Cost lens → cost-based, Competitor → comp-based).
+   */
+  originView?: "all" | "hq" | "cost" | "competitor";
   /** Open batches the per-item "Add to batch" menu can target. */
   openBatches: Batch[];
   /** Assign this item's pending change(s) to a batch (owned by the page). */
@@ -85,6 +91,7 @@ function MarginRow({ label, current, next }: { label: string; current: number; n
 export function ItemEditDrawer({
   itemId,
   flow,
+  originView = "all",
   openBatches,
   onAddToBatch,
   onNewBatch,
@@ -100,6 +107,7 @@ export function ItemEditDrawer({
   const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const setReviewed = usePricingStore((s) => s.setReviewed);
+  const setChangeReason = usePricingStore((s) => s.setChangeReason);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const toast = useToast();
@@ -108,6 +116,9 @@ export function ItemEditDrawer({
   const isTemp = item?.category_type === "temporary_allowance";
   // HQ pushed this price (already live). Frames the reference grid + identity note.
   const isHq = item?.hqReviewPending === true;
+  // A store-originated item: cost and/or a competitor moved, with NO HQ rec. The
+  // director reacts directly (set a price) and picks a reason — vs. HQ's accept-first.
+  const storeOrigin = !isHq && (item?.storeSignals?.length ?? 0) > 0;
   const isEdlp = item?.category_type === "everyday_low_price";
   // A brand-new item has no current price to keep — it gets a "set opening price"
   // prompt instead of a read-only "current price" row.
@@ -161,6 +172,13 @@ export function ItemEditDrawer({
     setBatchPromptOpen(false);
     setMovePickerOpen(false);
     setBlockedProposal(null);
+    // Capture the opening lens as the default reason for a store-originated item,
+    // so the reason auto-populates from context (Cost lens → cost-based, etc.).
+    // Only if the director hasn't already chosen one — never overwrite their call.
+    if (item && !isHq && (item.storeSignals?.length ?? 0) > 0 && !item.chosenChangeReason) {
+      setChangeReason(item.id, defaultStoreReason(item, originView));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
   // Deliberately no auto-advance — hopping to the next item added noise without helping the decide-then-send task.
@@ -480,6 +498,33 @@ export function ItemEditDrawer({
             </div>
           )}
 
+          {/* Store-originated context: no HQ recommendation — the director reacts to a
+              cost or competitor move directly. One line per signal the item carries. */}
+          {storeOrigin && (
+            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
+              <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
+              <div className="flex flex-col gap-1 text-gray-700">
+                {item.storeSignals?.includes("cost_change") && (
+                  <span>
+                    <span className="font-medium text-gray-800">Cost change — </span>
+                    unit cost is now <span className="tabular-nums">{fmt(item.cost)}</span>. Review the shelf price to protect margin.
+                  </span>
+                )}
+                {item.storeSignals?.includes("competitor_move") && (() => {
+                  const top = orderCompetitors(item.competitors ?? [])[0];
+                  return (
+                    <span>
+                      <span className="font-medium text-gray-800">Competitor move — </span>
+                      {top
+                        ? <>{top.name} is at <span className="tabular-nums">{fmt(top.price)}</span> nearby. Review your shelf price.</>
+                        : "a nearby competitor moved. Review your shelf price."}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           {myBatch && (
             <div className="-mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
@@ -541,6 +586,8 @@ export function ItemEditDrawer({
                         )}
                         <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice)}</span>
                         {(() => {
+                          // Store-originated reason is shown as an editable select below.
+                          if (storeOrigin) return null;
                           const reason = changeReasonFor(item);
                           return reason && <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
                         })()}
@@ -605,6 +652,20 @@ export function ItemEditDrawer({
               </section>
             );
           })()}
+
+          {/* Store-originated change reason — auto-populated from the opening lens,
+              editable here. Appears once the director has actually set a price. */}
+          {storeOrigin && (item.newBasePrice != null || item.newRetailPrice != null) && (
+            <div className="w-[240px]">
+              <Select
+                label="Change reason"
+                size="sm"
+                options={STORE_REASON_OPTIONS}
+                value={item.chosenChangeReason ?? defaultStoreReason(item, originView)}
+                onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
+              />
+            </div>
+          )}
 
           {(() => {
             const recRetail = item.recommendedRetailPrice ?? item.currentBasePrice;
@@ -911,7 +972,7 @@ export function ItemEditDrawer({
                     <span className="text-xs font-medium text-gray-500">Our price</span>
                     <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourPrice)}</span>
                   </div>
-                  {item.competitors.map((c) => {
+                  {orderCompetitors(item.competitors).map((c) => {
                     const diff = ourPrice - c.price;
                     return (
                       <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
