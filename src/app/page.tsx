@@ -505,7 +505,10 @@ export default function StorePricingPage() {
         }}
       />
 
-      <main className="mx-auto w-full max-w-[1400px] flex-1 flex flex-col min-h-0 overflow-auto px-4 py-6 md:px-8">
+      {/* Mobile: main never scrolls — the store header + view controls stay pinned
+          and only the item list scrolls (keeps context). Desktop keeps its own
+          auto-scroll (the DataTable already scrolls internally). */}
+      <main className="mx-auto w-full max-w-[1400px] flex-1 flex flex-col min-h-0 overflow-hidden md:overflow-auto px-4 py-6 md:px-8">
         <div className="flex flex-wrap items-center gap-3 md:gap-4">
             <StorePricingHeader />
             {/* The To-send button is hidden on the To-send surface itself — the
@@ -561,15 +564,29 @@ export default function StorePricingPage() {
             ) : (
               <>
                 <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <h2 className="text-xl font-bold text-gray-900">
-                    {viewInfo.title}{" "}
-                    <span className="ml-1 text-sm font-normal text-gray-400">
-                      {activeView !== "all"
-                        ? (activeFilterCount > 0 || search ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}` : rows.length)
-                        : activeFilterCount > 0 || search
-                        ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}`
-                        : TOTAL_ITEM_COUNT.toLocaleString()}
-                    </span>
+                  {/* On mobile the "View" dropdown below is the labeled switcher, so
+                      the heading would just duplicate it — hide it there when a dropdown
+                      exists. With no dropdown (clean store) the heading always shows. */}
+                  <h2 className={`${viewOptions.length > 1 ? "hidden md:flex" : "flex"} flex-wrap items-center gap-x-2 gap-y-1 text-xl font-bold text-gray-900`}>
+                    <span>{viewInfo.title}</span>
+                    {/* A view's own size reads as a small badge (5, 13…); the total
+                        catalog count and the "N of M" filtered form stay plain text. */}
+                    {activeView !== "all" && !(activeFilterCount > 0 || search) ? (
+                      <CountBadge count={rows.length} tone="neutral" />
+                    ) : (
+                      <span className="text-sm font-normal text-gray-400">
+                        {activeFilterCount > 0 || search
+                          ? `${rows.length} of ${TOTAL_ITEM_COUNT.toLocaleString()}`
+                          : TOTAL_ITEM_COUNT.toLocaleString()}
+                      </span>
+                    )}
+                    {/* Desktop: the context line rides inline next to the title to
+                        save a row. Mobile keeps it on its own line (below the picker). */}
+                    {viewInfo.blurb && (
+                      <span className="hidden text-sm font-normal text-gray-500 md:inline">
+                        · {viewInfo.blurb}
+                      </span>
+                    )}
                   </h2>
                   <ItemsToolbar
                     search={search}
@@ -606,20 +623,15 @@ export default function StorePricingPage() {
                     </div>
                   </>
                 )}
-                {/* One quiet context line — only what the toggle can't convey. */}
+                {/* Mobile only — desktop shows this inline next to the title above.
+                    Same quiet muted register as the desktop inline version. */}
                 {viewInfo.blurb && (
-                  <p className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-                    <span className="relative flex size-2 shrink-0">
-                      <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand opacity-60" />
-                      <span className="relative inline-flex size-2 rounded-full bg-brand" />
-                    </span>
-                    {viewInfo.blurb}
-                  </p>
+                  <p className="mt-2 text-sm text-gray-500 md:hidden">{viewInfo.blurb}</p>
                 )}
               </>
             )}
 
-            <div className="mt-4 flex-1 md:min-h-0 flex flex-col">
+            <div className="mt-4 flex-1 min-h-0 flex flex-col">
               {!hangLensOn && activeFilterCount > 0 && (
                 <FilterChips facets={facets} value={filters} onChange={setFilters} />
               )}
@@ -677,7 +689,8 @@ export default function StorePricingPage() {
                 />
               ) : (
                 <>
-                  <div className="md:hidden">
+                  {/* Own scroll region on mobile so the pinned header stays put. */}
+                  <div className="md:hidden flex-1 min-h-0 overflow-y-auto">
                     <MobileItemList
                       rows={rows}
                       batches={batches}
