@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory } from "@/types/pricing";
+import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory, StoreOriginReason } from "@/types/pricing";
 import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
@@ -24,6 +24,8 @@ type PricingStore = {
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
   // Accept an item as-is (no price change) — clears it from the HQ queue.
   acceptNoChange: (itemId: string) => void;
+  // Set the director's chosen reason for a store-originated change (cost/competitor).
+  setChangeReason: (itemId: string, reason: StoreOriginReason) => void;
   // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
   setReviewed: (itemId: string, value: boolean) => void;
   removeFromLooseTray: (overrideId: string) => void;
@@ -306,6 +308,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
   setReviewed: (itemId, value) =>
     set((state) => ({
       items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: value } : item)),
+    })),
+
+  setChangeReason: (itemId, reason) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenChangeReason: reason } : item)),
     })),
 
   // Discarding a pending change also clears the edit from the table cell.

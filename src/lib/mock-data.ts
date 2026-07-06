@@ -1,4 +1,4 @@
-import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason } from "@/types/pricing";
+import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason, StoreChangeReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 import { PRODUCT_RELATIONSHIPS } from "@/lib/product-relationships";
 
@@ -539,6 +539,40 @@ function applyHqReview(item: PricingItem): PricingItem {
   return { ...item, hqReviewPending: true, hqChangeReason: HQ_CHANGE_REASONS[item.id] };
 }
 
+// Store-originated changes: items the store must react to with NO HQ
+// recommendation — the cost moved, or a competitor moved. These power the
+// "Cost changes" / "Competitor moves" view lenses. Several items here already
+// carry seeded director overrides (so the reason shows immediately); RBCS5-10/11
+// are clean, to demo the auto-populate-on-first-edit flow. None overlap the HQ
+// worklist. (Category reviews are always HQ-driven, so they never appear here.)
+const STORE_SIGNALS: Record<string, StoreChangeReason[]> = {
+  "RBCS5-2": ["cost_change"],
+  "RBCS5-6": ["cost_change"],
+  "RBCS5-10": ["cost_change"],
+  "RBCS5-3": ["competitor_move"],
+  "W7BESS": ["competitor_move"],
+  "RBCS5-11": ["competitor_move"],
+  "RBCS5-5": ["cost_change", "competitor_move"],
+  "RBCS5-1": ["competitor_move"],
+};
+
+// A competitor set with NEITHER Walmart nor Aldi — exercises orderCompetitors'
+// distance-only fallback (the default seed always has both, so it never would).
+const noBigBoxCompetitors = (base: number): CompetitorPrice[] => [
+  { name: "Costco", price: round2(base * 0.93), distanceMi: 6.8 },
+  { name: "Kroger", price: round2(base * 0.98), distanceMi: 1.2 },
+  { name: "Target", price: round2(base * 1.02), distanceMi: 3.1 },
+];
+
+function applyStoreSignals(item: PricingItem): PricingItem {
+  const signals = STORE_SIGNALS[item.id];
+  if (!signals) return item;
+  const next: PricingItem = { ...item, storeSignals: signals };
+  // RBCS5-1 is our fallback-ordering case: no Walmart/Aldi among its competitors.
+  if (item.id === "RBCS5-1") next.competitors = noBigBoxCompetitors(item.currentBasePrice);
+  return next;
+}
+
 // ─── Synthetic catalog (scale) ───────────────────────────────────────────────
 // The hand-crafted items above drive the demo flows (families, HQ recs,
 // overrides). To exercise the filters at realistic scale we add a broad,
@@ -618,7 +652,7 @@ export const mockItems: PricingItem[] = [
   ...noChangeCatalog,
   ...newDiscontinuedCatalog,
   ...syntheticCatalog,
-].map(applyHqReview);
+].map(applyHqReview).map(applyStoreSignals);
 
 // Headline count shown on the "All items (N)" pill.
 export const TOTAL_ITEM_COUNT = mockItems.length;

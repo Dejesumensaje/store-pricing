@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Button, Checkbox } from "@dejesumensaje/converge-ds-experimental";
-import { Columns3 } from "lucide-react";
+import { Button, Checkbox, Tooltip } from "@dejesumensaje/converge-ds-experimental";
+import { TableProperties } from "lucide-react";
 import { useMenuNav } from "../shared/useMenuNav";
 
 export type ColumnOption = { id: string; label: string; visible: boolean };
@@ -35,14 +35,16 @@ export function ColumnsMenu({
 
   return (
     <div className="relative" ref={ref}>
-      <Button
-        variant="tertiary"
-        size="sm"
-        iconLeft={Columns3}
-        aria-label="Column settings"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      />
+      <Tooltip content="Columns">
+        <Button
+          variant="tertiary"
+          size="sm"
+          iconLeft={TableProperties}
+          aria-label="Column settings"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        />
+      </Tooltip>
       {open && (
         <div
           ref={panelRef}
