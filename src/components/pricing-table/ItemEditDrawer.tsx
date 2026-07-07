@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
@@ -15,6 +15,8 @@ import { ShelfTagPreview } from "./ShelfTagPreview";
 import { ProductRelationships } from "./ProductRelationships";
 import { CollapsibleSection } from "./CollapsibleSection";
 import { BlockedPriceChangeModal } from "./BlockedPriceChangeModal";
+import { BasePriceSoftWarningModal } from "./BasePriceSoftWarningModal";
+import { RetailPriceWarningModal } from "./RetailPriceWarningModal";
 import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
 import { REASON_META, changeReasonFor, defaultStoreReason, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
 import { orderCompetitors } from "@/lib/competitors";
@@ -164,6 +166,28 @@ export function ItemEditDrawer({
     qty?: number;
     evaluation: BaseChangeEvaluation;
   } | null>(null);
+  // A base price that has soft violations (narrow gaps vs related SKUs) — parked
+  // while the soft-warning dialog asks the director to cancel or proceed.
+  const [softProposal, setSoftProposal] = useState<{
+    total: number;
+    qty?: number;
+    evaluation: BaseChangeEvaluation;
+    suggestedPrice: number;
+  } | null>(null);
+  // Inline error for hard retail validation failures (zero/negative, above base).
+  // The refs mirror state so handleDone can read rejections synchronously — state
+  // updates from onBlur and the Done onClick run in the same event flush.
+  const [retailValidationError, setRetailValidationError] = useState<string | null>(null);
+  const retailRejectedRef = useRef(false);
+  const baseRejectedRef = useRef(false);
+  // A proposed retail price that exceeded the 50% soft-warning threshold — parked
+  // while the warning dialog asks the director to cancel, use the suggested price,
+  // or proceed anyway.
+  const [pendingRetailProposal, setPendingRetailProposal] = useState<{
+    qty: number;
+    price: number;
+    suggestedPrice: number;
+  } | null>(null);
   useEffect(() => {
     setEditingFuelSaver(false);
     setEditingBase(false);
@@ -172,6 +196,11 @@ export function ItemEditDrawer({
     setBatchPromptOpen(false);
     setMovePickerOpen(false);
     setBlockedProposal(null);
+    setRetailValidationError(null);
+    retailRejectedRef.current = false;
+    baseRejectedRef.current = false;
+    setPendingRetailProposal(null);
+    setSoftProposal(null);
     // Capture the opening lens as the default reason for a store-originated item,
     // so the reason auto-populates from context (Cost lens → cost-based, etc.).
     // Only if the director hasn't already chosen one — never overwrite their call.
@@ -205,10 +234,45 @@ export function ItemEditDrawer({
   // price, which can't break a ladder — no validation on that path.
   const commitBase = (v: number | null, qty?: number) => {
     if (!item) return;
+    baseRejectedRef.current = false;
     if (v != null) {
       const evaluation = evaluateBaseChange(item.id, perUnit(v, qty), itemsById);
       if (evaluation.hard.length > 0) {
         setBlockedProposal({ total: v, qty, evaluation });
+        baseRejectedRef.current = true;
+        return;
+      }
+      if (evaluation.soft.length > 0) {
+        // Compute the least-intrusive price that satisfies every violated gap.
+        // offender < comparator → offender must go lower: floor(comp / (1 + gap%))
+        // offender > comparator → offender must go higher: ceil(comp × (1 + gap%))
+        // Using floor/ceil (not round) ensures the result is strictly inside the
+        // threshold after cent-rounding.
+        const highSuggestions: number[] = [];
+        const lowSuggestions: number[] = [];
+        for (const sv of evaluation.soft) {
+          const g = (sv.minGapPct ?? 0) / 100;
+          if (sv.offenderPrice > sv.comparatorPrice) {
+            highSuggestions.push(Math.ceil(sv.comparatorPrice * (1 + g) * 100) / 100);
+          } else {
+            lowSuggestions.push(Math.floor(sv.comparatorPrice / (1 + g) * 100) / 100);
+          }
+        }
+        let suggestedPrice: number;
+        if (highSuggestions.length > 0 && lowSuggestions.length === 0) {
+          suggestedPrice = Math.max(...highSuggestions);
+        } else if (lowSuggestions.length > 0 && highSuggestions.length === 0) {
+          suggestedPrice = Math.min(...lowSuggestions);
+        } else {
+          // Mixed directions (item is in the middle of a ladder, both ends narrow).
+          // Pick the boundary closer to the proposed per-unit price.
+          const proposed = perUnit(v, qty);
+          const bestHigh = Math.max(...highSuggestions);
+          const bestLow = Math.min(...lowSuggestions);
+          suggestedPrice = Math.abs(proposed - bestHigh) < Math.abs(proposed - bestLow) ? bestHigh : bestLow;
+        }
+        setSoftProposal({ total: v, qty, evaluation, suggestedPrice });
+        baseRejectedRef.current = true;
         return;
       }
     }
@@ -220,6 +284,38 @@ export function ItemEditDrawer({
         action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
       });
     }
+  };
+
+  // Validate and commit a retail price. Hard stops (zero/negative, above base)
+  // show an inline error and do not commit. A discount greater than 50% of the
+  // base parks the proposal and opens a soft-warning dialog.
+  const commitRetail = (qty: number, price: number | null) => {
+    if (!item) return;
+    setRetailValidationError(null);
+    retailRejectedRef.current = false;
+    if (price == null) {
+      updateRetailPrice(item.id, qty, null);
+      return;
+    }
+    const baseRef = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
+    const unitPrice = perUnit(price, qty);
+    if (unitPrice <= 0) {
+      setRetailValidationError("Retail price must be greater than $0.00.");
+      retailRejectedRef.current = true;
+      return;
+    }
+    if (unitPrice > baseRef) {
+      setRetailValidationError(`Retail price cannot exceed the base price (${fmt(baseRef)}).`);
+      retailRejectedRef.current = true;
+      return;
+    }
+    const discountPct = (baseRef - unitPrice) / baseRef;
+    if (discountPct > 0.5) {
+      setPendingRetailProposal({ qty, price, suggestedPrice: round2(baseRef * 0.9) });
+      retailRejectedRef.current = true;
+      return;
+    }
+    updateRetailPrice(item.id, qty, price);
   };
 
   // Resolve a blocked proposal by committing it AND repositioning the affected
@@ -251,6 +347,7 @@ export function ItemEditDrawer({
       `Price saved — scaled ${scaled} related SKU${scaled === 1 ? "" : "s"} by ${fmtSignedPct(evaluation.deltaPct)}`
     );
     setBlockedProposal(null);
+    baseRejectedRef.current = false;
     setEditingBase(false);
   };
 
@@ -316,6 +413,9 @@ export function ItemEditDrawer({
   // — which batch (or none) it goes in. Rather than a cramped footer split-button,
   // ask in a small modal. No pending change → just close.
   const handleDone = () => {
+    // If a price commit was just rejected or parked for a dialog (base or retail)
+    // in the same event flush, state hasn't re-rendered yet — read the refs.
+    if (retailRejectedRef.current || baseRejectedRef.current) return;
     if (hasPendingOverride) setBatchPromptOpen(true);
     else onClose();
   };
@@ -787,8 +887,13 @@ export function ItemEditDrawer({
                             qty={item.newRetailQty ?? null}
                             price={item.newRetailPrice ?? null}
                             status={item.retailOverrideStatus}
-                            onCommit={(qty, price) => updateRetailPrice(item.id, qty, price)}
+                            onCommit={(qty, price) => commitRetail(qty, price)}
                           />
+                          {retailValidationError && (
+                            <span className="text-xs font-medium text-red-500">
+                              {retailValidationError}
+                            </span>
+                          )}
                         </Field>
 
                         {(() => {
@@ -1004,9 +1109,63 @@ export function ItemEditDrawer({
       onRevert={() => {
         // Nothing was committed — collapsing the editor drops the stale draft.
         setBlockedProposal(null);
+        baseRejectedRef.current = false;
         setEditingBase(false);
       }}
       onScale={scaleBlocked}
+    />
+    <RetailPriceWarningModal
+      open={pendingRetailProposal != null}
+      proposedQty={pendingRetailProposal?.qty ?? 1}
+      proposedPrice={pendingRetailProposal?.price ?? 0}
+      suggestedPrice={pendingRetailProposal?.suggestedPrice ?? 0}
+      onCancel={() => { setPendingRetailProposal(null); retailRejectedRef.current = false; }}
+      onUseSuggested={() => {
+        if (!item || !pendingRetailProposal) return;
+        updateRetailPrice(item.id, 1, pendingRetailProposal.suggestedPrice);
+        setPendingRetailProposal(null);
+        retailRejectedRef.current = false;
+      }}
+      onProceed={() => {
+        if (!item || !pendingRetailProposal) return;
+        updateRetailPrice(item.id, pendingRetailProposal.qty, pendingRetailProposal.price);
+        setPendingRetailProposal(null);
+        retailRejectedRef.current = false;
+      }}
+    />
+    <BasePriceSoftWarningModal
+      open={softProposal != null}
+      evaluation={softProposal?.evaluation ?? null}
+      proposedPrice={perUnit(softProposal?.total ?? 0, softProposal?.qty)}
+      suggestedPrice={softProposal?.suggestedPrice ?? 0}
+      itemsById={itemsById}
+      onCancel={() => { setSoftProposal(null); baseRejectedRef.current = false; setEditingBase(false); }}
+      onUseSuggested={() => {
+        if (!item || !softProposal) return;
+        const prevPrice = item.newBasePrice ?? null;
+        const prevQty = item.newBaseQty ?? undefined;
+        updateBasePrice(item.id, softProposal.suggestedPrice);
+        if (familyItems.length > 0) {
+          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+          });
+        }
+        setSoftProposal(null);
+        baseRejectedRef.current = false;
+      }}
+      onProceed={() => {
+        if (!item || !softProposal) return;
+        const prevPrice = item.newBasePrice ?? null;
+        const prevQty = item.newBaseQty ?? undefined;
+        updateBasePrice(item.id, softProposal.total, softProposal.qty);
+        if (familyItems.length > 0) {
+          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+          });
+        }
+        setSoftProposal(null);
+        baseRejectedRef.current = false;
+      }}
     />
     <ConfirmDialog
       open={confirmRevert != null}
