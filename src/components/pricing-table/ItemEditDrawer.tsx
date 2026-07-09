@@ -23,13 +23,12 @@ import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from 
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
 import { REASON_META, changeReasonFor, defaultStoreReason, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
 import { orderCompetitors } from "@/lib/competitors";
-import { ImpactBreakdown } from "./columns/shared";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateTime, fmtDateRange } from "@/lib/format";
-import { grossMarginPct, fmtPct, fmtPpDelta, perUnit, round2, fmtSignedPct } from "@/lib/pricing-math";
+import { perUnit, round2, fmtSignedPct } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
 import { RotateCcw, Trash2, Check, Package, Link2, Lock, Info, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
 
@@ -75,23 +74,6 @@ function Field({
     </div>
   );
 }
-
-function MarginRow({ label, current, next }: { label: string; current: number; next: number }) {
-  const delta = next - current;
-  const tone = delta > 0.05 ? "text-emerald-600" : delta < -0.05 ? "text-red-600" : "text-gray-500";
-  return (
-    <div className="flex items-center justify-between gap-3 text-sm">
-      <span className="text-gray-500">{label}</span>
-      <div className="flex items-center gap-2 tabular-nums">
-        <span className="text-gray-500">{fmtPct(current)}</span>
-        <span aria-hidden="true" className="text-gray-300">→</span>
-        <span className="font-semibold text-gray-900">{fmtPct(next)}</span>
-        <span className={`w-16 text-right font-medium ${tone}`}>{fmtPpDelta(delta)}</span>
-      </div>
-    </div>
-  );
-}
-
 
 export function ItemEditDrawer({
   itemId,
@@ -1133,38 +1115,6 @@ export function ItemEditDrawer({
           </section>
 
           <ProductRelationships item={item} itemsById={itemsById} relatedFallback={relatedItems} softViolations={softWarnings} />
-
-          <CollapsibleSection title="Projected impact">
-            {(() => {
-              if (isTemp) {
-                const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
-                const allowanceCost = item.allowanceCost ?? item.cost;
-                const u =
-                  item.newRetailPrice != null
-                    ? item.newRetailPrice / Math.max(1, item.newRetailQty ?? 1)
-                    : (hqReviewNeeded(item) ? item.recommendedRetailPrice : null) ?? curRetail;
-                const fuel = item.fuelSaver ?? 0;
-                return (
-                  <div className="mb-3 flex flex-col gap-2 border-b border-gray-100 pb-3">
-                    <MarginRow label="Retail margin" current={grossMarginPct(curRetail, allowanceCost)} next={grossMarginPct(u, allowanceCost)} />
-                    {fuel > 0 && (
-                      <MarginRow label="Incl. fuel saver" current={grossMarginPct(curRetail, allowanceCost)} next={grossMarginPct(u - fuel, allowanceCost)} />
-                    )}
-                  </div>
-                );
-              }
-              return (
-                <div className="mb-3 flex flex-col gap-2 border-b border-gray-100 pb-3">
-                  <MarginRow
-                    label="Gross margin"
-                    current={grossMarginPct(item.currentBasePrice, item.cost)}
-                    next={grossMarginPct(item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice, item.cost)}
-                  />
-                </div>
-              );
-            })()}
-            <ImpactBreakdown item={item} />
-          </CollapsibleSection>
 
           {item.competitors && item.competitors.length > 0 && (() => {
             // Compare per-unit — a pack-size base competes on its unit price.

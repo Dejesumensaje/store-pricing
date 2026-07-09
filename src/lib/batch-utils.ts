@@ -1,11 +1,4 @@
-import { Batch, Override, PricingItem } from "@/types/pricing";
-
-export type BatchImpact = {
-  itemCount: number;
-  salesValue: number;
-  marginValue: number;
-  unitsValue: number;
-};
+import { PricingItem } from "@/types/pricing";
 
 /**
  * Build an id → item lookup across every catalog. Base price is shared, so the
@@ -20,28 +13,4 @@ export function buildItemsById(catalogs: PricingItem[][]): Map<string, PricingIt
     }
   }
   return map;
-}
-
-/** Sum the HQ-provided impact of the items behind a batch's overrides. */
-export function aggregateBatchImpact(
-  batch: Batch,
-  overrides: Override[],
-  itemsById: Map<string, PricingItem>
-): BatchImpact {
-  const overrideById = new Map(overrides.map((o) => [o.id, o]));
-  let salesValue = 0;
-  let marginValue = 0;
-  let unitsValue = 0;
-
-  for (const overrideId of batch.overrideIds) {
-    const override = overrideById.get(overrideId);
-    if (!override) continue;
-    const item = itemsById.get(override.itemId);
-    if (!item) continue;
-    salesValue += item.impactSalesValue;
-    marginValue += item.impactMarginValue;
-    unitsValue += item.impactUnitsValue;
-  }
-
-  return { itemCount: batch.overrideIds.length, salesValue, marginValue, unitsValue };
 }
