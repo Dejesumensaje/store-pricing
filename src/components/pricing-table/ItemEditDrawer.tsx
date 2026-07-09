@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
-import { usePricingStore } from "@/store/pricing-store";
+import { usePricingStore, useCompetitorOrder } from "@/store/pricing-store";
 import { PricingItem, OverrideStatus, Batch, StoreOriginReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
@@ -113,6 +113,9 @@ export function ItemEditDrawer({
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const toast = useToast();
+  // The active store's director-set competitor order, if any (falls back to
+  // HQ_DEFAULT_ORDER inside orderCompetitors when undefined).
+  const competitorOrder = useCompetitorOrder();
 
   const item = items.find((i) => i.id === itemId) ?? null;
   const isTemp = item?.category_type === "temporary_allowance";
@@ -611,7 +614,7 @@ export function ItemEditDrawer({
                   </span>
                 )}
                 {item.storeSignals?.includes("competitor_move") && (() => {
-                  const top = orderCompetitors(item.competitors ?? [])[0];
+                  const top = orderCompetitors(item.competitors ?? [], competitorOrder)[0];
                   return (
                     <span>
                       <span className="font-medium text-gray-800">Competitor move — </span>
@@ -1081,7 +1084,7 @@ export function ItemEditDrawer({
                     <span className="text-xs font-medium text-gray-500">Our price</span>
                     <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourPrice)}</span>
                   </div>
-                  {orderCompetitors(item.competitors).map((c) => {
+                  {orderCompetitors(item.competitors, competitorOrder).map((c) => {
                     const diff = ourPrice - c.price;
                     return (
                       <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">

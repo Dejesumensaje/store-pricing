@@ -16,6 +16,13 @@ type PricingStore = {
   items: PricingItem[];
   overrides: Override[];
   batches: Batch[];
+  // Per-store override of the HQ competitor price order (lowercased names,
+  // ranked). Lives outside the stash working-set mechanism — it's keyed by
+  // storeId directly, so it survives store switching untouched. Absence of a
+  // key means the store still uses HQ_DEFAULT_ORDER.
+  competitorOrder: Record<string, string[]>;
+  setCompetitorOrder: (storeId: string, order: string[]) => void;
+  resetCompetitorOrder: (storeId: string) => void;
   updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
@@ -142,6 +149,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
   items: initialActive.items,
   overrides: initialActive.overrides,
   batches: initialActive.batches,
+  competitorOrder: {},
 
   // Switch the store in view. The current working set is stashed under its id and
   // the target store's slice is loaded — so unsent work in each store is preserved.
@@ -160,6 +168,22 @@ export const usePricingStore = create<PricingStore>((set) => ({
         overrides: target.overrides,
         batches: target.batches,
       };
+    }),
+
+  // A store director's override of HQ's Walmart-then-Aldi ordering, for this
+  // store only. `order` is the ranked prefix of lowercased competitor names the
+  // director actually arranged — competitors not in it stay unranked, so
+  // orderCompetitors keeps distance-sorting them.
+  setCompetitorOrder: (storeId, order) =>
+    set((state) => ({ competitorOrder: { ...state.competitorOrder, [storeId]: order } })),
+
+  // Back to the HQ default — just drop the key rather than storing it explicitly.
+  resetCompetitorOrder: (storeId) =>
+    set((state) => {
+      if (!(storeId in state.competitorOrder)) return {};
+      const next = { ...state.competitorOrder };
+      delete next[storeId];
+      return { competitorOrder: next };
     }),
 
   updateBasePrice: (itemId, newPrice, qty) =>
@@ -598,6 +622,11 @@ export const selectPendingCount = (s: PricingStore) =>
 // The store currently in view (stable object from STORES).
 export const useActiveStore = (): Store =>
   usePricingStore((s) => storeById(s.activeStoreId) ?? STORES[0]);
+
+// The active store's competitor-order override, or undefined when it still
+// follows the HQ default (see HQ_DEFAULT_ORDER in lib/competitors).
+export const useCompetitorOrder = (): string[] | undefined =>
+  usePricingStore((s) => s.competitorOrder[s.activeStoreId]);
 
 // Per-store work summary for the switcher: unsent changes (pending or in a
 // scheduled batch) + HQ recommendations still awaiting the director's call.
