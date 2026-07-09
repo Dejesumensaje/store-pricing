@@ -1,9 +1,8 @@
 "use client";
 
 import { Modal, Button } from "@dejesumensaje/converge-ds-experimental";
-import { Package, ArrowRight, Plus, CalendarClock } from "lucide-react";
+import { Package, ArrowRight, Plus } from "lucide-react";
 import { Batch } from "@/types/pricing";
-import { fmtDateTime } from "@/lib/format";
 
 // One batch-assignment surface, shared by every entry point (the item drawer's
 // Done, the bulk ActionBar, and the Review worklist) so "add to a batch" looks
@@ -42,7 +41,7 @@ export function BatchPickerModal({
     >
       <div className="flex flex-col gap-4">
         <p className="text-sm text-gray-600">
-          {description ?? `Add ${noun} to a scheduled batch to control when it reaches SAP.`}
+          {description ?? `Add ${noun} to a batch to control when it reaches SAP.`}
         </p>
 
         {openBatches.length > 0 && (
@@ -62,9 +61,7 @@ export function BatchPickerModal({
                     <span className="min-w-0">
                       <span className="truncate text-sm font-medium text-gray-900">{b.name}</span>
                       <span className="flex items-center gap-1 text-xs text-gray-500">
-                        <CalendarClock className="size-3" aria-hidden="true" />
-                        {b.scheduledAt ? fmtDateTime(b.scheduledAt) : "Scheduled"}
-                        <span className="text-gray-300">·</span> {items} item{items !== 1 ? "s" : ""}
+                        {items} item{items !== 1 ? "s" : ""}
                       </span>
                     </span>
                   </span>

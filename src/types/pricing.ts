@@ -169,21 +169,6 @@ export type Batch = {
   status: BatchStatus;
   overrideIds: string[];
   createdAt: string;
-  /**
-   * Multi-store fan-out. A director who runs several stores can apply one batch
-   * to many of them at once. The batch is authored in `originStoreId` and
-   * replicated into each target store's slice; the copies share a `groupId` so
-   * scheduling/sending acts on the whole group. Absent on legacy/single-store
-   * batches (treated as origin-only).
-   */
-  originStoreId?: string;
-  targetStoreIds?: string[];
-  groupId?: string;
-  /**
-   * Future send date/time (ISO, `YYYY-MM-DDTHH:mm:00`). Required in practice —
-   * every batch is created already scheduled (date + time); SAP sends then.
-   */
-  scheduledAt?: string;
   /** Set when the batch is sent to SAP. */
   submittedAt?: string;
   /** SAP reference returned on confirmation (post-submit acknowledgment). */

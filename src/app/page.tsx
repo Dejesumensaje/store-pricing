@@ -6,14 +6,11 @@ import {
   Button,
   Badge,
   CountBadge,
-  Modal,
   Select,
   ToggleGroup,
   Tooltip,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
-import { DateField, todayIso } from "@/components/shared/DateField";
-import { TimeField, DEFAULT_SEND_TIME } from "@/components/shared/TimeField";
 import { SearchX, ArrowLeft, CheckCircle2, CalendarClock, Plus, Package, Loader2, ChevronRight } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
@@ -30,14 +27,13 @@ import { FilterChips } from "@/components/filters/FilterChips";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides, useEdlpException } from "@/store/pricing-store";
-import { buildFanoutSources, planFanout } from "@/lib/store-fanout";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
 import { itemIdsOverEdlpCeiling, batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
 
@@ -71,7 +67,6 @@ export default function StorePricingPage() {
   const createBatch = usePricingStore((s) => s.createBatch);
   const addToBatch = usePricingStore((s) => s.addToBatch);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
-  const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
   const confirmBatch = usePricingStore((s) => s.confirmBatch);
   const edlpException = useEdlpException();
@@ -83,14 +78,10 @@ export default function StorePricingPage() {
   // review is an in-place filter over the same table; decisions happen in the
   // row drawer, just like any other edit.
   const [storeView, setStoreView] = useState<"all" | "hq">("all");
-  // To-send lifecycle: Scheduled (upcoming) vs Sent. Every batch is scheduled at
-  // creation, so there's no draft/pending bucket.
+  // To-send lifecycle: batches ready to send (internal status "scheduled") vs
+  // sent. Every batch is ready to send the moment it's created, so there's no
+  // draft/pending bucket.
   const [toSendSegment, setToSendSegment] = useState<"scheduled" | "sent">("scheduled");
-  // Inline re-scheduling: pick a date + time for an existing batch.
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleDate, setScheduleDate] = useState<string | null>(null);
-  const [scheduleTime, setScheduleTime] = useState<string | null>(null);
-  const [scheduleBatchId, setScheduleBatchId] = useState<string | null>(null);
   const [manageBatchId, setManageBatchId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<FilterValue>({});
@@ -151,7 +142,7 @@ export default function StorePricingPage() {
       setTrayPulse((n) => n + 1);
       // Fire a one-time onboarding toast the very first time a batch is created.
       if (prevTrayCount.current === 0) {
-        toast.success('Batch created — it sends automatically at the scheduled time, or open it and use "Send now".');
+        toast.success('Batch created — open it and use "Send now" whenever you\'re ready.');
       }
     }
     prevTrayCount.current = batchCount;
@@ -356,23 +347,6 @@ export default function StorePricingPage() {
     });
   };
 
-  const confirmScheduleBatch = () => {
-    if (!scheduleBatchId || !scheduleDate || !scheduleTime) return;
-    const at = `${scheduleDate}T${scheduleTime}:00`;
-    scheduleBatch(scheduleBatchId, at);
-    setScheduleOpen(false);
-    setScheduleBatchId(null);
-    toast.success(`Scheduled for ${fmtDateTime(at)}`, { description: "It will send to SAP automatically at that time." });
-  };
-
-  const openScheduleBatch = (batchId: string, current?: string | null) => {
-    setScheduleBatchId(batchId);
-    const d = current ? new Date(current) : null;
-    setScheduleDate(d ? current!.slice(0, 10) : todayIso());
-    setScheduleTime(d ? current!.slice(11, 16) : DEFAULT_SEND_TIME);
-    setScheduleOpen(true);
-  };
-
   // The clickable identity of a batch: an icon with a numeric badge of its item
   // count + a row of tag-color swatches so a director can see WHAT's inside at a
   // glance (a wall of yellow = this week's promos) instead of an opaque "N items".
@@ -398,9 +372,6 @@ export default function StorePricingPage() {
         <div className="min-w-0">
           <span className="flex items-center gap-1.5">
             <span className="truncate text-sm font-medium text-gray-900 group-hover:text-brand group-hover:underline">{b.name}</span>
-            {(b.targetStoreIds?.length ?? 1) > 1 && (
-              <Badge tone="in-progress" size="sm">{b.targetStoreIds!.length} stores</Badge>
-            )}
           </span>
           {subtext && <p className="flex items-center gap-1.5 text-xs text-gray-500">{subtext}</p>}
           {count > 0 && (
@@ -453,14 +424,11 @@ export default function StorePricingPage() {
       >
         {renderBatchIdentity(
           b,
-          <><CalendarClock className="size-3.5" aria-hidden="true" /> {b.scheduledAt ? fmtDateTime(b.scheduledAt) : "Scheduled"}</>,
+          <><CalendarClock className="size-3.5" aria-hidden="true" /> Created {fmtDate(b.createdAt)}</>,
           flashing
         )}
         <div className="flex shrink-0 items-center gap-1.5">
-          <Badge tone="neutral" size="sm">Scheduled</Badge>
-          <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={() => openScheduleBatch(b.id, b.scheduledAt)}>
-            Reschedule
-          </Button>
+          <Badge tone="neutral" size="sm">Ready to send</Badge>
           {ceilingBlocked ? (
             <Tooltip content="Contains an EDLP price over the SAP maximum with no active exception — open the batch to fix it.">
               <span className="inline-flex cursor-default">{sendButton}</span>
@@ -558,7 +526,7 @@ export default function StorePricingPage() {
                     value={toSendSegment}
                     onValueChange={(v) => setToSendSegment(v as "scheduled" | "sent")}
                     options={[
-                      { value: "scheduled", label: `Scheduled (${itemsInBatches(scheduledBatches)})` },
+                      { value: "scheduled", label: `To send (${itemsInBatches(scheduledBatches)})` },
                       { value: "sent", label: `Sent & Live (${itemsInBatches(sentBatches)})` },
                     ]}
                   />
@@ -648,8 +616,8 @@ export default function StorePricingPage() {
                   {scheduledBatches.length === 0 ? (
                     <EmptyState
                       icon={CalendarClock}
-                      title="No scheduled batches"
-                      hint="Create a batch — with a send date and time — to start moving changes to SAP."
+                      title="No batches to send"
+                      hint="Create a batch to start moving changes to SAP."
                       className="py-16"
                     />
                   ) : (
@@ -745,83 +713,30 @@ export default function StorePricingPage() {
         onOpenChange={(open) => setNewBatch((p) => ({ ...p, open }))}
         candidates={pending}
         initialSelectedIds={newBatch.seedIds}
-        onCreate={(name, ids, scheduledAt, targetStoreIds) => {
-          // Summarize the fan-out from pre-apply state so the toast can report
-          // what landed where (applied / overwritten / skipped) across stores.
-          const st = usePricingStore.getState();
-          const selected = st.overrides.filter((o) => ids.includes(o.id));
-          const targets = [...new Set([st.activeStoreId, ...targetStoreIds])];
-          const multiStore = targets.length > 1;
-          const summary = multiStore
-            ? planFanout(
-                buildFanoutSources(selected, st.items),
-                targets,
-                st.activeStoreId,
-                { items: st.items, overrides: st.overrides, batches: [] },
-                st.stash
-              )
-            : null;
-
-          createBatch(name, ids, scheduledAt, targetStoreIds);
-          // The active-store batch is appended last; flash it so the user sees where it landed.
+        onCreate={(name, ids) => {
+          createBatch(name, ids);
+          // The new batch is appended last; flash it so the user sees where it landed.
           const all = usePricingStore.getState().batches;
           const newId = all[all.length - 1]?.id ?? null;
           if (newId) setBatchFlash((prev) => ({ id: newId, n: (prev?.n ?? 0) + 1 }));
-
-          if (multiStore && summary) {
-            const applied = summary.totalApplied + summary.totalConflicts;
-            const skipped = summary.totalMissing + summary.totalLocked;
-            const parts = [`${applied} change${applied !== 1 ? "s" : ""} across ${targets.length} stores`];
-            if (summary.totalConflicts > 0) parts.push(`${summary.totalConflicts} overwritten`);
-            if (skipped > 0) parts.push(`${skipped} skipped`);
-            toast.success(`Batch "${name}" scheduled for ${targets.length} stores`, {
-              description: parts.join(" · "),
-            });
-          } else {
-            toast.success(`Batch "${name}" scheduled for ${fmtDateTime(scheduledAt)}`, {
-              description: `${ids.length} price change${ids.length !== 1 ? "s" : ""} grouped`,
-            });
-          }
+          toast.success(`Batch "${name}" created`, {
+            description: `${ids.length} price change${ids.length !== 1 ? "s" : ""} grouped — ready to send.`,
+          });
         }}
       />
-
-      <Modal
-        open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
-        title="Schedule this batch"
-        footer={
-          <div className="flex items-center justify-end gap-2">
-            <Button variant="secondary" onClick={() => setScheduleOpen(false)}>Cancel</Button>
-            <Button variant="primary" disabled={!scheduleDate || !scheduleTime} onClick={confirmScheduleBatch}>Schedule</Button>
-          </div>
-        }
-      >
-        <div className="flex flex-col gap-3">
-          <p className="text-sm text-gray-600">
-            This batch will send to SAP automatically at the date and time you pick — it shows as
-            <span className="font-medium text-gray-800"> Scheduled</span> until then.
-          </p>
-          <div className="flex items-center gap-2">
-            <DateField value={scheduleDate} onChange={setScheduleDate} min={todayIso()} aria-label="Send date" />
-            <TimeField value={scheduleTime} onChange={setScheduleTime} aria-label="Send time" />
-          </div>
-        </div>
-      </Modal>
 
       <BatchDetailDrawer batchId={manageBatchId} onOpenChange={(o) => { if (!o) setManageBatchId(null); }} />
 
       {(() => {
         const sendBatch = batches.find((b) => b.id === confirmSendBatchId);
         const sendCount = sendBatch ? batchItems(sendBatch).length : 0;
-        const storeCount = sendBatch?.targetStoreIds?.length ?? 1;
-        const scopeSuffix = storeCount > 1 ? ` across ${storeCount} stores` : "";
         return (
           <ConfirmDialog
             open={confirmSendBatchId != null}
             onOpenChange={(open) => { if (!open) setConfirmSendBatchId(null); }}
-            headline={storeCount > 1 ? `Send "${sendBatch?.name}" to ${storeCount} stores now?` : `Send "${sendBatch?.name}" to SAP now?`}
-            description={`This sends changes to ${sendCount} item${sendCount !== 1 ? "s" : ""}${scopeSuffix} to SAP immediately — bypassing the scheduled date. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
-            confirmLabel={storeCount > 1 ? "Send to all stores now" : "Send to SAP now"}
+            headline={`Send "${sendBatch?.name}" to SAP now?`}
+            description={`This sends changes to ${sendCount} item${sendCount !== 1 ? "s" : ""} to SAP immediately. Updated prices will be visible in stores within 1 hour, or on the next business day.`}
+            confirmLabel="Send to SAP now"
             onConfirm={() => {
               if (!confirmSendBatchId) return;
               submitBatch(confirmSendBatchId);

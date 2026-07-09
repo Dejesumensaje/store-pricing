@@ -10,14 +10,18 @@ const STATUS: Record<string, ItemStatus> = {
   // live — the item still carries its current SAP price; this flags that a
   // decision (accept / override / keep current) is owed.
   review: { label: "Needs review", tone: "warning" },
-  // In a scheduled batch — will send to SAP on the batch's date/time. Every
-  // decision lands here (batching is mandatory); there is no loose "ready to send".
-  // Informative blue (not neutral gray, which read as disabled) — matches the
-  // batch-level "Scheduled" pill.
-  scheduled: { label: "Scheduled", tone: "in-progress" },
+  // In a batch, waiting to be sent — every decision lands here (batching is
+  // mandatory); there is no loose "ready to send". Informative blue (not
+  // neutral gray, which read as disabled) — matches the batch-level "Ready to
+  // send" pill.
+  inBatch: { label: "In batch", tone: "in-progress" },
   // Sent to SAP, not live until SAP confirms — the spinner (loading) signals it's
   // in flight; neutral gray keeps it calm (amber read as a warning).
   sent: { label: "Sending", tone: "neutral", loading: true },
+  // Submitted, but the price hasn't gone live yet because the promo's own start
+  // date hasn't arrived — genuine date-based scheduling (see hasFutureAllowance),
+  // unrelated to batch membership.
+  scheduled: { label: "Scheduled", tone: "in-progress" },
   // The last send to SAP failed (reverts to Live after 3 days or retries). Visual
   // state only in this prototype.
   failed: { label: "Failed", tone: "negative" },
@@ -50,10 +54,10 @@ export function deriveItemStatus(item: PricingItem, _batches: Batch[]): ItemStat
   // A failed send takes priority over the in-flight/confirmed state below.
   if (item.sendFailed) return STATUS.failed;
 
-  // Every change lands in a scheduled batch (batching is mandatory on Done), so a
-  // decided change reads "Scheduled" — both once it's in a batch and in the brief
+  // Every change lands in a batch (batching is mandatory on Done), so a decided
+  // change reads "In batch" — both once it's actually in one and in the brief
   // pre-batch moment. There is no loose "ready to send" state.
-  if (statuses.includes("pending") || statuses.includes("in_batch")) return STATUS.scheduled;
+  if (statuses.includes("pending") || statuses.includes("in_batch")) return STATUS.inBatch;
 
   if (statuses.includes("submitted")) {
     return hasFutureAllowance(item) ? STATUS.scheduled : STATUS.sent;

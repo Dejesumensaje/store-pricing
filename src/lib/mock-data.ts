@@ -405,7 +405,6 @@ export const mockBatches: Batch[] = [
     status: "scheduled",
     overrideIds: ["RBCS5-5:base"],
     createdAt: "2026-06-10T09:00:00Z",
-    scheduledAt: "2026-06-30T06:00:00",
   },
   {
     id: "batch-2",
@@ -413,7 +412,6 @@ export const mockBatches: Batch[] = [
     status: "scheduled",
     overrideIds: ["RBCS5-6:base"],
     createdAt: "2026-06-10T14:00:00Z",
-    scheduledAt: "2026-07-03T05:00:00",
   },
   {
     id: "batch-3",
@@ -421,7 +419,6 @@ export const mockBatches: Batch[] = [
     status: "scheduled",
     overrideIds: ["RBCS5-3:base", "RBCS5-1:base", "RBCS5-1:retail", "EDLP-2:base", "W7BESS:retail"],
     createdAt: "2026-06-24T08:00:00Z",
-    scheduledAt: "2026-06-26T06:00:00",
   },
 ];
 

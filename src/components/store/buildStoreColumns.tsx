@@ -6,7 +6,7 @@ import { itemCol, idCol } from "../pricing-table/columns/shared";
 import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { REASON_META } from "@/lib/price-change-reason";
-import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
+import { fmt, fmtQtyPrice } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { committedEdlpCeilingState } from "@/lib/edlp-ceiling";
 import { useEdlpException } from "@/store/pricing-store";
@@ -95,15 +95,6 @@ function dateRange(start?: string | null, end?: string | null): string | null {
     : end
     ? `ends ${fmtShortDate(end)}`
     : `from ${fmtShortDate(start)}`;
-}
-
-// The scheduled send time for the item, if it sits in a scheduled batch — surfaced
-// in a tooltip on the "Scheduled" status pill. Override ids are `${itemId}:${field}`.
-function scheduledSendAt(item: PricingItem, batches: Batch[]): string | null {
-  const batch = batches.find(
-    (b) => b.status === "scheduled" && b.overrideIds.some((id) => id.split(":")[0] === item.id)
-  );
-  return batch?.scheduledAt ?? null;
 }
 
 // The shelf-tag chip: a colored tag swatch + label. The lens a director scans on
@@ -360,12 +351,6 @@ export function StatusCell({ item, batches }: { item: PricingItem; batches: Batc
   // Failed → explain what it means and that it self-heals.
   if (status.label === "Failed") {
     return <Tooltip content={FAILED_HELP}>{wrapTip(badge)}</Tooltip>;
-  }
-
-  // Scheduled → surface when it sends, drawn from its scheduled batch.
-  if (status.label === "Scheduled") {
-    const at = scheduledSendAt(item, batches);
-    if (at) return <Tooltip content={`Sends ${fmtDateTime(at)}`}>{wrapTip(badge)}</Tooltip>;
   }
 
   return badge;

@@ -23,7 +23,7 @@ import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { fmt, fmtQtyPrice, fmtDateTime, fmtDateRange } from "@/lib/format";
+import { fmt, fmtQtyPrice, fmtDateRange } from "@/lib/format";
 import { perUnit, round2 } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/batch-utils";
 import { RotateCcw, Trash2, Check, Package, Link2, Lock, Info, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
@@ -542,11 +542,6 @@ export function ItemEditDrawer({
                   <Package className="size-4 shrink-0 text-brand" aria-hidden="true" />
                   In batch <span className="font-medium text-gray-900">{myBatch.name}</span>
                 </span>
-                {myBatch.scheduledAt && (
-                  <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-                    <CalendarClock className="size-3.5" aria-hidden="true" /> Sends {fmtDateTime(myBatch.scheduledAt)}
-                  </span>
-                )}
               </div>
               {/* Mixed state guard: one override can be in flight (sending) while the
                   other still sits in a batch. The sending lock covers the whole item,
@@ -1080,7 +1075,7 @@ export function ItemEditDrawer({
     <BatchPickerModal
       open={batchPromptOpen}
       onOpenChange={(o) => { if (!o) setBatchPromptOpen(false); }}
-      description="Your change is saved. Add it to a scheduled batch to control when it reaches SAP."
+      description="Your change is saved. Add it to a batch to control when it reaches SAP."
       openBatches={openBatches}
       count={new Set(myPendingIds.map((id) => id.split(":")[0])).size}
       onAddToBatch={(id) => { onAddToBatch(id, myPendingIds); closeAfterBatch(); }}
@@ -1091,7 +1086,7 @@ export function ItemEditDrawer({
       open={movePickerOpen}
       onOpenChange={(o) => { if (!o) setMovePickerOpen(false); }}
       title="Change batch"
-      description="Move this change to a different scheduled batch, or create a new one."
+      description="Move this change to a different batch, or create a new one."
       openBatches={openBatches.filter((b) => b.id !== myBatch?.id)}
       count={1}
       onAddToBatch={(id) => {
