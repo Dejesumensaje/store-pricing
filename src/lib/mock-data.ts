@@ -630,8 +630,8 @@ export const TOTAL_ITEM_COUNT = mockItems.length;
 // ─── Per-store data (multi-store support) ────────────────────────────────────
 // Each store the director manages gets its own slice of items/overrides/batches.
 // #1402 is the primary, richly seeded demo store (all the flows above). The other
-// stores share the same SKU catalog (so a change can fan out to them) but boot
-// "clean": prices nudged per store, no in-progress edits, their own HQ worklist.
+// stores share the same SKU catalog but boot "clean": prices nudged per store,
+// no in-progress edits, their own HQ worklist.
 
 export type StoreSlice = { items: PricingItem[]; overrides: Override[]; batches: Batch[] };
 

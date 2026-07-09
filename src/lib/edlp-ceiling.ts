@@ -51,7 +51,7 @@ const OK: EdlpCeilingResult = { level: "ok", maxAllowed: 0, hardCeiling: 0, exce
  * SAP PMR maximum. Strict >10% is a hard stop; exactly +10% passes as soft.
  * An active exception covering the item downgrades a hard breach to soft —
  * visible (a badge/banner), never silent. Cents-rounded throughout so float
- * noise can't flip a verdict (mirrors relationship-validation.ts).
+ * noise can't flip a verdict.
  */
 export function evaluateEdlpCeiling(
   item: PricingItem,
@@ -73,16 +73,15 @@ export function evaluateEdlpCeiling(
 }
 
 // Effective per-unit base price the item currently carries — the pending
-// decision if there is one, else the live price. Mirrors effectivePerUnit in
-// relationship-validation.ts.
+// decision if there is one, else the live price.
 function effectivePerUnit(item: PricingItem): number {
   return item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
 }
 
 /**
  * The ceiling state of an item's CURRENTLY committed price — derived every
- * render (mirrors committedSoftWarnings), drives the in-drawer banner and the
- * table/cell badge. Untouched, in-range items are always "ok".
+ * render, drives the in-drawer banner and the table/cell badge. Untouched,
+ * in-range items are always "ok".
  */
 export function committedEdlpCeilingState(
   item: PricingItem,
@@ -93,8 +92,7 @@ export function committedEdlpCeilingState(
 
 /**
  * Catalog-wide scan of items currently priced over their EDLP maximum (soft
- * or hard, exception or not) — powers the "Over EDLP max" filter facet, the
- * same way itemIdsWithSoftViolations powers "Pricing conflicts".
+ * or hard, exception or not) — powers the "Over EDLP max" filter facet.
  */
 export function itemIdsOverEdlpCeiling(
   items: PricingItem[],
@@ -130,8 +128,7 @@ export type EdlpChangeEvaluation = {
  * Pre-commit check of a proposed base price (per-unit) for `itemId` against
  * every EDLP member the commit would reprice — itself, or (via family price
  * propagation) any EDLP sibling. A non-EDLP item with no EDLP family members
- * always comes back clean. Mirrors evaluateBaseChange's family handling in
- * relationship-validation.ts.
+ * always comes back clean.
  */
 export function evaluateEdlpCeilingChange(
   itemId: string,

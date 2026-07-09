@@ -11,7 +11,7 @@ import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
  *
  * The popover is rendered INLINE (absolutely positioned within this component),
  * NOT in a portal — the DS DatePicker's Radix PopoverPortal gets swallowed by the
- * Drawer focus-trap (see DateField.tsx), so we stay in the local DOM.
+ * Drawer focus-trap, so we stay in the local DOM.
  *
  * Values are the store's YYYY-MM-DD strings; Date conversion stays local here.
  */
