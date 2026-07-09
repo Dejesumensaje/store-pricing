@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Fuel } from "lucide-react";
+import { Loader2, Fuel, AlertTriangle } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
 import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
@@ -8,6 +8,8 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { REASON_META } from "@/lib/price-change-reason";
 import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
+import { committedEdlpCeilingState } from "@/lib/edlp-ceiling";
+import { useEdlpException } from "@/store/pricing-store";
 import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 
 export const STORE_OPTIONAL_COLUMNS: { id: string; label: string }[] = [
@@ -205,6 +207,19 @@ export function PriceCell({ item }: { item: PricingItem }) {
   const isNew = item.category_type === "new_discontinued" && item.itemStatus === "new";
   const showRetail = hasRetailRow(item);
 
+  // EDLP ceiling — same "Over EDLP max" indicator the drawer's price input
+  // shows, so over-max items are visible in the catalog without opening them.
+  // committedEdlpCeilingState is "ok" for anything non-EDLP, so this is inert
+  // for the rest of the table.
+  const edlpException = useEdlpException();
+  const edlpLevel = committedEdlpCeilingState(item, edlpException).level;
+  const edlpIndicator =
+    edlpLevel !== "ok" ? (
+      <span className="flex items-center gap-1 text-xs font-medium text-amber-600">
+        <AlertTriangle className="size-3" aria-hidden="true" /> Over EDLP max
+      </span>
+    ) : null;
+
   const baseTarget = item.newBasePrice != null ? item.newBasePrice : item.hqReviewPending ? item.recommendedBasePrice : null;
   // Only a decided base can be a pack-size deal (HQ recs are always single-unit).
   const baseQty = item.newBasePrice != null ? item.newBaseQty ?? 1 : 1;
@@ -218,7 +233,16 @@ export function PriceCell({ item }: { item: PricingItem }) {
     />
   );
 
-  if (!showRetail) return baseLine;
+  if (!showRetail) {
+    return edlpIndicator ? (
+      <span className="flex flex-col gap-0.5">
+        {baseLine}
+        {edlpIndicator}
+      </span>
+    ) : (
+      baseLine
+    );
+  }
 
   const retailCurrent = item.currentRetailPrice ?? item.currentBasePrice;
   const decidedRetail = item.newRetailPrice ?? null;
@@ -240,6 +264,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
   return (
     <span className="flex flex-col gap-0.5">
       {baseLine}
+      {edlpIndicator}
       {promoRange ? (
         <Tooltip content={`Promo ${promoRange}`}>
           <span className="inline-flex w-fit cursor-default">{retailLine}</span>

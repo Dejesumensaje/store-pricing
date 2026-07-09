@@ -258,6 +258,11 @@ const baseMockItems: PricingItem[] = [
     cost: 3.6,
     recommendedBasePrice: 5.79,
     itemRole: "Destination",
+    // Demos the EDLP ceiling's family-propagation block: current price is
+    // comfortably under, but repricing the fl-tortilla family (via RBCS5-1 or
+    // RBCS5-8) above ~$6.16 pushes THIS member over its hard ceiling, blocking
+    // the whole family commit even though the item being edited isn't EDLP.
+    edlpMaxAllowedPrice: 5.6,
   },
   {
     ...baseItem,
@@ -432,13 +437,24 @@ export const mockBatches: Batch[] = [
 
 // ─── Additional category datasets (own ids — not shared with base) ───────────
 
+// `max` = the SAP PMR-managed EDLP maximum allowed price (per-unit); the hard
+// ceiling is max × 1.10. Chosen per item to cover every ceiling demo state:
+//  EDLP-1 current AND HQ's rec both breach the hard ceiling (accepting the
+//    rec gets blocked in commitBase — see HQ_REVIEW_IDS below).
+//  EDLP-2 an already-batched override (see mockOverrides) breaches the hard
+//    ceiling with no exception — demos the batch-send backstop.
+//  EDLP-3 breaches the hard ceiling but carries the seeded per-item exception
+//    (see edlpExceptions in the store) — downgraded to a soft warning.
+//  EDLP-4 current price sits in the soft zone (over max, within +10%) with no
+//    edit at all — demos the passive drawer/cell/facet states.
+//  EDLP-5 / EDLP-6 comfortable headroom — the calm control rows.
 const edlpCatalog: PricingItem[] = [
-  { name: "Great Value Tortilla Chips 13oz", packSize: "13oz", brand: "Great Value", current: 2.98, cost: 1.9, rec: 2.78 },
-  { name: "Great Value Potato Chips 8oz", packSize: "8oz", brand: "Great Value", current: 1.98, cost: 1.25, rec: 1.88 },
-  { name: "Clancy's Wavy Chips 10oz", packSize: "10oz", brand: "Clancy's", current: 2.49, cost: 1.6, rec: 2.29 },
-  { name: "Santitas White Corn 11oz", packSize: "11oz", brand: "Frito-Lay", current: 3.29, cost: 2.1, rec: 2.99 },
-  { name: "Chesters Fries Flamin' Hot 5.25oz", packSize: "5.25oz", brand: "Frito-Lay", current: 2.19, cost: 1.4, rec: 1.99 },
-  { name: "Munchies Snack Mix 8oz", packSize: "8oz", brand: "Frito-Lay", current: 3.49, cost: 2.25, rec: 3.19 },
+  { name: "Great Value Tortilla Chips 13oz", packSize: "13oz", brand: "Great Value", current: 2.98, cost: 1.9, rec: 2.78, max: 2.4 },
+  { name: "Great Value Potato Chips 8oz", packSize: "8oz", brand: "Great Value", current: 1.98, cost: 1.25, rec: 1.88, max: 1.65 },
+  { name: "Clancy's Wavy Chips 10oz", packSize: "10oz", brand: "Clancy's", current: 2.49, cost: 1.6, rec: 2.29, max: 2.0 },
+  { name: "Santitas White Corn 11oz", packSize: "11oz", brand: "Frito-Lay", current: 3.29, cost: 2.1, rec: 2.99, max: 3.05 },
+  { name: "Chesters Fries Flamin' Hot 5.25oz", packSize: "5.25oz", brand: "Frito-Lay", current: 2.19, cost: 1.4, rec: 1.99, max: 2.6 },
+  { name: "Munchies Snack Mix 8oz", packSize: "8oz", brand: "Frito-Lay", current: 3.49, cost: 2.25, rec: 3.19, max: 4.0 },
 ].map((it, i): PricingItem => ({
   ...baseItem,
   id: `EDLP-${i + 1}`,
@@ -453,6 +469,7 @@ const edlpCatalog: PricingItem[] = [
   recommendedBasePrice: it.rec,
   impactConfidence: i % 2 === 0 ? "High" : "Medium",
   category_type: "everyday_low_price" as const,
+  edlpMaxAllowedPrice: it.max,
 }))
   .map(enrichItemContext)
   // Reprice one already-live EDLP item so the Change Summary shows "Updated EDLP
@@ -680,6 +697,10 @@ function cleanForStore(item: PricingItem, factor: number): PricingItem {
     currentRetailPrice: scale(item.currentRetailPrice),
     recommendedRetailPrice: scale(item.recommendedRetailPrice),
     allowanceCost: scale(item.allowanceCost),
+    // Scale the PMR maximum with the rest of the store's prices so a
+    // secondary store's ceiling stays proportional (it isn't a store-specific
+    // fact the demo needs to control, unlike currentBasePrice).
+    edlpMaxAllowedPrice: scale(item.edlpMaxAllowedPrice),
     // Start clean — no decisions carried over from the primary store.
     newBasePrice: null,
     baseOverrideStatus: undefined,

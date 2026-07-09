@@ -124,8 +124,10 @@ function checkRelationships(
 }
 
 // The ids a base-price commit on `item` will actually reprice — the item plus
-// every family member (mirrors the propagation in updateBasePrice).
-function familyGroupIds(item: PricingItem, itemsById: Map<string, PricingItem>): string[] {
+// every family member (mirrors the propagation in updateBasePrice). Exported
+// for edlp-ceiling.ts, which needs the same family group to check every
+// propagated member against its own EDLP maximum.
+export function familyGroupIds(item: PricingItem, itemsById: Map<string, PricingItem>): string[] {
   if (!item.familyId) return [item.id];
   return [...itemsById.values()].filter((i) => i.familyId === item.familyId).map((i) => i.id);
 }

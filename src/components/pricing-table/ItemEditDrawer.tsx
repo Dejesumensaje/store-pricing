@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
-import { usePricingStore, useCompetitorOrder } from "@/store/pricing-store";
+import { usePricingStore, useCompetitorOrder, useEdlpException } from "@/store/pricing-store";
 import { PricingItem, OverrideStatus, Batch, StoreOriginReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
@@ -17,7 +17,10 @@ import { CollapsibleSection } from "./CollapsibleSection";
 import { BlockedPriceChangeModal } from "./BlockedPriceChangeModal";
 import { BasePriceSoftWarningModal } from "./BasePriceSoftWarningModal";
 import { RetailPriceWarningModal } from "./RetailPriceWarningModal";
+import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
+import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
+import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
 import { REASON_META, changeReasonFor, defaultStoreReason, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
 import { orderCompetitors } from "@/lib/competitors";
 import { ImpactBreakdown } from "./columns/shared";
@@ -116,6 +119,9 @@ export function ItemEditDrawer({
   // The active store's director-set competitor order, if any (falls back to
   // HQ_DEFAULT_ORDER inside orderCompetitors when undefined).
   const competitorOrder = useCompetitorOrder();
+  // The active store's EDLP ceiling exception, if AVP – Pricing granted one.
+  // View-only here — store users never grant/edit it (see SettingsDrawer).
+  const edlpException = useEdlpException();
 
   const item = items.find((i) => i.id === itemId) ?? null;
   const isTemp = item?.category_type === "temporary_allowance";
@@ -177,6 +183,22 @@ export function ItemEditDrawer({
     evaluation: BaseChangeEvaluation;
     suggestedPrice: number;
   } | null>(null);
+  // A proposed base price that breaches an EDLP item's hard ceiling (>10% over
+  // the SAP PMR maximum) with no active exception — parked (NOT committed)
+  // while the blocking modal asks the director to revert or use the max.
+  const [edlpBlockedProposal, setEdlpBlockedProposal] = useState<{
+    total: number;
+    qty?: number;
+    evaluation: EdlpChangeEvaluation;
+  } | null>(null);
+  // A proposed base price in the EDLP soft zone (over max, within +10% — or an
+  // exception-covered hard breach) — parked while the warning dialog asks the
+  // director to cancel, use the max, or proceed anyway.
+  const [edlpSoftProposal, setEdlpSoftProposal] = useState<{
+    total: number;
+    qty?: number;
+    evaluation: EdlpChangeEvaluation;
+  } | null>(null);
   // Inline error for hard retail validation failures (zero/negative, above base).
   // The refs mirror state so handleDone can read rejections synchronously — state
   // updates from onBlur and the Done onClick run in the same event flush.
@@ -204,6 +226,8 @@ export function ItemEditDrawer({
     baseRejectedRef.current = false;
     setPendingRetailProposal(null);
     setSoftProposal(null);
+    setEdlpBlockedProposal(null);
+    setEdlpSoftProposal(null);
     // Capture the opening lens as the default reason for a store-originated item,
     // so the reason auto-populates from context (Cost lens → cost-based, etc.).
     // Only if the director hasn't already chosen one — never overwrite their call.
@@ -229,6 +253,11 @@ export function ItemEditDrawer({
   // exists and disappears the moment the price is fixed or reverted.
   const softWarnings = item ? committedSoftWarnings(item.id, itemsById) : [];
 
+  // The EDLP ceiling state of the item's CURRENTLY committed price — derived
+  // every render (same pattern as softWarnings), drives the in-drawer banner
+  // and the price field's amber cell state. "ok" for every non-EDLP item.
+  const edlpCeilingState = item ? committedEdlpCeilingState(item, edlpException) : null;
+
   // Commit a base price. Family items share one price, so the store
   // propagates to the whole family — tell the user and offer a one-click Undo.
   // Hard constraint violations (order inversions vs related items) block the
@@ -239,7 +268,17 @@ export function ItemEditDrawer({
     if (!item) return;
     baseRejectedRef.current = false;
     if (v != null) {
-      const evaluation = evaluateBaseChange(item.id, perUnit(v, qty), itemsById);
+      const proposedPerUnit = perUnit(v, qty);
+      // EDLP ceiling is a SAP compliance hard stop — checked before pricing
+      // fundamentals (relationships), since a price that isn't SAP-legal
+      // shouldn't even get to the ladder/gap conversation.
+      const edlpEvaluation = evaluateEdlpCeilingChange(item.id, proposedPerUnit, itemsById, edlpException);
+      if (edlpEvaluation.hard.length > 0) {
+        setEdlpBlockedProposal({ total: v, qty, evaluation: edlpEvaluation });
+        baseRejectedRef.current = true;
+        return;
+      }
+      const evaluation = evaluateBaseChange(item.id, proposedPerUnit, itemsById);
       if (evaluation.hard.length > 0) {
         setBlockedProposal({ total: v, qty, evaluation });
         baseRejectedRef.current = true;
@@ -278,6 +317,11 @@ export function ItemEditDrawer({
         baseRejectedRef.current = true;
         return;
       }
+      if (edlpEvaluation.soft.length > 0) {
+        setEdlpSoftProposal({ total: v, qty, evaluation: edlpEvaluation });
+        baseRejectedRef.current = true;
+        return;
+      }
     }
     const prevPrice = item.newBasePrice ?? null;
     const prevQty = item.newBaseQty ?? undefined;
@@ -313,6 +357,11 @@ export function ItemEditDrawer({
       return;
     }
     const discountPct = (baseRef - unitPrice) / baseRef;
+    if (discountPct <= 0) {
+      revertField("retail");
+      setChangingRetail(false);
+      return;
+    }
     if (discountPct > 0.5) {
       setPendingRetailProposal({ qty, price, suggestedPrice: round2(baseRef * 0.9) });
       retailRejectedRef.current = true;
@@ -352,6 +401,28 @@ export function ItemEditDrawer({
     setBlockedProposal(null);
     baseRejectedRef.current = false;
     setEditingBase(false);
+  };
+
+  // Commit the edited item's own PMR maximum instead of the proposed price —
+  // the one-click fix offered by both EDLP ceiling modals. Only offered when
+  // the edited item itself is the breaching member (see canUseMax in each
+  // modal), so `find` below is guaranteed to hit.
+  const applyEdlpMax = (evaluation: EdlpChangeEvaluation, qty: number | undefined, onDone: () => void) => {
+    if (!item) return;
+    const v = [...evaluation.hard, ...evaluation.soft].find((x) => x.itemId === item.id);
+    if (!v) return;
+    const total = qty != null && qty > 1 ? round2(v.maxAllowed * qty) : v.maxAllowed;
+    const prevPrice = item.newBasePrice ?? null;
+    const prevQty = item.newBaseQty ?? undefined;
+    updateBasePrice(item.id, total, qty);
+    if (familyItems.length > 0) {
+      toast.success(`Price set to the EDLP maximum (${fmt(v.maxAllowed)}) — updated the whole family (${familyItems.length + 1} items)`, {
+        action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+      });
+    } else {
+      toast.success(`Price set to the EDLP maximum (${fmt(v.maxAllowed)})`);
+    }
+    onDone();
   };
 
   // Revert one price field back to its current value. Base and retail are
@@ -460,6 +531,7 @@ export function ItemEditDrawer({
               value={item.newBasePrice}
               status={item.baseOverrideStatus}
               hasAlert={item.hasAlert}
+              overEdlpMax={edlpCeilingState != null && edlpCeilingState.level !== "ok"}
               ariaLabel={priceLabel}
               onCommit={commitBase}
             />
@@ -752,6 +824,26 @@ export function ItemEditDrawer({
                           <span key={`${w.relationship.id}:${w.offenderId}:${w.comparatorId}`}>{w.message}</span>
                         ))}
                       </div>
+                    </div>
+                  )}
+                  {edlpCeilingState && edlpCeilingState.level === "hard" && (
+                    // A committed price already past the hard stop with no exception —
+                    // predates the guardrail; new commits at this level are blocked.
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs">
+                      <AlertCircle className="size-4 shrink-0 text-red-600" aria-hidden="true" />
+                      <span className="tabular-nums text-red-900">
+                        Exceeds the +10% hard ceiling ({fmt(edlpCeilingState.hardCeiling)}) over the SAP PMR maximum ({fmt(edlpCeilingState.maxAllowed)}) — contact AVP – Pricing for a store-level exception.
+                      </span>
+                    </div>
+                  )}
+                  {edlpCeilingState && edlpCeilingState.level === "soft" && (
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+                      <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+                      <span className="tabular-nums text-amber-900">
+                        {edlpCeilingState.overHardCeiling
+                          ? <>Covered by a store exception — priced above the SAP PMR maximum ({fmt(edlpCeilingState.maxAllowed)}), over the hard ceiling ({fmt(edlpCeilingState.hardCeiling)}).</>
+                          : <>Priced above the SAP PMR maximum ({fmt(edlpCeilingState.maxAllowed)}) — within the +10% allowance ({fmt(edlpCeilingState.hardCeiling)}).</>}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1171,6 +1263,52 @@ export function ItemEditDrawer({
           });
         }
         setSoftProposal(null);
+        baseRejectedRef.current = false;
+      }}
+    />
+    <EdlpCeilingBlockedModal
+      open={edlpBlockedProposal != null}
+      evaluation={edlpBlockedProposal?.evaluation ?? null}
+      editedItemId={item?.id ?? null}
+      onRevert={() => {
+        // Nothing was committed — collapsing the editor drops the stale draft.
+        setEdlpBlockedProposal(null);
+        baseRejectedRef.current = false;
+        setEditingBase(false);
+      }}
+      onUseMax={() => {
+        if (!edlpBlockedProposal) return;
+        applyEdlpMax(edlpBlockedProposal.evaluation, edlpBlockedProposal.qty, () => {
+          setEdlpBlockedProposal(null);
+          baseRejectedRef.current = false;
+          setEditingBase(false);
+        });
+      }}
+    />
+    <EdlpCeilingWarningModal
+      open={edlpSoftProposal != null}
+      evaluation={edlpSoftProposal?.evaluation ?? null}
+      proposedPrice={perUnit(edlpSoftProposal?.total ?? 0, edlpSoftProposal?.qty)}
+      editedItemId={item?.id ?? null}
+      onCancel={() => { setEdlpSoftProposal(null); baseRejectedRef.current = false; setEditingBase(false); }}
+      onUseMax={() => {
+        if (!edlpSoftProposal) return;
+        applyEdlpMax(edlpSoftProposal.evaluation, edlpSoftProposal.qty, () => {
+          setEdlpSoftProposal(null);
+          baseRejectedRef.current = false;
+        });
+      }}
+      onProceed={() => {
+        if (!item || !edlpSoftProposal) return;
+        const prevPrice = item.newBasePrice ?? null;
+        const prevQty = item.newBaseQty ?? undefined;
+        updateBasePrice(item.id, edlpSoftProposal.total, edlpSoftProposal.qty);
+        if (familyItems.length > 0) {
+          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+          });
+        }
+        setEdlpSoftProposal(null);
         baseRejectedRef.current = false;
       }}
     />

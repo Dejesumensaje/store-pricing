@@ -6,6 +6,8 @@ import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { applyFanoutToSlice, buildFanoutSources, revertFanoutInSlice } from "@/lib/store-fanout";
+import { EdlpException, batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
+import { buildItemsById } from "@/lib/batch-utils";
 
 type PricingStore = {
   // The store currently in view. Its items/overrides/batches are the top-level
@@ -23,6 +25,11 @@ type PricingStore = {
   competitorOrder: Record<string, string[]>;
   setCompetitorOrder: (storeId: string, order: string[]) => void;
   resetCompetitorOrder: (storeId: string) => void;
+  // Per-store EDLP ceiling exception, granted by AVP – Pricing. Lives outside
+  // the stash working-set mechanism, same as competitorOrder — it's keyed by
+  // storeId directly, so it survives store switching. Store users can only
+  // view it (see SettingsDrawer); there is no grant/edit action here.
+  edlpExceptions: Record<string, EdlpException>;
   updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
@@ -150,6 +157,17 @@ export const usePricingStore = create<PricingStore>((set) => ({
   overrides: initialActive.overrides,
   batches: initialActive.batches,
   competitorOrder: {},
+  // Seed one per-item exception on the primary demo store, covering EDLP-3 —
+  // enough to demo the "hard breach downgraded to soft, still visible" path
+  // without inventing a grant flow (there isn't one; only AVP – Pricing grants).
+  edlpExceptions: {
+    [DEFAULT_STORE_ID]: {
+      scope: ["EDLP-3"],
+      approvedBy: "Priya Anand — AVP, Pricing",
+      grantedAt: "2026-06-18T15:00:00Z",
+      note: "Temporary competitive match while PMR max is under review.",
+    },
+  },
 
   // Switch the store in view. The current working set is stashed under its id and
   // the target store's slice is loaded — so unsent work in each store is preserved.
@@ -497,6 +515,26 @@ export const usePricingStore = create<PricingStore>((set) => ({
       const groupId = state.batches.find((b) => b.id === batchId)?.groupId;
       const submittedAt = new Date().toISOString();
       const match = (b: Batch) => b.id === batchId || (groupId != null && b.groupId === groupId);
+
+      // EDLP ceiling backstop: refuse the whole send if ANY targeted store's
+      // slice carries an over-ceiling override with no active exception for
+      // that store. Exceptions can be revoked after a batch was scheduled, so
+      // this is re-checked here, not just at commit time — a no-op is the
+      // safe default (the UI disables the Send button for the same reason).
+      const sliceBlocked = (slice: StoreSlice, storeId: string) => {
+        const ids = new Set(slice.batches.filter(match).map((b) => b.id));
+        const affected = slice.overrides.filter((o) => o.batchId != null && ids.has(o.batchId));
+        if (affected.length === 0) return false;
+        const itemsById = buildItemsById([slice.items]);
+        return batchBlockedByEdlpCeiling(affected, itemsById, state.edlpExceptions[storeId]);
+      };
+      if (sliceBlocked({ items: state.items, overrides: state.overrides, batches: state.batches }, state.activeStoreId)) {
+        return {};
+      }
+      for (const [sid, slice] of Object.entries(state.stash)) {
+        if (slice.batches.some(match) && sliceBlocked(slice, sid)) return {};
+      }
+
       const submitSlice = (slice: StoreSlice): StoreSlice => {
         const ids = new Set(slice.batches.filter(match).map((b) => b.id));
         const affected = slice.overrides.filter((o) => o.batchId != null && ids.has(o.batchId));
@@ -627,6 +665,10 @@ export const useActiveStore = (): Store =>
 // follows the HQ default (see HQ_DEFAULT_ORDER in lib/competitors).
 export const useCompetitorOrder = (): string[] | undefined =>
   usePricingStore((s) => s.competitorOrder[s.activeStoreId]);
+
+// The active store's EDLP ceiling exception, if AVP – Pricing has granted one.
+export const useEdlpException = (): EdlpException | undefined =>
+  usePricingStore((s) => s.edlpExceptions[s.activeStoreId]);
 
 // Per-store work summary for the switcher: unsent changes (pending or in a
 // scheduled batch) + HQ recommendations still awaiting the director's call.

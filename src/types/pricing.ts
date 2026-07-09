@@ -59,6 +59,12 @@ export type PricingItem = {
   cost: number;
   recommendedBasePrice: number;
   newBasePrice: number | null; // null = using recommended
+  /**
+   * SAP PMR-managed maximum allowed price (per-unit), for EDLP items only —
+   * the store can price up to 10% over this before the hard stop kicks in
+   * (see `lib/edlp-ceiling.ts`). Undefined for every other category_type.
+   */
+  edlpMaxAllowedPrice?: number;
   /** Total price for `newBaseQty` units (pack-size deal). qty 1 (or null) = single-unit price. */
   newBaseQty?: number | null;
   // Temp allowance fields (only for temporary_allowance category)
