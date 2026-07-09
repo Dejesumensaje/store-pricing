@@ -638,7 +638,10 @@ export function ItemEditDrawer({
                   </span>
                 )}
               </div>
-              <Button variant="tertiary" size="sm" onClick={() => setMovePickerOpen(true)}>
+              {/* Mixed state guard: one override can be in flight (sending) while the
+                  other still sits in a batch. The sending lock covers the whole item,
+                  so re-batching is disabled too — consistent with the lock banner. */}
+              <Button variant="tertiary" size="sm" disabled={sending} onClick={() => setMovePickerOpen(true)}>
                 Change batch
               </Button>
             </div>
@@ -760,6 +763,7 @@ export function ItemEditDrawer({
               <Select
                 label="Change reason"
                 size="sm"
+                disabled={sending}
                 options={STORE_REASON_OPTIONS}
                 value={item.chosenChangeReason ?? defaultStoreReason(item, originView)}
                 onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
