@@ -549,9 +549,10 @@ export default function StorePricingPage() {
                     <Package className="size-5 text-brand" aria-hidden="true" /> Batches
                   </h2>
                 </div>
-                <div className="-mx-1 overflow-x-auto px-1 md:mx-0 md:px-0">
+                <div>
                   <ToggleGroup
                     aria-label="Batch lifecycle"
+                    className="max-md:w-full max-md:[&>button]:flex-1"
                     value={toSendSegment}
                     onValueChange={(v) => setToSendSegment(v as "scheduled" | "sent")}
                     options={[
