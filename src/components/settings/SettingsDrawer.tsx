@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Drawer, Button, Badge } from "@dejesumensaje/converge-ds-experimental";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, RotateCcw } from "lucide-react";
 import { useActiveStore, usePricingStore, useCompetitorOrder } from "@/store/pricing-store";
 import { HQ_DEFAULT_ORDER } from "@/lib/competitors";
 
@@ -116,6 +116,9 @@ export function SettingsDrawer({ open, onOpenChange }: Props) {
   };
 
   const isDirty = !sameOrder(draft, appliedOrder);
+  // The badge tracks the draft, not the saved state: the moment the director
+  // deviates from HQ's order it reads "Custom", even before hitting Save.
+  const isHqDraft = sameOrder(draft, hqOrder);
 
   const handleSave = () => {
     // Persist only the ranked prefix, not the padded universe: names left in
@@ -160,8 +163,8 @@ export function SettingsDrawer({ open, onOpenChange }: Props) {
         <SettingsSection
           title="Competitor price order"
           badge={
-            <Badge tone={override ? "in-progress" : "neutral"} size="sm">
-              {override ? "Custom" : "HQ default"}
+            <Badge tone={isHqDraft ? "neutral" : "in-progress"} size="sm">
+              {isHqDraft ? "HQ default" : "Custom"}
             </Badge>
           }
         >
@@ -200,12 +203,19 @@ export function SettingsDrawer({ open, onOpenChange }: Props) {
             })}
           </ol>
 
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs text-gray-500">
-              Your ranking applies down to the last competitor you reorder — everything below it
-              stays sorted by distance. Applies to {store.name} only.
-            </p>
-            <Button variant="text-link" size="sm" onClick={() => setDraft(hqOrder)}>
+          <p className="text-xs text-gray-500">
+            Your ranking applies down to the last competitor you reorder — everything below it
+            stays sorted by distance. Applies to {store.name} only.
+          </p>
+
+          <div>
+            <Button
+              variant="secondary"
+              size="sm"
+              iconLeft={RotateCcw}
+              disabled={isHqDraft}
+              onClick={() => setDraft(hqOrder)}
+            >
               Reset to HQ default
             </Button>
           </div>
