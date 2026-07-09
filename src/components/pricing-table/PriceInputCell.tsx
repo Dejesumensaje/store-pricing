@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { Check, AlertCircle } from "lucide-react";
+import { Check, AlertCircle, AlertTriangle } from "lucide-react";
 
-export type PriceCellState = "untouched" | "edited" | "sent" | "alert";
+export type PriceCellState = "untouched" | "edited" | "sent" | "alert" | "over_edlp";
 
 type Props = {
   /** Recommended value shown as placeholder when untouched. */
@@ -25,6 +25,7 @@ export const BORDER: Record<PriceCellState, string> = {
   edited: "border-gray-900 bg-white text-gray-900",
   sent: "border-emerald-500 bg-white text-gray-900",
   alert: "border-orange-400 bg-white text-gray-900",
+  over_edlp: "border-amber-400 bg-white text-gray-900",
 };
 
 export function PriceInputCell({ recommended, value, state, onCommit, onViewAlerts, autoFocus, ariaLabel }: Props) {
@@ -95,6 +96,11 @@ export function PriceInputCell({ recommended, value, state, onCommit, onViewAler
           View alerts
         </Button>
       )}
+      {state === "over_edlp" && (
+        <span className="flex items-center gap-1 text-xs text-amber-600 font-medium pl-1">
+          <AlertTriangle className="size-3" aria-hidden="true" /> Over EDLP max
+        </span>
+      )}
     </div>
   );
 }
@@ -105,8 +111,15 @@ export function derivePriceState(input: {
   value: number | null | undefined;
   status?: string;
   hasAlert?: boolean;
+  /** EDLP-only: the committed price is over its SAP PMR maximum — soft,
+   *  exception-covered, or (for a pre-existing override predating this
+   *  guardrail) a real uncovered hard breach. commitBase blocks new hard
+   *  breaches before they can be saved, but this cell just reflects whatever
+   *  is already committed. */
+  overEdlpMax?: boolean;
 }): PriceCellState {
   if (input.status === "submitted") return "sent";
+  if (input.overEdlpMax) return "over_edlp";
   if (input.hasAlert) return "alert";
   if (input.value != null) return "edited";
   return "untouched";

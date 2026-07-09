@@ -9,6 +9,7 @@ import {
   Modal,
   Select,
   ToggleGroup,
+  Tooltip,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
 import { DateField, todayIso } from "@/components/shared/DateField";
@@ -28,7 +29,7 @@ import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/Fil
 import { FilterChips } from "@/components/filters/FilterChips";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { NewBatchModal } from "@/components/pending/NewBatchModal";
-import { usePricingStore, selectPendingOverrides } from "@/store/pricing-store";
+import { usePricingStore, selectPendingOverrides, useEdlpException } from "@/store/pricing-store";
 import { buildFanoutSources, planFanout } from "@/lib/store-fanout";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
@@ -36,6 +37,7 @@ import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } fro
 import { hqReviewNeeded } from "@/lib/item-status";
 import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
 import { itemIdsWithSoftViolations } from "@/lib/relationship-validation";
+import { itemIdsOverEdlpCeiling, batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
 import { fmtDateTime } from "@/lib/format";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
@@ -73,6 +75,7 @@ export default function StorePricingPage() {
   const scheduleBatch = usePricingStore((s) => s.scheduleBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
   const confirmBatch = usePricingStore((s) => s.confirmBatch);
+  const edlpException = useEdlpException();
 
   // "To send" is a LENS over All items (not a separate destination): it focuses on
   // the batches waiting to go to SAP.
@@ -239,6 +242,13 @@ export default function StorePricingPage() {
     [items, itemsById]
   );
 
+  // EDLP items currently priced over their SAP PMR maximum (soft or hard,
+  // exception or not) — powers the "Over EDLP max" facet, same pattern.
+  const edlpCeilingIds = useMemo(
+    () => itemIdsOverEdlpCeiling(items, edlpException),
+    [items, edlpException]
+  );
+
   // ── Faceted filtering (All items / HQ tabs) ──────────────────────────────
   const facets: FilterFacet[] = useMemo(
     () => [
@@ -260,8 +270,9 @@ export default function StorePricingPage() {
       { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyFullLabel)) },
       ...maybeFacet(items.some((i) => i.hasAlert), { key: "hasAlert", label: "Alerts", options: ["Flagged"] }),
       ...maybeFacet(conflictIds.size > 0, { key: "conflicts", label: "Pricing conflicts", options: ["Has a guardrail warning"] }),
+      ...maybeFacet(edlpCeilingIds.size > 0, { key: "edlpCeiling", label: "Over EDLP max", options: ["Over the SAP maximum"] }),
     ],
-    [items, conflictIds]
+    [items, conflictIds, edlpCeilingIds]
   );
 
   const activeFilterCount = useMemo(
@@ -294,13 +305,17 @@ export default function StorePricingPage() {
           if (!conflictIds.has(i.id)) return false;
           continue;
         }
+        if (key === "edlpCeiling") {
+          if (!edlpCeilingIds.has(i.id)) return false;
+          continue;
+        }
         const itemValue =
           key === "strategy" ? pricingStrategyFullLabel(i) : (i as unknown as Record<string, string>)[key];
         if (!opts.includes(itemValue)) return false;
       }
       return true;
     },
-    [filters, conflictIds]
+    [filters, conflictIds, edlpCeilingIds]
   );
 
   // When each item was last edited — so recently-decided items rise to the top of
@@ -446,6 +461,19 @@ export default function StorePricingPage() {
 
   const renderOpenBatchRow = (b: Batch) => {
     const flashing = batchFlash?.id === b.id;
+    // EDLP ceiling backstop: a batched override that's over its hard ceiling
+    // with no active exception can't be sent — same rule submitBatch enforces
+    // (exceptions can be revoked after a batch is scheduled).
+    const ceilingBlocked = batchBlockedByEdlpCeiling(
+      overrides.filter((o) => o.batchId === b.id),
+      itemsById,
+      edlpException
+    );
+    const sendButton = (
+      <Button variant="secondary" size="sm" disabled={ceilingBlocked} onClick={() => setConfirmSendBatchId(b.id)}>
+        Send now
+      </Button>
+    );
     return (
       <div
         // Re-key while flashing so the highlight animation restarts even when the
@@ -465,7 +493,13 @@ export default function StorePricingPage() {
           <Button variant="tertiary" size="sm" iconLeft={CalendarClock} onClick={() => openScheduleBatch(b.id, b.scheduledAt)}>
             Reschedule
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setConfirmSendBatchId(b.id)}>Send now</Button>
+          {ceilingBlocked ? (
+            <Tooltip content="Contains an EDLP price over the SAP maximum with no active exception — open the batch to fix it.">
+              <span className="inline-flex cursor-default">{sendButton}</span>
+            </Tooltip>
+          ) : (
+            sendButton
+          )}
         </div>
       </div>
     );

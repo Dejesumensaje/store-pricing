@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Drawer, Button, Badge } from "@dejesumensaje/converge-ds-experimental";
-import { ChevronUp, ChevronDown, RotateCcw } from "lucide-react";
-import { useActiveStore, usePricingStore, useCompetitorOrder } from "@/store/pricing-store";
+import { ChevronUp, ChevronDown, RotateCcw, ShieldCheck } from "lucide-react";
+import { useActiveStore, usePricingStore, useCompetitorOrder, useEdlpException } from "@/store/pricing-store";
 import { HQ_DEFAULT_ORDER } from "@/lib/competitors";
+import { fmtDateTime } from "@/lib/format";
 
 type Props = {
   open: boolean;
@@ -71,6 +72,8 @@ export function SettingsDrawer({ open, onOpenChange }: Props) {
   const override = useCompetitorOrder();
   const setCompetitorOrder = usePricingStore((s) => s.setCompetitorOrder);
   const resetCompetitorOrder = usePricingStore((s) => s.resetCompetitorOrder);
+  // Read-only — AVP – Pricing grants/revokes exceptions; there is no edit flow here.
+  const edlpException = useEdlpException();
 
   // Name universe = HQ's two defaults (capitalized) plus every competitor name
   // this store's items actually carry, deduped case-insensitively (first
@@ -219,6 +222,50 @@ export function SettingsDrawer({ open, onOpenChange }: Props) {
               Reset to HQ default
             </Button>
           </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title="EDLP exceptions"
+          badge={
+            edlpException ? (
+              <Badge tone="warning" size="sm">Active</Badge>
+            ) : (
+              <Badge tone="neutral" size="sm">None</Badge>
+            )
+          }
+        >
+          {edlpException ? (
+            <div className="flex flex-col gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-900">
+                <ShieldCheck className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+                {edlpException.scope === "store"
+                  ? "Store-wide exception"
+                  : `${edlpException.scope.length} item exception${edlpException.scope.length === 1 ? "" : "s"}`}
+              </span>
+              {edlpException.scope !== "store" && (
+                <p className="text-xs text-gray-700">
+                  {edlpException.scope
+                    .map((id) => items.find((i) => i.id === id)?.name ?? id)
+                    .join(", ")}
+                </p>
+              )}
+              <p className="text-xs text-gray-500">
+                Approved by {edlpException.approvedBy} · {fmtDateTime(edlpException.grantedAt)}
+              </p>
+              {edlpException.note && (
+                <p className="text-xs italic text-gray-600">“{edlpException.note}”</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              No active exception for {store.name}. EDLP items are hard-capped at 10% over the SAP
+              PMR maximum.
+            </p>
+          )}
+          <p className="text-xs text-gray-500">
+            Granted by AVP – Pricing, downgrading the hard stop to a visible warning. View only —
+            not editable here.
+          </p>
         </SettingsSection>
       </div>
     </Drawer>

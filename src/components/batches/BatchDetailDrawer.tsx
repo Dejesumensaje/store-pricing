@@ -1,14 +1,16 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Drawer, Button, Badge, Select, Checkbox, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { Trash2, Send, Inbox, CalendarClock, ClipboardCopy, Check, Store as StoreIcon, Pencil } from "lucide-react";
-import { usePricingStore } from "@/store/pricing-store";
+import { Trash2, Send, Inbox, CalendarClock, ClipboardCopy, Check, Store as StoreIcon, Pencil, AlertTriangle } from "lucide-react";
+import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { STORES } from "@/lib/store-config";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { fmt, fmtQtyPrice, fmtDate, fmtDateTime } from "@/lib/format";
 import { CATEGORY_LABELS } from "@/lib/pricing-meta";
+import { buildItemsById } from "@/lib/batch-utils";
+import { batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
 
 type Props = {
   batchId: string | null;
@@ -28,11 +30,14 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
   const [pendingRemovedCount, setPendingRemovedCount] = useState(0);
   const batches = usePricingStore((s) => s.batches);
   const overrides = usePricingStore((s) => s.overrides);
+  const items = usePricingStore((s) => s.items);
   const activeStoreId = usePricingStore((s) => s.activeStoreId);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const submitBatch = usePricingStore((s) => s.submitBatch);
   const setBatchTargetStores = usePricingStore((s) => s.setBatchTargetStores);
+  const edlpException = useEdlpException();
+  const itemsById = useMemo(() => buildItemsById([items]), [items]);
 
   // Leave store-edit mode whenever the drawer switches batches.
   useEffect(() => setEditingStores(false), [batchId]);
@@ -44,6 +49,10 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
   const batchItemCount = new Set(batchOverrides.map((o) => o.itemId)).size;
   // Scheduled batches are still editable (not yet sent to SAP).
   const isScheduled = batch?.status === "scheduled";
+  // EDLP ceiling backstop: an over-ceiling override with no active exception
+  // blocks the send entirely — exceptions can be revoked after a batch was
+  // scheduled, so this is re-checked here, not just at commit time.
+  const ceilingBlocked = batchBlockedByEdlpCeiling(batchOverrides, itemsById, edlpException);
   // Multi-store fan-out: the stores this batch applies to (defaults to origin).
   const originId = batch?.originStoreId ?? activeStoreId;
   const currentTargetIds = batch?.targetStoreIds?.length ? batch.targetStoreIds : batch ? [originId] : [];
@@ -95,7 +104,7 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
               <Button
                 variant="primary"
                 iconLeft={Send}
-                disabled={batchOverrides.length === 0}
+                disabled={batchOverrides.length === 0 || ceilingBlocked}
                 onClick={() => setConfirmSend(true)}
               >
                 Send to SAP now ({batchOverrides.length})
@@ -139,6 +148,16 @@ export function BatchDetailDrawer({ batchId, onOpenChange }: Props) {
               </span>
             )}
           </div>
+
+          {isScheduled && ceilingBlocked && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs">
+              <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+              <span className="text-amber-900">
+                Contains an EDLP price over the SAP maximum with no active exception — sending is
+                blocked until it&apos;s fixed or a store exception is granted.
+              </span>
+            </div>
+          )}
 
           {(isScheduled || isMultiStore) && (
             <div className="flex flex-col gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">

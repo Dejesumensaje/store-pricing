@@ -26,6 +26,7 @@ export function BaseReductionField({
   value,
   status,
   hasAlert,
+  overEdlpMax,
   onCommit,
   ariaLabel = "New base price",
 }: {
@@ -36,13 +37,15 @@ export function BaseReductionField({
   value: number | null;
   status?: OverrideStatus;
   hasAlert?: boolean;
+  /** The committed price is over the item's EDLP maximum (soft or exception-covered). */
+  overEdlpMax?: boolean;
   onCommit: (price: number | null) => void;
   ariaLabel?: string;
 }) {
   // Open on "Exact price" — a base price is most naturally set by typing the new
   // shelf price; % / $ off are there for directors who think in reductions.
   const [method, setMethod] = useState<Method>("exact");
-  const state = derivePriceState({ value, status, hasAlert });
+  const state = derivePriceState({ value, status, hasAlert, overEdlpMax });
 
   return (
     <div className="flex flex-col gap-3">
