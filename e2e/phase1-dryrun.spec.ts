@@ -1,8 +1,8 @@
 import { test, expect } from "@playwright/test";
 
 // Guards the pre-usability-test polish behaviors: simulated SAP confirmation
-// (Sending → Live), full pricing-strategy filter names, and the multi-store
-// create-batch button counting items — all anchors the moderator script relies on.
+// (Sending → Live) and full pricing-strategy filter names — anchors the
+// moderator script relies on.
 
 test.describe("Phase 1 dry run", () => {
   test.skip(({ isMobile }) => Boolean(isMobile), "desktop-only round");
@@ -35,22 +35,5 @@ test.describe("Phase 1 dry run", () => {
     await page.getByRole("checkbox", { name: /Pricing strategy: Temporary Allowance/i }).check();
     await page.getByRole("button", { name: /^Apply/ }).click();
     await expect(page.getByRole("heading", { name: /All items/i })).toContainText("of");
-  });
-
-  test("create-batch button counts items in multi-store mode (Task 10 anchor)", async ({ page }) => {
-    await page.goto("/");
-    // Make a pending change first: open an item with an HQ rec and accept it
-    await page.getByRole("button", { name: /HQ sent.*recommendation/i }).click();
-    await page
-      .locator("tr, li")
-      .filter({ has: page.getByText(/Triscuit Original/i) })
-      .filter({ visible: true })
-      .first()
-      .click();
-    await page.getByRole("button", { name: /^Accept \$/ }).first().click();
-    await page.getByRole("button", { name: /^Done$/i }).click();
-    await page.getByRole("button", { name: /Create a new batch with this change/i }).click();
-    await page.getByRole("button", { name: /All my stores/i }).click();
-    await expect(page.getByRole("button", { name: /Create batch · \d+ stores \(\d+ items?\)/ })).toBeVisible();
   });
 });

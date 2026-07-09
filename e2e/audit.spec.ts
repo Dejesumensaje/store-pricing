@@ -237,14 +237,14 @@ test.describe("Batches surface", () => {
     await expect(page.locator("body")).not.toContainText("Something went wrong");
   });
 
-  test("New batch modal opens with date + time fields", async ({ page }) => {
+  test("New batch modal opens with a name input", async ({ page }) => {
     await goto(page);
     await page.getByRole("button", { name: /^Batches$/i }).click();
     await page.getByRole("button", { name: /New batch/i }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
-    // Should have a date input (DateField renders an <input type="date">)
+    // Name-only modal — no date/time scheduling fields.
     await expect(
-      page.locator('[role="dialog"] input[type="date"]')
+      page.locator('[role="dialog"]').getByLabel(/batch name/i)
     ).toBeVisible();
   });
 
