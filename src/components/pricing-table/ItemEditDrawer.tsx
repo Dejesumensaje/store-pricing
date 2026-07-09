@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
-import { usePricingStore, useCompetitorOrder, useEdlpException } from "@/store/pricing-store";
+import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { PricingItem, OverrideStatus, Batch, StoreOriginReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
@@ -92,9 +92,6 @@ export function ItemEditDrawer({
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const toast = useToast();
-  // The active store's director-set competitor order, if any (falls back to
-  // HQ_DEFAULT_ORDER inside orderCompetitors when undefined).
-  const competitorOrder = useCompetitorOrder();
   // The active store's EDLP ceiling exception, if AVP – Pricing granted one.
   // View-only here — store users never grant/edit it (see SettingsDrawer).
   const edlpException = useEdlpException();
@@ -1087,7 +1084,7 @@ export function ItemEditDrawer({
                     <span className="text-xs font-medium text-gray-500">Our price</span>
                     <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourPrice)}</span>
                   </div>
-                  {orderCompetitors(item.competitors, competitorOrder).map((c) => {
+                  {orderCompetitors(item.competitors).map((c) => {
                     const diff = ourPrice - c.price;
                     return (
                       <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
