@@ -34,32 +34,14 @@ const approxEq = (a: number, b: number) => Math.abs(a - b) < 0.005;
 const hasChange = (item: PricingItem) => item.newBasePrice != null || item.newRetailPrice != null;
 
 /**
- * The default store-origin reason for an item, biased by the lens it was opened
- * from: the Cost lens → cost-based, the Competitor lens → competitor-based. With
- * no lens context, fall back to the item's own signal (cost wins if it carries both).
- */
-export function defaultStoreReason(
-  item: PricingItem,
-  originView?: "all" | "hq" | "cost" | "competitor"
-): StoreOriginReason {
-  if (originView === "cost") return "store_cost";
-  if (originView === "competitor") return "store_competitor";
-  const signals = item.storeSignals ?? [];
-  if (signals.includes("competitor_move") && !signals.includes("cost_change")) return "store_competitor";
-  return "store_cost";
-}
-
-/**
  * The reason behind an item's price decision.
  *
  * HQ items: derived, never stored — a decided price that matches HQ's proposal
  * keeps HQ's reason; any deviation is a local ad hoc call.
  *
- * Store-originated items (an item carrying `storeSignals` with no HQ rec): the
- * director's stored `chosenChangeReason` if set, otherwise the signal-based
- * default. Only once a price is actually set — an untouched item has no reason.
- *
- * Plain local edits (no HQ rec, no store signal) return null, as before.
+ * Non-HQ items: the director's stored `chosenChangeReason` if set, otherwise
+ * "local ad hoc". Only once a price is actually set — an untouched item has no
+ * reason.
  */
 export function changeReasonFor(item: PricingItem): PriceChangeReason | null {
   const hq = item.hqChangeReason;
@@ -79,9 +61,5 @@ export function changeReasonFor(item: PricingItem): PriceChangeReason | null {
     }
     return hq;
   }
-  // Store-originated: a reason applies only once the director has made a change.
-  if (!hasChange(item)) return null;
-  if (item.chosenChangeReason) return item.chosenChangeReason;
-  if (item.storeSignals?.length) return defaultStoreReason(item);
-  return null;
+  return hasChange(item) ? item.chosenChangeReason ?? "local_ad_hoc" : null;
 }

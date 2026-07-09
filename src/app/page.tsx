@@ -81,10 +81,9 @@ export default function StorePricingPage() {
   // the batches waiting to go to SAP.
   const [hangLensOn, setHangLensOn] = useState(false);
   // The active view lens over All items — segmented, not separate screens. HQ
-  // review, cost-driven and competitor-driven items are all in-place filters over
-  // the same table; decisions happen in the row drawer, just like any other edit.
-  // "hq" is the old review queue; "cost"/"competitor" are store-originated changes.
-  const [storeView, setStoreView] = useState<"all" | "hq" | "cost" | "competitor">("all");
+  // review is an in-place filter over the same table; decisions happen in the
+  // row drawer, just like any other edit.
+  const [storeView, setStoreView] = useState<"all" | "hq">("all");
   // To-send lifecycle: Scheduled (upcoming) vs Sent. Every batch is scheduled at
   // creation, so there's no draft/pending bucket.
   const [toSendSegment, setToSendSegment] = useState<"scheduled" | "sent">("scheduled");
@@ -116,27 +115,14 @@ export default function StorePricingPage() {
   const confirmTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
-  // Store-originated lenses: items the store must react to with no HQ rec. Each
-  // count equals the rows that lens shows (a browsable set, unlike the HQ queue
-  // which clears as items are decided).
-  const costCount = useMemo(
-    () => items.filter((i) => i.storeSignals?.includes("cost_change")).length,
-    [items]
-  );
-  const compCount = useMemo(
-    () => items.filter((i) => i.storeSignals?.includes("competitor_move")).length,
-    [items]
-  );
-  // View-lens segments. "All items" is always present; the HQ / cost / competitor
-  // lenses appear only when they have items (no dead, empty tabs).
+  // View-lens segments. "All items" is always present; the HQ lens appears only
+  // when it has items (no dead, empty tab).
   const viewOptions = useMemo(
     () => [
       { value: "all", label: "All items" },
       ...(hqCount > 0 ? [{ value: "hq", label: `HQ recs (${hqCount})` }] : []),
-      ...(costCount > 0 ? [{ value: "cost", label: `Cost changes (${costCount})` }] : []),
-      ...(compCount > 0 ? [{ value: "competitor", label: `Competitor moves (${compCount})` }] : []),
     ],
-    [hqCount, costCount, compCount]
+    [hqCount]
   );
 
   // Pending HQ recommendations broken down by change reason. Deliberately quiet:
@@ -342,17 +328,13 @@ export default function StorePricingPage() {
   const viewInfo = {
     all: { title: "All items", blurb: "" },
     hq: { title: "HQ recommendations", blurb: hqReasonSummary },
-    cost: { title: "Cost changes", blurb: "Store-level reactions to a recent cost change — no HQ recommendation." },
-    competitor: { title: "Competitor moves", blurb: "Store-level reactions to a recent competitor move — no HQ recommendation." },
   }[activeView];
 
   const rows = useMemo(() => {
     let list = items;
-    // Narrow to the active view lens (HQ review queue / cost-driven / competitor-
-    // driven), then apply facet filters + search on top.
+    // Narrow to the active view lens (HQ review queue), then apply facet filters
+    // + search on top.
     if (activeView === "hq") list = list.filter(hqReviewNeeded);
-    else if (activeView === "cost") list = list.filter((i) => i.storeSignals?.includes("cost_change"));
-    else if (activeView === "competitor") list = list.filter((i) => i.storeSignals?.includes("competitor_move"));
     list = list.filter(matchesFilters);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -633,18 +615,17 @@ export default function StorePricingPage() {
                     onToggleColumn={onToggleColumn}
                   />
                 </div>
-                {/* View lenses — shown only when there's more than "All items" to
-                    switch between (an HQ / cost / competitor set exists). The toggle
-                    is the single navigation model: no separate "review" banner.
-                    Four segments overflow a phone, so mobile gets a dropdown picker
-                    (every view reachable) and md+ gets the segmented control. */}
+                {/* View lens — shown only when there's more than "All items" to
+                    switch between (an HQ set exists). The toggle is the single
+                    navigation model: no separate "review" banner. md+ gets the
+                    segmented control, mobile a dropdown picker. */}
                 {viewOptions.length > 1 && (
                   <>
                     <div className="mt-3 hidden md:block">
                       <ToggleGroup
                         aria-label="Item view"
                         value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
-                        onValueChange={(v) => setStoreView(v as "all" | "hq" | "cost" | "competitor")}
+                        onValueChange={(v) => setStoreView(v as "all" | "hq")}
                         options={viewOptions}
                       />
                     </div>
@@ -652,7 +633,7 @@ export default function StorePricingPage() {
                       <Select
                         label="View"
                         value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
-                        onChange={(v) => setStoreView(v as "all" | "hq" | "cost" | "competitor")}
+                        onChange={(v) => setStoreView(v as "all" | "hq")}
                         options={viewOptions}
                       />
                     </div>
@@ -767,7 +748,6 @@ export default function StorePricingPage() {
       <ItemEditDrawer
         itemId={drawerItemId}
         flow="all"
-        originView={activeView}
         openBatches={openBatches}
         onAddToBatch={addOverridesToBatch}
         onNewBatch={openNewBatch}

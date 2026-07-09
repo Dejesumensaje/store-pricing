@@ -21,7 +21,7 @@ import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
-import { REASON_META, changeReasonFor, defaultStoreReason, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
+import { REASON_META, changeReasonFor, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
 import { orderCompetitors } from "@/lib/competitors";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -36,11 +36,6 @@ type Props = {
   itemId: string | null;
   /** Which flow opened the drawer — sets the footer's primary action. */
   flow: "all" | "hq";
-  /**
-   * The view lens the drawer was opened from. For a store-originated item it
-   * seeds the default change reason (Cost lens → cost-based, Competitor → comp-based).
-   */
-  originView?: "all" | "hq" | "cost" | "competitor";
   /** Open batches the per-item "Add to batch" menu can target. */
   openBatches: Batch[];
   /** Assign this item's pending change(s) to a batch (owned by the page). */
@@ -78,7 +73,6 @@ function Field({
 export function ItemEditDrawer({
   itemId,
   flow,
-  originView = "all",
   openBatches,
   onAddToBatch,
   onNewBatch,
@@ -109,9 +103,9 @@ export function ItemEditDrawer({
   const isTemp = item?.category_type === "temporary_allowance";
   // HQ pushed this price (already live). Frames the reference grid + identity note.
   const isHq = item?.hqReviewPending === true;
-  // A store-originated item: cost and/or a competitor moved, with NO HQ rec. The
-  // director reacts directly (set a price) and picks a reason — vs. HQ's accept-first.
-  const storeOrigin = !isHq && (item?.storeSignals?.length ?? 0) > 0;
+  // A non-HQ item: the director reacts directly (set a price) and picks a
+  // reason — vs. HQ's accept-first.
+  const storeOrigin = !isHq;
   const isEdlp = item?.category_type === "everyday_low_price";
   // A brand-new item has no current price to keep — it gets a "set opening price"
   // prompt instead of a read-only "current price" row.
@@ -210,12 +204,6 @@ export function ItemEditDrawer({
     setSoftProposal(null);
     setEdlpBlockedProposal(null);
     setEdlpSoftProposal(null);
-    // Capture the opening lens as the default reason for a store-originated item,
-    // so the reason auto-populates from context (Cost lens → cost-based, etc.).
-    // Only if the director hasn't already chosen one — never overwrite their call.
-    if (item && !isHq && (item.storeSignals?.length ?? 0) > 0 && !item.chosenChangeReason) {
-      setChangeReason(item.id, defaultStoreReason(item, originView));
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
@@ -655,33 +643,6 @@ export function ItemEditDrawer({
             </div>
           )}
 
-          {/* Store-originated context: no HQ recommendation — the director reacts to a
-              cost or competitor move directly. One line per signal the item carries. */}
-          {storeOrigin && (
-            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
-              <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
-              <div className="flex flex-col gap-1 text-gray-700">
-                {item.storeSignals?.includes("cost_change") && (
-                  <span>
-                    <span className="font-medium text-gray-800">Cost change — </span>
-                    unit cost is now <span className="tabular-nums">{fmt(item.cost)}</span>. Review the shelf price to protect margin.
-                  </span>
-                )}
-                {item.storeSignals?.includes("competitor_move") && (() => {
-                  const top = orderCompetitors(item.competitors ?? [], competitorOrder)[0];
-                  return (
-                    <span>
-                      <span className="font-medium text-gray-800">Competitor move — </span>
-                      {top
-                        ? <>{top.name} is at <span className="tabular-nums">{fmt(top.price)}</span> nearby. Review your shelf price.</>
-                        : "a nearby competitor moved. Review your shelf price."}
-                    </span>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
-
           {myBatch && (
             <div className="-mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">
               <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
@@ -833,7 +794,7 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {/* Store-originated change reason — auto-populated from the opening lens,
+          {/* Change reason for any non-HQ edit — defaults to "Local ad hoc",
               editable here. Appears once the director has actually set a price. */}
           {storeOrigin && (item.newBasePrice != null || item.newRetailPrice != null) && (
             <div className="w-[240px]">
@@ -842,7 +803,7 @@ export function ItemEditDrawer({
                 size="sm"
                 disabled={sending}
                 options={STORE_REASON_OPTIONS}
-                value={item.chosenChangeReason ?? defaultStoreReason(item, originView)}
+                value={item.chosenChangeReason ?? "local_ad_hoc"}
                 onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
               />
             </div>

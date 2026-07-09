@@ -19,15 +19,8 @@ export type NationalVsStore = "National" | "Store";
  *  decision — that value is derived, never stored (see price-change-reason.ts). */
 export type HqChangeReason = "cost_change" | "competitor_move" | "category_review";
 /**
- * A store-level trigger that motivates a director-initiated change with NO HQ
- * recommendation — the item's cost moved, or a competitor moved. Powers the
- * "Cost changes" / "Competitor moves" view lenses. (Category reviews are always
- * HQ-driven, so they never appear here.)
- */
-export type StoreChangeReason = "cost_change" | "competitor_move";
-/**
- * The reason a director attaches to a store-originated change. Auto-populated
- * from the lens the item was opened from, then editable (see price-change-reason.ts).
+ * The reason a director attaches to a non-HQ change — defaults to "local ad
+ * hoc", editable (see price-change-reason.ts).
  */
 export type StoreOriginReason = "store_cost" | "store_competitor" | "local_ad_hoc";
 export type Sensitivity = "H" | "M" | "L";
@@ -125,17 +118,9 @@ export type PricingItem = {
   /** The reason HQ attached to its recommendation (set alongside hqReviewPending). */
   hqChangeReason?: HqChangeReason;
   /**
-   * Store-level triggers awaiting the director's reaction, with NO HQ
-   * recommendation (cost moved and/or a competitor moved). Drives the item's
-   * membership in the "Cost changes" / "Competitor moves" view lenses. An item
-   * can carry both.
-   */
-  storeSignals?: StoreChangeReason[];
-  /**
-   * The director's chosen reason for a store-originated change. Auto-populated
-   * from the opening lens (see `setChangeReason`), then editable in the drawer.
-   * Unlike HQ reasons this IS stored, because a store change has no recommendation
-   * to derive the reason from.
+   * The director's chosen reason for a non-HQ change, editable in the drawer.
+   * Unlike HQ reasons this IS stored, because a store change has no
+   * recommendation to derive the reason from. Defaults to "local ad hoc".
    */
   chosenChangeReason?: StoreOriginReason;
   /**
