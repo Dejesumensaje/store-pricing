@@ -83,8 +83,6 @@ export type PricingItem = {
   itemStatus?: "new" | "discontinued";
   // Context that motivates a store-level price override (shown in the drawer)
   competitors?: CompetitorPrice[];
-  /** Ids of items frequently bought/priced together (cross-sell context). */
-  relatedItemIds?: string[];
   /**
    * Family key. Items sharing a family are priced as one — editing any
    * member updates the whole family.

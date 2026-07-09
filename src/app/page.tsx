@@ -36,7 +36,6 @@ import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
-import { itemIdsWithSoftViolations } from "@/lib/relationship-validation";
 import { itemIdsOverEdlpCeiling, batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
 import { fmtDateTime } from "@/lib/format";
 
@@ -220,14 +219,6 @@ export default function StorePricingPage() {
       .map((id) => itemsById.get(id))
       .filter((i): i is PricingItem => i != null);
 
-  // Items with an unresolved narrow-gap pricing-relationship warning — powers
-  // the "Pricing conflicts" facet so a director can spot these before batching
-  // without opening every item's drawer.
-  const conflictIds = useMemo(
-    () => itemIdsWithSoftViolations(items, itemsById),
-    [items, itemsById]
-  );
-
   // EDLP items currently priced over their SAP PMR maximum (soft or hard,
   // exception or not) — powers the "Over EDLP max" facet, same pattern.
   const edlpCeilingIds = useMemo(
@@ -255,10 +246,9 @@ export default function StorePricingPage() {
       { key: "sensitivity", label: "Sensitivity", options: uniqueSorted(items.map((i) => i.sensitivity)) },
       { key: "strategy", label: "Pricing strategy", options: uniqueSorted(items.map(pricingStrategyFullLabel)) },
       ...maybeFacet(items.some((i) => i.hasAlert), { key: "hasAlert", label: "Alerts", options: ["Flagged"] }),
-      ...maybeFacet(conflictIds.size > 0, { key: "conflicts", label: "Pricing conflicts", options: ["Has a guardrail warning"] }),
       ...maybeFacet(edlpCeilingIds.size > 0, { key: "edlpCeiling", label: "Over EDLP max", options: ["Over the SAP maximum"] }),
     ],
-    [items, conflictIds, edlpCeilingIds]
+    [items, edlpCeilingIds]
   );
 
   const activeFilterCount = useMemo(
@@ -287,10 +277,6 @@ export default function StorePricingPage() {
           if (!i.hasAlert) return false;
           continue;
         }
-        if (key === "conflicts") {
-          if (!conflictIds.has(i.id)) return false;
-          continue;
-        }
         if (key === "edlpCeiling") {
           if (!edlpCeilingIds.has(i.id)) return false;
           continue;
@@ -301,7 +287,7 @@ export default function StorePricingPage() {
       }
       return true;
     },
-    [filters, conflictIds, edlpCeilingIds]
+    [filters, edlpCeilingIds]
   );
 
   // When each item was last edited — so recently-decided items rise to the top of

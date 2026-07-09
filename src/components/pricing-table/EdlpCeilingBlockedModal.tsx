@@ -24,8 +24,8 @@ export function EdlpCeilingBlockedModal({ open, evaluation, editedItemId, onReve
   const selfViolation = hard.find((v) => v.itemId === editedItemId);
   const canUseMax = hard.length === 1 && selfViolation != null;
 
-  // Same Enter-guard as BlockedPriceChangeModal — the keydown that triggered
-  // the commit must not immediately activate a button on the newly focused modal.
+  // Enter-guard — the keydown that triggered the commit must not immediately
+  // activate a button on the newly focused modal.
   const openedAt = useRef(0);
   useEffect(() => {
     if (open) openedAt.current = Date.now();

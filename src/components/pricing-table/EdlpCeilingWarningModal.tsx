@@ -34,7 +34,7 @@ export function EdlpCeilingWarningModal({
   const selfViolation = soft.find((v) => v.itemId === editedItemId);
   const canUseMax = selfViolation != null && selfViolation.maxAllowed < proposedPrice;
 
-  // Same Enter-guard as BasePriceSoftWarningModal.
+  // Guards against the Enter keypress that opened this modal also firing its default action.
   const openedAt = useRef(0);
   useEffect(() => {
     if (open) openedAt.current = Date.now();

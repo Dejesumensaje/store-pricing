@@ -1,26 +1,17 @@
 import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
-import { PRODUCT_RELATIONSHIPS } from "@/lib/product-relationships";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Families are defined in product-relationships.ts (single source of truth).
-// Derive the item→familyId and familyId→display-name maps from it.
-const FAMILY_IDS: Record<string, string> = {};
-const FAMILY_NAMES: Record<string, string> = {};
-for (const rel of PRODUCT_RELATIONSHIPS) {
-  if (rel.type !== "family") continue;
-  FAMILY_NAMES[rel.id] = rel.name;
-  for (const id of rel.itemIds) FAMILY_IDS[id] = rel.id;
-}
-
-// A few hand-picked "frequently priced together" relationships.
-const RELATED_ITEMS: Record<string, string[]> = {
-  "W7BESS": ["RBCS5-1", "RBCS5-2", "RBCS5-8"],
-  "RBCS5-1": ["RBCS5-5", "RBCS5-7", "W7BESS"],
-  "RBCS5-2": ["RBCS5-3", "RBCS5-6", "W7BESS"],
-  "RBCS5-5": ["RBCS5-1", "RBCS5-7"],
-  "RBCS5-7": ["RBCS5-1", "RBCS5-5"],
+// Family pricing: the one seeded family in this catalog — a store editing any
+// member's base price updates them all (see updateBasePrice).
+const FAMILY_IDS: Record<string, string> = {
+  "RBCS5-1": "fl-tortilla",
+  "RBCS5-7": "fl-tortilla",
+  "RBCS5-8": "fl-tortilla",
+};
+const FAMILY_NAMES: Record<string, string> = {
+  "fl-tortilla": "Reg Tortilla Chips 9–11 oz",
 };
 
 // Synthesize believable competitor prices + temp-allowance fields for every
@@ -37,7 +28,6 @@ function enrichItemContext(item: PricingItem): PricingItem {
   return {
     ...item,
     competitors,
-    relatedItemIds: RELATED_ITEMS[item.id],
     familyId,
     // Identity context shown in the drawer's item-info block.
     vendorName: item.vendorName ?? `${item.brand} Distribution`,

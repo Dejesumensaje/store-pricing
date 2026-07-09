@@ -1,6 +1,12 @@
 import { PricingItem, Override } from "@/types/pricing";
 import { perUnit } from "./pricing-math";
-import { familyGroupIds } from "./relationship-validation";
+
+// The ids a base-price commit on `item` will actually reprice — the item plus
+// every family member (mirrors the propagation in updateBasePrice).
+function familyGroupIds(item: PricingItem, itemsById: Map<string, PricingItem>): string[] {
+  if (!item.familyId) return [item.id];
+  return [...itemsById.values()].filter((i) => i.familyId === item.familyId).map((i) => i.id);
+}
 
 /**
  * A store-level exception to the EDLP hard stop, granted by AVP – Pricing —
