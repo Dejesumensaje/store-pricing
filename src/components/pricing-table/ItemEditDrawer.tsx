@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
-import { PricingItem, StoreOriginReason } from "@/types/pricing";
+import { PricingItem, StoreBaseReason, StorePromoReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
@@ -17,7 +17,13 @@ import { RetailPriceWarningModal } from "./RetailPriceWarningModal";
 import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
-import { REASON_META, changeReasonFor, STORE_REASON_OPTIONS } from "@/lib/price-change-reason";
+import {
+  REASON_META,
+  changeReasonFor,
+  STORE_BASE_REASON_OPTIONS,
+  STORE_BASE_REASON_DEFAULT,
+  STORE_PROMO_REASON_OPTIONS,
+} from "@/lib/price-change-reason";
 import { orderCompetitors } from "@/lib/competitors";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
@@ -64,14 +70,16 @@ function Field({
 // unit itself (why → what → decide) — never a standalone banner, and never
 // competing with the price, which stays the largest/boldest element below it.
 //
-// Base recs get the reason label alone: the rationale sentence for a base move
-// is a pure numeric restatement of the Current → Recommends line right below,
-// so printing it would say the same numbers twice. Retail (TA) recs keep the
-// sentence — vendor funding, savings, and the run window are information the
-// what-line doesn't carry.
-function HqRationale({ item, section }: { item: PricingItem; section: "base" | "retail" }) {
-  const label = item.hqChangeReason ? REASON_META[item.hqChangeReason].label : null;
-  if (section === "base") {
+// Base and Fuel Saver recs get the reason label alone: the rationale sentence
+// for those moves is a pure numeric restatement of the Current → Recommends
+// line right below, so printing it would say the same numbers twice. Retail
+// (TA) recs keep the sentence — vendor funding, savings, and the run window
+// are information the what-line doesn't carry.
+function HqRationale({ item, section }: { item: PricingItem; section: "base" | "retail" | "fuel" }) {
+  const hqReason =
+    section === "base" ? item.hqBaseReason : section === "fuel" ? item.hqFuelReason : item.hqRetailReason;
+  const label = hqReason ? REASON_META[hqReason].label : null;
+  if (section !== "retail") {
     return label ? <p className="text-sm font-medium text-gray-700">{label}</p> : null;
   }
   return (
@@ -97,7 +105,9 @@ export function ItemEditDrawer({
   const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
   const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
   const setReviewed = usePricingStore((s) => s.setReviewed);
-  const setChangeReason = usePricingStore((s) => s.setChangeReason);
+  const setBaseChangeReason = usePricingStore((s) => s.setBaseChangeReason);
+  const setRetailChangeReason = usePricingStore((s) => s.setRetailChangeReason);
+  const setFuelChangeReason = usePricingStore((s) => s.setFuelChangeReason);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
   const toast = useToast();
   // The active store's EDLP ceiling exception, if AVP – Pricing granted one.
@@ -108,9 +118,6 @@ export function ItemEditDrawer({
   const isTemp = item?.category_type === "temporary_allowance";
   // HQ pushed this price (already live). Frames the reference grid + identity note.
   const isHq = item?.hqReviewPending === true;
-  // A non-HQ item: the director reacts directly (set a price) and picks a
-  // reason — vs. HQ's accept-first.
-  const storeOrigin = !isHq;
   const isEdlp = item?.category_type === "everyday_low_price";
   // A brand-new item has no current price to keep — it gets a "set opening price"
   // prompt instead of a read-only "current price" row.
@@ -388,16 +395,22 @@ export function ItemEditDrawer({
             </>
           )}
         </Field>
-        {storeOrigin && (
+        {item.hqBaseReason ? (
+          // Custom price on an HQ-recommended section keeps the HQ reason as
+          // its origin — read-only context here, not an editable selector.
+          <p className="text-xs text-gray-500">
+            HQ reason: <span className="font-medium text-gray-700">{REASON_META[item.hqBaseReason].label}</span>
+          </p>
+        ) : (
           // Part of setting the price, not a post-hoc afterthought — the director
           // picks why alongside what, before the price is even committed.
           <div className="w-[200px]">
             <Select
               label="Change reason"
               size="sm"
-              options={STORE_REASON_OPTIONS}
-              value={item.chosenChangeReason ?? "local_ad_hoc"}
-              onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
+              options={STORE_BASE_REASON_OPTIONS}
+              value={item.chosenBaseReason ?? STORE_BASE_REASON_DEFAULT}
+              onChange={(v) => setBaseChangeReason(item.id, v as StoreBaseReason)}
             />
           </div>
         )}
@@ -469,7 +482,15 @@ export function ItemEditDrawer({
                 )}
               </dl>
               <div className="flex flex-wrap items-center gap-1">
-                {hqReviewNeeded(item) && <HqBadge />}
+                {hqReviewNeeded(item) && (
+                  // Same reasons-in-tooltip as the table's badge — the drawer
+                  // header shouldn't say less than the row that opened it.
+                  <HqBadge
+                    reasons={[item.hqBaseReason, item.hqRetailReason, item.hqFuelReason].filter(
+                      (r): r is NonNullable<typeof r> => r != null
+                    )}
+                  />
+                )}
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
                 {isEdlp && (
                   <Tooltip content="Everyday low price — a permanent markdown to stay consistently low.">
@@ -514,7 +535,7 @@ export function ItemEditDrawer({
                           // Plain caption, deliberately not a second edit affordance —
                           // "Change" is the one path back into the editor (which
                           // carries the reason picker for store-origin items).
-                          const reason = changeReasonFor(item);
+                          const reason = changeReasonFor(item, "base");
                           if (!reason) return null;
                           return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
                         })()}
@@ -642,7 +663,7 @@ export function ItemEditDrawer({
                             {(() => {
                               // Plain caption — same one-edit-path rule as the base
                               // section's; "Change" reopens the editor + reason picker.
-                              const reason = changeReasonFor(item);
+                              const reason = changeReasonFor(item, "retail");
                               if (!reason) return null;
                               return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
                             })()}
@@ -707,19 +728,25 @@ export function ItemEditDrawer({
                           )}
                         </Field>
 
-                        {storeOrigin && !editingBase && (
+                        {item.hqRetailReason ? (
+                          // Custom price on an HQ-recommended section keeps the HQ
+                          // reason as its origin — read-only context, not a selector.
+                          <p className="text-xs text-gray-500">
+                            HQ reason: <span className="font-medium text-gray-700">{REASON_META[item.hqRetailReason].label}</span>
+                          </p>
+                        ) : (
                           // Part of setting the price, not a post-hoc afterthought —
-                          // same reason as the base price's, since one director
-                          // decision covers whichever price they're touching. One
-                          // shared reason = one visible control: when the base editor
-                          // is open too, its copy of this Select is the one that shows.
+                          // the director picks why alongside what, before the price
+                          // is even committed. Retail has no default — starts
+                          // unselected until the director actively picks one.
                           <div className="w-[200px]">
                             <Select
                               label="Change reason"
                               size="sm"
-                              options={STORE_REASON_OPTIONS}
-                              value={item.chosenChangeReason ?? "local_ad_hoc"}
-                              onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
+                              options={STORE_PROMO_REASON_OPTIONS}
+                              value={item.chosenRetailReason ?? ""}
+                              placeholder="Select a reason"
+                              onChange={(v) => setRetailChangeReason(item.id, v as StorePromoReason)}
                             />
                           </div>
                         )}
@@ -762,6 +789,35 @@ export function ItemEditDrawer({
                 const fuelDecided = item.fuelSaver != null && item.fuelSaver > 0;
                 const fuelHadPrior = item.currentFuelSaver != null && item.currentFuelSaver > 0;
                 const fuelPeriod = fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
+                // Accept-first for an undecided HQ fuel-saver rec — same why →
+                // what → decide unit as base/retail, so a fuel reason advertised
+                // in the table/badge is always actionable here.
+                const fuelRec =
+                  showAccept && item.recommendedFuelSaver != null && item.recommendedFuelSaver > 0
+                    ? item.recommendedFuelSaver
+                    : null;
+                if (!editingFuelSaver && !fuelDecided && fuelRec != null) {
+                  return (
+                    <div className="flex flex-col gap-3">
+                      <HqRationale item={item} section="fuel" />
+                      <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
+                        <span className="text-gray-500">
+                          Current {fuelHadPrior ? `+${fmt(item.currentFuelSaver ?? 0)}` : "none"}
+                        </span>
+                        <span aria-hidden="true" className="text-gray-300">→</span>
+                        <span className="font-semibold text-gray-900">HQ recommends +{fmt(fuelRec)} fuel</span>
+                      </div>
+                      <div className="decision-pop flex flex-wrap items-center gap-2">
+                        <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateFuelSaver(item.id, fuelRec)}>
+                          Accept +{fmt(fuelRec)}
+                        </Button>
+                        <Button variant="secondary" size="sm" onClick={() => setEditingFuelSaver(true)}>
+                          Set a different amount
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                }
                 if (!editingFuelSaver) {
                   return fuelDecided ? (
                     <div className="decision-pop flex items-center justify-between gap-3">
@@ -775,6 +831,13 @@ export function ItemEditDrawer({
                             </>
                           )}
                           <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver ?? 0)} fuel</span>
+                          {(() => {
+                            // Plain caption, same one-edit-path rule as base/retail's —
+                            // "Change" reopens the editor + reason picker.
+                            const reason = changeReasonFor(item, "fuel");
+                            if (!reason) return null;
+                            return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
+                          })()}
                         </div>
                         {fuelPeriod && (
                           <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
@@ -825,6 +888,27 @@ export function ItemEditDrawer({
                         size="sm"
                       />
                     </div>
+                    {item.hqFuelReason ? (
+                      // Custom price on an HQ-recommended section keeps the HQ
+                      // reason as its origin — read-only context, not a selector.
+                      <p className="text-xs text-gray-500">
+                        HQ reason: <span className="font-medium text-gray-700">{REASON_META[item.hqFuelReason].label}</span>
+                      </p>
+                    ) : fuelDecided ? (
+                      // The reason is asked only once an amount exists — like the
+                      // period field below, "why" follows "what". No default —
+                      // starts unselected until the director actively picks one.
+                      <div className="w-[170px]">
+                        <Select
+                          label="Change reason"
+                          size="sm"
+                          options={STORE_PROMO_REASON_OPTIONS}
+                          value={item.chosenFuelReason ?? ""}
+                          placeholder="Select a reason"
+                          onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason)}
+                        />
+                      </div>
+                    ) : null}
                     {fuelDecided && (
                       <Field label="Fuel saver period">
                         <DateRangeField

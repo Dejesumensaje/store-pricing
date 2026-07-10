@@ -1,4 +1,4 @@
-import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason } from "@/types/pricing";
+import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -122,6 +122,8 @@ const baseMockItems: PricingItem[] = [
     // A fuel saver already live on the shelf — the table shows it steady (no change).
     currentFuelSaver: 0.1,
     fuelSaver: 0.1,
+    // Store-originated retail decision — no HQ rec on this item.
+    chosenRetailReason: "local_deal",
   },
   {
     ...baseItem,
@@ -148,6 +150,11 @@ const baseMockItems: PricingItem[] = [
     impactSalesValue: 1.4,
     impactSalesPct: 3,
     impactConfidence: "Medium",
+    // Store-originated on all three sections — no HQ rec on this item. Shows
+    // a different reason per section on the same row (base ≠ retail ≠ fuel).
+    chosenBaseReason: "cost_change",
+    chosenRetailReason: "buys",
+    chosenFuelReason: "displays",
   },
   {
     ...baseItem,
@@ -161,6 +168,8 @@ const baseMockItems: PricingItem[] = [
     newBasePrice: 4.89,
     baseOverrideStatus: "pending",
     hasOverride: true,
+    // Store-originated — no HQ rec on this item.
+    chosenBaseReason: "cost_change",
   },
   {
     ...baseItem,
@@ -174,6 +183,8 @@ const baseMockItems: PricingItem[] = [
     newBasePrice: 5.99,
     hasOverride: true,
     baseOverrideStatus: "pending",
+    // Deliberately no chosenBaseReason — demonstrates the Store Base "Other"
+    // default (no blocking validation on this catalog).
     hasAlert: true,
     impactConfidence: "Low",
     impactSalesValue: -0.6,
@@ -197,6 +208,8 @@ const baseMockItems: PricingItem[] = [
     newRetailPrice: 1.99,
     retailOverrideStatus: "pending",
     hasOverride: true,
+    // Store-originated retail decision — no HQ rec on this item.
+    chosenRetailReason: "manager_special",
   },
   {
     ...baseItem,
@@ -224,7 +237,10 @@ const baseMockItems: PricingItem[] = [
   { ...baseItem, id: "HQ-101", name: "Triscuit Original 8.5oz", brand: "Nabisco", subcategory: "Crackers", packSize: "8.5oz", currentBasePrice: 3.49, cost: 2.1, recommendedBasePrice: 3.69 },
   { ...baseItem, id: "HQ-102", name: "Wheat Thins Original 8oz", brand: "Nabisco", subcategory: "Crackers", packSize: "8oz", currentBasePrice: 3.99, cost: 2.45, recommendedBasePrice: 4.19 },
   { ...baseItem, id: "HQ-103", name: "Pop Secret Butter 6ct", brand: "Pop Secret", subcategory: "Popcorn", packSize: "6ct", currentBasePrice: 4.29, cost: 2.6, recommendedBasePrice: 3.99 },
-  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.49, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
+  // Carries BOTH an HQ base rec (cost change) and an HQ retail rec (vendor
+  // allowance) at once — one row, two independent sections, two different
+  // reasons.
+  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.69, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
   { ...baseItem, id: "HQ-105", name: "Planters Peanuts 16oz", brand: "Planters", subcategory: "Nuts", packSize: "16oz", currentBasePrice: 5.99, cost: 3.8, recommendedBasePrice: 7.49, itemRole: "Margin driver" },
   { ...baseItem, id: "HQ-106", name: "Jack Link's Jerky 5oz", brand: "Jack Link's", subcategory: "Jerky", packSize: "5oz", currentBasePrice: 8.99, cost: 6.2, recommendedBasePrice: 7.49, sensitivity: "H", hasAlert: true },
   { ...baseItem, id: "HQ-107", name: "SkinnyPop Original 4.4oz", brand: "SkinnyPop", subcategory: "Popcorn", packSize: "4.4oz", category_type: "temporary_allowance", currentBasePrice: 3.29, cost: 1.9, recommendedBasePrice: 3.29, currentRetailPrice: 3.29, recommendedRetailPrice: 2.5, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
@@ -245,6 +261,8 @@ const baseMockItems: PricingItem[] = [
     newBasePrice: 4.99,
     hasOverride: true,
     baseOverrideStatus: "pending",
+    // Store-originated — no HQ rec on this item.
+    chosenBaseReason: "competitor_change",
   },
   {
     ...baseItem,
@@ -259,6 +277,8 @@ const baseMockItems: PricingItem[] = [
     hasOverride: true,
     baseOverrideStatus: "pending",
     impactConfidence: "Medium",
+    // Store-originated — no HQ rec on this item.
+    chosenBaseReason: "cost_change",
   },
   {
     ...baseItem,
@@ -514,26 +534,51 @@ const HQ_REVIEW_IDS = new Set([
 
 // Every HQ recommendation carries the reason behind it — the director triages
 // the queue by these (competitor moves are time-sensitive, cost changes are
-// margin upkeep, category reviews can batch for later).
-const HQ_CHANGE_REASONS: Record<string, HqChangeReason> = {
+// margin upkeep, HQ pricing reviews can batch for later). Reason is per
+// SECTION, not per item: a plain base-price rec carries a Base reason, while a
+// temporary allowance's rec is a RETAIL move and carries a Retail reason —
+// even though its base price is untouched.
+const HQ_BASE_REASON_SEEDS: Record<string, HqBaseReason> = {
   "RBCS5-7": "cost_change",
   "RBCS5-8": "cost_change",
   "HQ-101": "cost_change",
   "HQ-102": "cost_change",
   "HQ-105": "cost_change",
-  "EDLP-1": "competitor_move",
-  "HQ-103": "competitor_move",
-  "HQ-106": "competitor_move",
-  "HQ-108": "competitor_move",
-  "ND-4": "category_review",
-  "RBCS5-9": "category_review",
-  "HQ-104": "category_review",
-  "HQ-107": "category_review",
+  "EDLP-1": "competitor_change",
+  "HQ-103": "competitor_change",
+  "HQ-106": "competitor_change",
+  "HQ-108": "competitor_change",
+  "ND-4": "hq_pricing_review",
+  "HQ-104": "cost_change", // also carries a retail rec below — differing reasons, same row
+};
+
+// TA/promo recommendations — vendor-funded allowances get "allowance", the
+// rest mix across the shared HQ retail/fuel catalog for variety.
+const HQ_RETAIL_REASON_SEEDS: Record<string, HqPromoReason> = {
+  "RBCS5-9": "displays",
+  "HQ-104": "allowance", // vendor-funded TA
+  "HQ-107": "wow_buy",
+};
+
+// A couple of the already-flagged items ALSO carry an HQ fuel-saver
+// recommendation, independent of their base/retail one — proof that a single
+// item can surface more than one section's HQ reason at once (see HQ-108:
+// a "Competitor change" base reason alongside a "Discontinued" fuel reason).
+const HQ_FUEL_REASON_SEEDS: Record<string, { amount: number; reason: HqPromoReason }> = {
+  "HQ-102": { amount: 0.03, reason: "wow_buy" },
+  "HQ-108": { amount: 0.05, reason: "discontinued" },
 };
 
 function applyHqReview(item: PricingItem): PricingItem {
   if (!HQ_REVIEW_IDS.has(item.id)) return item;
-  return { ...item, hqReviewPending: true, hqChangeReason: HQ_CHANGE_REASONS[item.id] };
+  const fuel = HQ_FUEL_REASON_SEEDS[item.id];
+  return {
+    ...item,
+    hqReviewPending: true,
+    hqBaseReason: HQ_BASE_REASON_SEEDS[item.id],
+    hqRetailReason: HQ_RETAIL_REASON_SEEDS[item.id],
+    ...(fuel ? { recommendedFuelSaver: fuel.amount, hqFuelReason: fuel.reason } : {}),
+  };
 }
 
 // ─── Synthetic catalog (scale) ───────────────────────────────────────────────

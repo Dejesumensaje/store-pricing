@@ -23,14 +23,31 @@ export type CompetitorPrice = {
   address?: string;
 };
 export type NationalVsStore = "National" | "Store";
-/** Why HQ proposed a price change. A director's own price is a "local ad hoc"
- *  decision — that value is derived, never stored (see price-change-reason.ts). */
-export type HqChangeReason = "cost_change" | "competitor_move" | "category_review";
 /**
- * The reason a director attaches to a non-HQ change — defaults to "local ad
- * hoc", editable (see price-change-reason.ts).
+ * Change Reason is per pricing-section, not per item — Base, Retail, and Fuel
+ * Saver each carry their own reason, from their own catalog (see
+ * price-change-reason.ts). HQ's reason is set alongside its recommendation for
+ * that section; a director's store-originated reason is picked in the drawer.
  */
-export type StoreOriginReason = "store_cost" | "store_competitor" | "local_ad_hoc";
+/** HQ's reason for a Base price recommendation. */
+export type HqBaseReason = "cost_change" | "competitor_change" | "hq_pricing_review" | "other";
+/** HQ's reason for a Retail or Fuel Saver recommendation — one shared catalog. */
+export type HqPromoReason = "discontinued" | "allowance" | "displays" | "wow_buy";
+/** A director's reason for a store-originated Base price change — defaults to "other". */
+export type StoreBaseReason = "cost_change" | "competitor_change" | "other";
+/** A director's reason for a store-originated Retail or Fuel Saver change — one shared catalog, no default. */
+export type StorePromoReason =
+  | "manager_special"
+  | "soon_to_expiry"
+  | "obsolete_inventory"
+  | "discontinued_mc060220"
+  | "allowance"
+  | "buys"
+  | "displays"
+  | "excess_stock"
+  | "local_deal"
+  | "wow_buy"
+  | "four_by_four";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
 export type OverrideStatus = "pending" | "confirmed";
@@ -120,14 +137,30 @@ export type PricingItem = {
    * The queue clears the item once it's decided.
    */
   hqReviewPending?: boolean;
-  /** The reason HQ attached to its recommendation (set alongside hqReviewPending). */
-  hqChangeReason?: HqChangeReason;
+  /** The reason HQ attached to its Base price recommendation (set alongside recommendedBasePrice). */
+  hqBaseReason?: HqBaseReason;
+  /** The reason HQ attached to its Retail price recommendation (set alongside recommendedRetailPrice). */
+  hqRetailReason?: HqPromoReason;
+  /** The reason HQ attached to its Fuel Saver recommendation (set alongside recommendedFuelSaver). */
+  hqFuelReason?: HqPromoReason;
   /**
-   * The director's chosen reason for a non-HQ change, editable in the drawer.
-   * Unlike HQ reasons this IS stored, because a store change has no
-   * recommendation to derive the reason from. Defaults to "local ad hoc".
+   * The director's chosen reason for a store-originated Base price change,
+   * editable in the drawer. Defaults to "other" once a price is set — Base has
+   * no unselected placeholder state.
    */
-  chosenChangeReason?: StoreOriginReason;
+  chosenBaseReason?: StoreBaseReason;
+  /**
+   * The director's chosen reason for a store-originated Retail price change,
+   * editable in the drawer. No default — starts unselected (placeholder) until
+   * the director picks one.
+   */
+  chosenRetailReason?: StorePromoReason;
+  /**
+   * The director's chosen reason for a store-originated Fuel Saver change,
+   * editable in the drawer. No default — starts unselected (placeholder) until
+   * the director picks one.
+   */
+  chosenFuelReason?: StorePromoReason;
   category_type: PricingCategory;
   /**
    * The pricing strategy currently live in SAP. `category_type` is the strategy

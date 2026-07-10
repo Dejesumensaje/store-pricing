@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreOriginReason } from "@/types/pricing";
+import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason } from "@/types/pricing";
 import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
@@ -28,8 +28,12 @@ type PricingStore = {
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
   // Accept an item as-is (no price change) — clears it from the HQ queue.
   acceptNoChange: (itemId: string) => void;
-  // Set the director's chosen reason for a store-originated change (cost/competitor).
-  setChangeReason: (itemId: string, reason: StoreOriginReason) => void;
+  // Set the director's chosen reason for a store-originated change, one setter
+  // per pricing section — each section's reason is independent (see
+  // price-change-reason.ts).
+  setBaseChangeReason: (itemId: string, reason: StoreBaseReason) => void;
+  setRetailChangeReason: (itemId: string, reason: StorePromoReason) => void;
+  setFuelChangeReason: (itemId: string, reason: StorePromoReason) => void;
   // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
   setReviewed: (itemId: string, value: boolean) => void;
   removeFromLooseTray: (overrideId: string) => void;
@@ -159,6 +163,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
         items: state.items.map((item) => {
           if (!groupIds.includes(item.id)) return item;
           let next: PricingItem = { ...item, newBasePrice: newPrice, newBaseQty: normQty, baseOverrideStatus: statusById[item.id] };
+          // Reverting to the current price drops the director's store-chosen
+          // reason too — it described a decision that no longer exists.
+          if (newPrice == null) next.chosenBaseReason = undefined;
           // Deciding on an HQ rec (accept or override) reviews it for good — it
           // must not return to the queue when the override later goes confirmed.
           if (newPrice != null && item.hqReviewPending) next.reviewed = true;
@@ -200,6 +207,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
                 reviewed: price != null && item.hqReviewPending ? true : item.reviewed,
                 allowanceStartDate: price != null ? item.allowanceStartDate ?? iso(today) : item.allowanceStartDate,
                 allowanceEndDate: price != null ? item.allowanceEndDate ?? iso(weekOut) : item.allowanceEndDate,
+                // Reverting to the current price drops the director's
+                // store-chosen reason too (see updateBasePrice).
+                chosenRetailReason: price != null ? item.chosenRetailReason : undefined,
               })
             : item
         ),
@@ -214,7 +224,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
         // Clearing the fuel saver clears its dates too; setting one defaults the
         // window to a one-week run if none is set yet.
         if (value == null || value <= 0) {
-          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null };
+          // Removing the fuel saver drops the director's store-chosen reason
+          // too — it described a decision that no longer exists.
+          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null, chosenFuelReason: undefined };
         }
         const today = new Date();
         const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -272,7 +284,13 @@ export const usePricingStore = create<PricingStore>((set) => ({
 
   acceptNoChange: (itemId) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: true } : item)),
+      // Keeping the current (Base) price rejects HQ's recommendation for
+      // good — its reason goes with it, so no reason remains for the
+      // section. If the director later sets a price here, it's a fresh
+      // store-originated decision (own catalog, own reason).
+      items: state.items.map((item) =>
+        item.id === itemId ? { ...item, reviewed: true, hqBaseReason: undefined } : item
+      ),
     })),
 
   setReviewed: (itemId, value) =>
@@ -280,12 +298,24 @@ export const usePricingStore = create<PricingStore>((set) => ({
       items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: value } : item)),
     })),
 
-  setChangeReason: (itemId, reason) =>
+  setBaseChangeReason: (itemId, reason) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenChangeReason: reason } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenBaseReason: reason } : item)),
     })),
 
-  // Discarding a pending change also clears the edit from the table cell.
+  setRetailChangeReason: (itemId, reason) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenRetailReason: reason } : item)),
+    })),
+
+  setFuelChangeReason: (itemId, reason) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenFuelReason: reason } : item)),
+    })),
+
+  // Discarding a pending change also clears the edit from the table cell —
+  // and the section's store-chosen reason, which described a decision that
+  // no longer exists.
   removeFromLooseTray: (overrideId) =>
     set((state) => {
       const ov = state.overrides.find((o) => o.id === overrideId);
@@ -293,8 +323,8 @@ export const usePricingStore = create<PricingStore>((set) => ({
         if (!ov || item.id !== ov.itemId) return item;
         const next =
           ov.priceField === "base"
-            ? { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined }
-            : { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined };
+            ? { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined, chosenBaseReason: undefined }
+            : { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined, chosenRetailReason: undefined };
         return withOverrideFlags(next);
       };
       return {

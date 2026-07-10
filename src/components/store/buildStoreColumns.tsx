@@ -3,9 +3,9 @@
 import { Fuel, AlertTriangle } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
-import { PricingItem, HqChangeReason } from "@/types/pricing";
+import { PricingItem, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { REASON_META } from "@/lib/price-change-reason";
+import { REASON_META, PriceChangeReason } from "@/lib/price-change-reason";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { committedEdlpCeilingState } from "@/lib/edlp-ceiling";
@@ -118,8 +118,12 @@ export function ShelfTagCell({ item }: { item: PricingItem }) {
 // "this came from HQ, look here". A subtle pulse (.hq-pulse) draws the eye without
 // shouting. The change reason rides along in the tooltip — secondary info, on
 // demand, never its own table furniture.
-export function HqBadge({ reason }: { reason?: HqChangeReason }) {
-  const why = reason ? `${REASON_META[reason].label} — HQ recommends a price change.` : "HQ recommends a price change.";
+export function HqBadge({ reasons }: { reasons?: PriceChangeReason[] }) {
+  // An item's HQ recommendation can span several sections (Base, Retail, Fuel
+  // Saver) at once, each with its own reason — list them all rather than
+  // picking one and hiding the rest.
+  const labels = (reasons ?? []).map((r) => REASON_META[r].label);
+  const why = labels.length > 0 ? `${labels.join(", ")} — HQ recommends a price change.` : "HQ recommends a price change.";
   return (
     <Tooltip content={`${why} Review and decide.`}>
       <span
@@ -211,7 +215,15 @@ export function PriceCell({ item }: { item: PricingItem }) {
       </span>
     ) : null;
 
-  const baseTarget = item.newBasePrice != null ? item.newBasePrice : item.hqReviewPending ? item.recommendedBasePrice : null;
+  // A rec whose target equals the current base (retail-only recommendations
+  // seed these) is NOT a base move — render the plain current price rather
+  // than a "$3.19 → $3.19" strikethrough. Same 0.005 tolerance the drawer's
+  // accept-first block uses.
+  const recBase =
+    item.hqReviewPending && Math.abs(item.recommendedBasePrice - item.currentBasePrice) > 0.005
+      ? item.recommendedBasePrice
+      : null;
+  const baseTarget = item.newBasePrice != null ? item.newBasePrice : recBase;
   // Only a decided base can be a pack-size deal (HQ recs are always single-unit).
   const baseQty = item.newBasePrice != null ? item.newBaseQty ?? 1 : 1;
   const baseLine = (
@@ -226,17 +238,27 @@ export function PriceCell({ item }: { item: PricingItem }) {
 
   // A pending HQ recommendation's reason, scannable in the row itself — the HQ
   // pill (next to the item name) says a change is proposed; this says why,
-  // without needing a hover to find out.
-  const reasonLine =
-    hqReviewNeeded(item) && item.hqChangeReason ? (
-      <span className="text-xs text-gray-500">{REASON_META[item.hqChangeReason].label}</span>
+  // without needing a hover to find out. Base and Retail carry independent
+  // reasons, so each gets its OWN caption on its OWN line rather than one
+  // item-level reason that would misrepresent a row where they differ. When
+  // the BASE·RETAIL labels are shown, the caption indents past the label to
+  // sit under its own price value — proximity + alignment say which price the
+  // reason describes, not just reading order.
+  const captionClass = `text-xs text-gray-500${showRetail ? " pl-[42px]" : ""}`;
+  const baseReasonLine =
+    hqReviewNeeded(item) && item.hqBaseReason ? (
+      <span className={captionClass}>{REASON_META[item.hqBaseReason].label}</span>
+    ) : null;
+  const retailReasonLine =
+    hqReviewNeeded(item) && item.hqRetailReason ? (
+      <span className={captionClass}>{REASON_META[item.hqRetailReason].label}</span>
     ) : null;
 
   if (!showRetail) {
-    return edlpIndicator || reasonLine ? (
+    return edlpIndicator || baseReasonLine ? (
       <span className="flex flex-col gap-0.5">
         {baseLine}
-        {reasonLine}
+        {baseReasonLine}
         {edlpIndicator}
       </span>
     ) : (
@@ -262,20 +284,28 @@ export function PriceCell({ item }: { item: PricingItem }) {
   );
 
   return (
-    <span className="flex flex-col gap-0.5">
-      {baseLine}
-      {edlpIndicator}
-      {promoRange ? (
-        <Tooltip content={`Promo ${promoRange}`}>
-          <span className="inline-flex w-fit cursor-default">{retailLine}</span>
-        </Tooltip>
-      ) : (
-        retailLine
-      )}
-      {/* The reason describes the whole HQ recommendation, not the base line —
-          it sits UNDER both price lines so it reads as an item-level caption
-          instead of splitting base from retail. */}
-      {reasonLine}
+    // Each price line and its caption form a tight pair (gap-0.5) with a wider
+    // gap between the pairs (gap-1) — Gestalt proximity binds "Cost change" to
+    // the base line above it, not the retail line below.
+    <span className="flex flex-col gap-1">
+      <span className="flex flex-col gap-0.5">
+        {baseLine}
+        {baseReasonLine}
+        {edlpIndicator}
+      </span>
+      <span className="flex flex-col gap-0.5">
+        {promoRange ? (
+          <Tooltip content={`Promo ${promoRange}`}>
+            <span className="inline-flex w-fit cursor-default">{retailLine}</span>
+          </Tooltip>
+        ) : (
+          retailLine
+        )}
+        {/* The retail reason sits under the retail line specifically — base and
+            retail are independent decisions with independent reasons, so a row
+            where they differ shows each caption against its own price line. */}
+        {retailReasonLine}
+      </span>
     </span>
   );
 }
@@ -294,7 +324,11 @@ function FuelChip({ amount }: { amount: number }) {
 export function FuelSaverCell({ item }: { item: PricingItem }) {
   const current = item.currentFuelSaver ?? null;
   const decided = item.fuelSaver ?? null;
-  const recommended = item.hqReviewPending ? item.recommendedFuelSaver ?? null : null;
+  // hqReviewNeeded (not hqReviewPending) — the rec chip is only advertised
+  // while the item is still actionable in the review queue, matching the
+  // drawer's fuel accept-first block, so the table never promises a decision
+  // the drawer no longer offers.
+  const recommended = hqReviewNeeded(item) ? item.recommendedFuelSaver ?? null : null;
 
   const target =
     decided != null && decided !== current ? decided
@@ -361,7 +395,7 @@ export function buildStoreColumns(visibleCols: Set<string>): DataColumn<PricingI
 
   return [
     idCol,
-    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge reason={r.hqChangeReason} /> : null)),
+    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge reasons={[r.hqBaseReason, r.hqRetailReason, r.hqFuelReason].filter((x): x is HqBaseReason | HqPromoReason => x != null)} /> : null)),
     textCol("category", "Category", (r) => r.category, 140),
     {
       id: "price",

@@ -22,10 +22,10 @@ import { FilterDrawer, FilterFacet, FilterValue } from "@/components/filters/Fil
 import { FilterChips } from "@/components/filters/FilterChips";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
-import { PricingItem, HqChangeReason } from "@/types/pricing";
+import { PricingItem, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
-import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
+import { HQ_BASE_REASONS, HQ_PROMO_REASONS, REASON_META, countedReasonSummary, PriceChangeReason } from "@/lib/price-change-reason";
 import { itemIdsOverEdlpCeiling } from "@/lib/edlp-ceiling";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
@@ -81,15 +81,24 @@ export default function StorePricingPage() {
 
   // Pending HQ recommendations broken down by change reason. Deliberately quiet:
   // it renders as a plain-text summary in the review banner (secondary info),
-  // with per-reason filtering tucked into the Filters drawer as a facet.
+  // with per-reason filtering tucked into the Filters drawer as a facet. Each
+  // section (Base / Retail / Fuel Saver) carries its own reason, so one item
+  // can contribute to two counts at once (e.g. a "Cost change" base move and
+  // an "Allowance" retail promo on the same SKU).
   const hqReasonSummary = useMemo(() => {
-    const counts: Partial<Record<HqChangeReason, number>> = {};
+    const counts: Partial<Record<PriceChangeReason, number>> = {};
     for (const i of items) {
-      if (!hqReviewNeeded(i) || !i.hqChangeReason) continue;
-      counts[i.hqChangeReason] = (counts[i.hqChangeReason] ?? 0) + 1;
+      if (!hqReviewNeeded(i)) continue;
+      for (const r of [i.hqBaseReason, i.hqRetailReason, i.hqFuelReason]) {
+        if (!r) continue;
+        counts[r] = (counts[r] ?? 0) + 1;
+      }
     }
-    return HQ_REASONS.filter((r) => (counts[r] ?? 0) > 0)
-      .map((r) => `${counts[r]} ${REASON_META[r].summary}`)
+    // Catalog order keeps permanent base moves clustered ahead of promo-driven
+    // work; singular/plural per count so "1 allowance" never reads "1 allowances".
+    return [...HQ_BASE_REASONS, ...HQ_PROMO_REASONS]
+      .filter((r) => (counts[r] ?? 0) > 0)
+      .map((r) => countedReasonSummary(r, counts[r]!))
       .join(" · ");
   }, [items]);
 
@@ -120,9 +129,13 @@ export default function StorePricingPage() {
         items.some((i) => itemChangeGroups(i).includes(o))
       ) },
       // HQ's change reason — deliberately a facet (not table furniture): filter
-      // the review queue by reason without the reason crowding the rows.
+      // the review queue by reason without the reason crowding the rows. Pulls
+      // from all three sections' HQ reasons, since an item can carry more than one.
       { key: "hqReason", label: "HQ reason", options: uniqueSorted(
-        items.filter(hqReviewNeeded).map((i) => i.hqChangeReason && REASON_META[i.hqChangeReason].label).filter((l): l is string => l != null)
+        items.filter(hqReviewNeeded)
+          .flatMap((i) => [i.hqBaseReason, i.hqRetailReason, i.hqFuelReason])
+          .filter((r): r is HqBaseReason | HqPromoReason => r != null)
+          .map((r) => REASON_META[r].label)
       ) },
       { key: "brand", label: "Brand", options: uniqueSorted(items.map((i) => i.brand)) },
       { key: "category", label: "Category", options: uniqueSorted(items.map((i) => i.category)) },
@@ -152,7 +165,11 @@ export default function StorePricingPage() {
           continue;
         }
         if (key === "hqReason") {
-          if (!i.hqChangeReason || !opts.includes(REASON_META[i.hqChangeReason].label)) return false;
+          // Matches if ANY of the item's section reasons is selected.
+          const labels = [i.hqBaseReason, i.hqRetailReason, i.hqFuelReason]
+            .filter((r): r is HqBaseReason | HqPromoReason => r != null)
+            .map((r) => REASON_META[r].label);
+          if (!labels.some((l) => opts.includes(l))) return false;
           continue;
         }
         // Boolean facets: the generic string-equality branch below would
