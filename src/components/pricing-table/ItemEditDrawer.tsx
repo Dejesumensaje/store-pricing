@@ -398,21 +398,19 @@ export function ItemEditDrawer({
         {item.hqBaseReason ? (
           // Custom price on an HQ-recommended section keeps the HQ reason as
           // its origin — read-only context here, not an editable selector.
-          <p className="text-xs text-gray-500">
-            HQ reason: <span className="font-medium text-gray-700">{REASON_META[item.hqBaseReason].label}</span>
+          <p className="text-sm text-gray-500">
+            Reason: <span className="font-medium text-gray-700">{REASON_META[item.hqBaseReason].label}</span>
           </p>
         ) : (
           // Part of setting the price, not a post-hoc afterthought — the director
           // picks why alongside what, before the price is even committed.
-          <div className="w-[200px]">
-            <Select
-              label="Change reason"
-              size="sm"
-              options={STORE_BASE_REASON_OPTIONS}
-              value={item.chosenBaseReason ?? STORE_BASE_REASON_DEFAULT}
-              onChange={(v) => setBaseChangeReason(item.id, v as StoreBaseReason)}
-            />
-          </div>
+          <Select
+            label="Change reason"
+            size="sm"
+            options={STORE_BASE_REASON_OPTIONS}
+            value={item.chosenBaseReason ?? STORE_BASE_REASON_DEFAULT}
+            onChange={(v) => setBaseChangeReason(item.id, v as StoreBaseReason)}
+          />
         )}
         {familyItems.length > 0 && (
           <p className="flex items-center gap-1.5 text-xs text-gray-500">
@@ -691,7 +689,7 @@ export function ItemEditDrawer({
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-baseline gap-2 tabular-nums">
                           <span className="text-xs text-gray-500">{isTemp ? "Current" : "No promo"}</span>
-                          <span className="text-base font-semibold text-gray-900">{isTemp ? fmt(curRetail) : "—"}</span>
+                          {isTemp && <span className="text-base font-semibold text-gray-900">{fmt(curRetail)}</span>}
                         </div>
                         <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={startPromo}>
                           Set promo price
@@ -731,24 +729,22 @@ export function ItemEditDrawer({
                         {item.hqRetailReason ? (
                           // Custom price on an HQ-recommended section keeps the HQ
                           // reason as its origin — read-only context, not a selector.
-                          <p className="text-xs text-gray-500">
-                            HQ reason: <span className="font-medium text-gray-700">{REASON_META[item.hqRetailReason].label}</span>
+                          <p className="text-sm text-gray-500">
+                            Reason: <span className="font-medium text-gray-700">{REASON_META[item.hqRetailReason].label}</span>
                           </p>
                         ) : (
                           // Part of setting the price, not a post-hoc afterthought —
                           // the director picks why alongside what, before the price
                           // is even committed. Retail has no default — starts
                           // unselected until the director actively picks one.
-                          <div className="w-[200px]">
-                            <Select
-                              label="Change reason"
-                              size="sm"
-                              options={STORE_PROMO_REASON_OPTIONS}
-                              value={item.chosenRetailReason ?? ""}
-                              placeholder="Select a reason"
-                              onChange={(v) => setRetailChangeReason(item.id, v as StorePromoReason)}
-                            />
-                          </div>
+                          <Select
+                            label="Change reason"
+                            size="sm"
+                            options={STORE_PROMO_REASON_OPTIONS}
+                            value={item.chosenRetailReason ?? ""}
+                            placeholder="Select a reason"
+                            onChange={(v) => setRetailChangeReason(item.id, v as StorePromoReason)}
+                          />
                         )}
 
                         {(() => {
@@ -862,7 +858,6 @@ export function ItemEditDrawer({
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-baseline gap-2 tabular-nums">
                         <span className="text-xs text-gray-500">No fuel saver</span>
-                        <span className="text-base font-semibold text-gray-900">{fmt(0)}</span>
                       </div>
                       <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingFuelSaver(true)}>
                         Add fuel saver
@@ -871,43 +866,39 @@ export function ItemEditDrawer({
                   );
                 }
                 return (
-                  <div className="flex flex-col gap-2">
-                    <div className="w-[170px]">
-                      <Select
-                        options={FUEL_SAVER_OPTIONS}
-                        value={fuelSaverSelectValue(item.fuelSaver)}
-                        onChange={(v) => {
-                          if (v === '0.00' || v === '0' || parseFloat(v as string) === 0) {
-                            updateFuelSaver(item.id, null);
-                            setEditingFuelSaver(false);
-                          } else {
-                            updateFuelSaver(item.id, parseFloat(v as string));
-                          }
-                        }}
-                        label="Fuel saver"
-                        size="sm"
-                      />
-                    </div>
+                  <div className="flex flex-col gap-4">
+                    <Select
+                      options={FUEL_SAVER_OPTIONS}
+                      value={fuelSaverSelectValue(item.fuelSaver)}
+                      onChange={(v) => {
+                        if (v === '0.00' || v === '0' || parseFloat(v as string) === 0) {
+                          updateFuelSaver(item.id, null);
+                          setEditingFuelSaver(false);
+                        } else {
+                          updateFuelSaver(item.id, parseFloat(v as string));
+                        }
+                      }}
+                      label="Fuel saver"
+                      size="sm"
+                    />
                     {item.hqFuelReason ? (
                       // Custom price on an HQ-recommended section keeps the HQ
                       // reason as its origin — read-only context, not a selector.
-                      <p className="text-xs text-gray-500">
-                        HQ reason: <span className="font-medium text-gray-700">{REASON_META[item.hqFuelReason].label}</span>
+                      <p className="text-sm text-gray-500">
+                        Reason: <span className="font-medium text-gray-700">{REASON_META[item.hqFuelReason].label}</span>
                       </p>
                     ) : fuelDecided ? (
                       // The reason is asked only once an amount exists — like the
                       // period field below, "why" follows "what". No default —
                       // starts unselected until the director actively picks one.
-                      <div className="w-[170px]">
-                        <Select
-                          label="Change reason"
-                          size="sm"
-                          options={STORE_PROMO_REASON_OPTIONS}
-                          value={item.chosenFuelReason ?? ""}
-                          placeholder="Select a reason"
-                          onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason)}
-                        />
-                      </div>
+                      <Select
+                        label="Change reason"
+                        size="sm"
+                        options={STORE_PROMO_REASON_OPTIONS}
+                        value={item.chosenFuelReason ?? ""}
+                        placeholder="Select a reason"
+                        onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason)}
+                      />
                     ) : null}
                     {fuelDecided && (
                       <Field label="Fuel saver period">
