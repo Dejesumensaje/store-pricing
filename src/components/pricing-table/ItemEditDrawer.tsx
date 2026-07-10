@@ -743,20 +743,7 @@ export function ItemEditDrawer({
                       </div>
                     ) : (
                       <>
-                        <Field
-                          label="New retail price"
-                          action={
-                            item.newRetailPrice != null && (
-                              <Button
-                                variant="tertiary"
-                                size="sm"
-                                iconLeft={RotateCcw}
-                                aria-label="Revert to current retail price"
-                                onClick={() => revertField("retail")}
-                              />
-                            )
-                          }
-                        >
+                        <Field label="New retail price">
                           <RetailReductionField
                             baseReference={baseRef}
                             recommendedPrice={retailHasRec ? recRetail : curRetail}
