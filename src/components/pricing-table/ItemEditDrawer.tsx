@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
-import { StoreOriginReason } from "@/types/pricing";
+import { PricingItem, StoreOriginReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
@@ -26,7 +26,7 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateRange } from "@/lib/format";
 import { perUnit, round2 } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/edlp-ceiling";
-import { RotateCcw, Trash2, Check, Package, Link2, Info, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
+import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -57,6 +57,29 @@ function Field({
       </div>
       {children}
     </div>
+  );
+}
+
+// The "why" that leads an HQ decision block. Lives inside the accept-first
+// unit itself (why → what → decide) — never a standalone banner, and never
+// competing with the price, which stays the largest/boldest element below it.
+//
+// Base recs get the reason label alone: the rationale sentence for a base move
+// is a pure numeric restatement of the Current → Recommends line right below,
+// so printing it would say the same numbers twice. Retail (TA) recs keep the
+// sentence — vendor funding, savings, and the run window are information the
+// what-line doesn't carry.
+function HqRationale({ item, section }: { item: PricingItem; section: "base" | "retail" }) {
+  const label = item.hqChangeReason ? REASON_META[item.hqChangeReason].label : null;
+  if (section === "base") {
+    return label ? <p className="text-sm font-medium text-gray-700">{label}</p> : null;
+  }
+  return (
+    <p className="text-sm text-gray-600">
+      {label && <span className="font-medium text-gray-700">{label}</span>}
+      {label ? " — " : ""}
+      {hqRecRationale(item, "retail")}
+    </p>
   );
 }
 
@@ -365,6 +388,19 @@ export function ItemEditDrawer({
             </>
           )}
         </Field>
+        {storeOrigin && (
+          // Part of setting the price, not a post-hoc afterthought — the director
+          // picks why alongside what, before the price is even committed.
+          <div className="w-[200px]">
+            <Select
+              label="Change reason"
+              size="sm"
+              options={STORE_REASON_OPTIONS}
+              value={item.chosenChangeReason ?? "local_ad_hoc"}
+              onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
+            />
+          </div>
+        )}
         {familyItems.length > 0 && (
           <p className="flex items-center gap-1.5 text-xs text-gray-500">
             <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Family price — updating this updates all {familyItems.length + 1} items in
@@ -451,19 +487,6 @@ export function ItemEditDrawer({
 
           <ShelfTagPreview key={`${item.id}-${item.newBasePrice ?? 'none'}-${item.newBaseQty ?? 1}`} item={item} />
 
-          {hqReviewNeeded(item) && (
-            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
-              <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
-              <span className="text-gray-700">
-                {/* The change reason leads the sentence — context, not a chip. */}
-                {item.hqChangeReason && (
-                  <span className="font-medium text-gray-800">{REASON_META[item.hqChangeReason].label} — </span>
-                )}
-                {hqRecRationale(item)}
-              </span>
-            </div>
-          )}
-
           {(() => {
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
@@ -488,10 +511,12 @@ export function ItemEditDrawer({
                         )}
                         <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice)}</span>
                         {(() => {
-                          // Store-originated reason is shown as an editable select below.
-                          if (storeOrigin) return null;
+                          // Plain caption, deliberately not a second edit affordance —
+                          // "Change" is the one path back into the editor (which
+                          // carries the reason picker for store-origin items).
                           const reason = changeReasonFor(item);
-                          return reason && <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
+                          if (!reason) return null;
+                          return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
                         })()}
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -508,6 +533,7 @@ export function ItemEditDrawer({
                     </div>
                   ) : baseHasRec ? (
                     <div className="flex flex-col gap-3">
+                      <HqRationale item={item} section="base" />
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
                         <span aria-hidden="true" className="text-gray-300">→</span>
@@ -565,20 +591,6 @@ export function ItemEditDrawer({
             );
           })()}
 
-          {/* Change reason for any non-HQ edit — defaults to "Local ad hoc",
-              editable here. Appears once the director has actually set a price. */}
-          {storeOrigin && (item.newBasePrice != null || item.newRetailPrice != null) && (
-            <div className="w-[240px]">
-              <Select
-                label="Change reason"
-                size="sm"
-                options={STORE_REASON_OPTIONS}
-                value={item.chosenChangeReason ?? "local_ad_hoc"}
-                onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
-              />
-            </div>
-          )}
-
           {(() => {
             const recRetail = item.recommendedRetailPrice ?? item.currentBasePrice;
             // % / $ reductions are taken off the base (white-tag) price — the new
@@ -603,13 +615,21 @@ export function ItemEditDrawer({
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   <div className="flex flex-col gap-4">
                     {acceptFirst ? (
-                      <div className="decision-pop flex flex-wrap items-center gap-2">
-                        <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
-                          Accept {fmt(recRetail)}
-                        </Button>
-                        <Button variant="secondary" size="sm" onClick={() => setChangingRetail(true)}>
-                          Set a different price
-                        </Button>
+                      <div className="flex flex-col gap-3">
+                        <HqRationale item={item} section="retail" />
+                        <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
+                          <span className="text-gray-500">Current {fmt(curRetail)}</span>
+                          <span aria-hidden="true" className="text-gray-300">→</span>
+                          <span className="font-semibold text-gray-900">HQ recommends {fmt(recRetail)}</span>
+                        </div>
+                        <div className="decision-pop flex flex-wrap items-center gap-2">
+                          <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
+                            Accept {fmt(recRetail)}
+                          </Button>
+                          <Button variant="secondary" size="sm" onClick={() => setChangingRetail(true)}>
+                            Set a different price
+                          </Button>
+                        </div>
                       </div>
                     ) : retailDecided && !changingRetail ? (
                       <div className="decision-pop flex items-center justify-between gap-3">
@@ -620,8 +640,11 @@ export function ItemEditDrawer({
                             <span aria-hidden="true" className="text-gray-300">→</span>
                             <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
                             {(() => {
+                              // Plain caption — same one-edit-path rule as the base
+                              // section's; "Change" reopens the editor + reason picker.
                               const reason = changeReasonFor(item);
-                              return reason && <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
+                              if (!reason) return null;
+                              return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
                             })()}
                           </div>
                           {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) && (
@@ -683,6 +706,23 @@ export function ItemEditDrawer({
                             </span>
                           )}
                         </Field>
+
+                        {storeOrigin && !editingBase && (
+                          // Part of setting the price, not a post-hoc afterthought —
+                          // same reason as the base price's, since one director
+                          // decision covers whichever price they're touching. One
+                          // shared reason = one visible control: when the base editor
+                          // is open too, its copy of this Select is the one that shows.
+                          <div className="w-[200px]">
+                            <Select
+                              label="Change reason"
+                              size="sm"
+                              options={STORE_REASON_OPTIONS}
+                              value={item.chosenChangeReason ?? "local_ad_hoc"}
+                              onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
+                            />
+                          </div>
+                        )}
 
                         {(() => {
                           // A promo must carry a date range — flag it required and

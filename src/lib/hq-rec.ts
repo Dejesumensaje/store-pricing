@@ -14,8 +14,11 @@ function shortDate(iso?: string | null): string | null {
 // What HQ is proposing, in plain terms — so the director understands the
 // recommendation, not just sees a price. A vendor-funded allowance leads with
 // its funding + window; base/EDLP/new state the move and its direction.
-export function hqRecRationale(item: PricingItem): string {
-  if (item.category_type === "temporary_allowance") {
+// `section` scopes the sentence to the price being decided: the promo sentence
+// belongs to the retail (yellow-tag) section only — a TA that also carries a
+// base rec must not describe its BASE move in promo terms.
+export function hqRecRationale(item: PricingItem, section: "base" | "retail" = "retail"): string {
+  if (section === "retail" && item.category_type === "temporary_allowance") {
     const rec = item.recommendedRetailPrice ?? item.currentBasePrice;
     const save = item.currentBasePrice - rec;
     const start = shortDate(item.allowanceStartDate);

@@ -224,10 +224,19 @@ export function PriceCell({ item }: { item: PricingItem }) {
     />
   );
 
+  // A pending HQ recommendation's reason, scannable in the row itself — the HQ
+  // pill (next to the item name) says a change is proposed; this says why,
+  // without needing a hover to find out.
+  const reasonLine =
+    hqReviewNeeded(item) && item.hqChangeReason ? (
+      <span className="text-xs text-gray-500">{REASON_META[item.hqChangeReason].label}</span>
+    ) : null;
+
   if (!showRetail) {
-    return edlpIndicator ? (
+    return edlpIndicator || reasonLine ? (
       <span className="flex flex-col gap-0.5">
         {baseLine}
+        {reasonLine}
         {edlpIndicator}
       </span>
     ) : (
@@ -263,6 +272,10 @@ export function PriceCell({ item }: { item: PricingItem }) {
       ) : (
         retailLine
       )}
+      {/* The reason describes the whole HQ recommendation, not the base line —
+          it sits UNDER both price lines so it reads as an item-level caption
+          instead of splitting base from retail. */}
+      {reasonLine}
     </span>
   );
 }

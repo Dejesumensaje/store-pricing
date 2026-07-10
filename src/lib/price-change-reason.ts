@@ -12,13 +12,18 @@ export type PriceChangeReason = HqChangeReason | StoreOriginReason;
 export const HQ_REASONS: HqChangeReason[] = ["cost_change", "competitor_move", "category_review"];
 
 // `summary` is the plural noun phrase for count breakdowns ("5 cost changes").
+//
+// Labels name the CONCEPT (cost / competitor / category / ad hoc), not the
+// origin — HQ vs. store is already carried by the red HQ pill / provenance
+// channel elsewhere in the UI, so "Cost change" reads the same whether HQ
+// proposed it or a director picked it. Collision is intentional.
 export const REASON_META: Record<PriceChangeReason, { label: string; summary: string }> = {
-  cost_change: { label: "Cost changes", summary: "cost changes" },
-  competitor_move: { label: "Competitor changed price", summary: "competitor moves" },
+  cost_change: { label: "Cost change", summary: "cost changes" },
+  competitor_move: { label: "Competitor change", summary: "competitor changes" },
   category_review: { label: "Category review", summary: "category reviews" },
   local_ad_hoc: { label: "Local ad hoc", summary: "local ad hoc" },
-  store_cost: { label: "Cost-based change", summary: "cost-based changes" },
-  store_competitor: { label: "Competitor-based change", summary: "competitor-based changes" },
+  store_cost: { label: "Cost change", summary: "cost changes" },
+  store_competitor: { label: "Competitor change", summary: "competitor changes" },
 };
 
 // The reasons a director can pick for a store-originated change, in menu order.
