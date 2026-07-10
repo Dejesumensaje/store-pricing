@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
+import { DateField } from "../shared/DateField";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { PricingCategory, PricingItem, StoreBaseReason, StorePromoReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
@@ -29,8 +30,8 @@ import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
-import { fmt, fmtQtyPrice, fmtDateRange } from "@/lib/format";
-import { perUnit, round2 } from "@/lib/pricing-math";
+import { fmt, fmtQtyPrice, fmtDateRange, fmtEffectiveDate } from "@/lib/format";
+import { perUnit, round2, promoDurationDays } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/edlp-ceiling";
 import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
 
@@ -62,6 +63,21 @@ function Field({
         {action}
       </div>
       {children}
+    </div>
+  );
+}
+
+// Non-blocking informational note for a promo period running longer than two
+// weeks — Retail and Fuel Saver only (Base has no period to be "long"). Same
+// amber tone/shape as the EDLP soft-ceiling banner below; the director can
+// still proceed, this is advisory only.
+function LongPromoNotice({ days }: { days: number }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+      <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+      <span className="text-amber-900">
+        This promotion runs {days} days — longer than the typical two-week window.
+      </span>
     </div>
   );
 }
@@ -98,6 +114,7 @@ export function ItemEditDrawer({
 }: Props) {
   const items = usePricingStore((s) => s.items);
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
+  const updateBaseEffectiveDate = usePricingStore((s) => s.updateBaseEffectiveDate);
   const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const updateFuelSaver = usePricingStore((s) => s.updateFuelSaver);
   const updateFuelSaverDates = usePricingStore((s) => s.updateFuelSaverDates);
@@ -166,6 +183,8 @@ export function ItemEditDrawer({
   // The refs mirror state so handleDone can read rejections synchronously — state
   // updates from onBlur and the Done onClick run in the same event flush.
   const [retailValidationError, setRetailValidationError] = useState<string | null>(null);
+  // Inline error for hard base validation failures (zero/negative).
+  const [baseValidationError, setBaseValidationError] = useState<string | null>(null);
   const retailRejectedRef = useRef(false);
   const baseRejectedRef = useRef(false);
   // A proposed retail price that exceeded the 50% soft-warning threshold — parked
@@ -183,6 +202,7 @@ export function ItemEditDrawer({
     setPreConversionType(null);
     setConfirmRevert(null);
     setRetailValidationError(null);
+    setBaseValidationError(null);
     retailRejectedRef.current = false;
     baseRejectedRef.current = false;
     setPendingRetailProposal(null);
@@ -236,6 +256,11 @@ export function ItemEditDrawer({
     baseRejectedRef.current = false;
     if (v != null) {
       const proposedPerUnit = perUnit(v, qty);
+      if (proposedPerUnit <= 0) {
+        setBaseValidationError("Base price must be greater than $0.00.");
+        baseRejectedRef.current = true;
+        return;
+      }
       const edlpEvaluation = evaluateEdlpCeilingChange(item.id, proposedPerUnit, itemsById, edlpException);
       if (edlpEvaluation.hard.length > 0) {
         setEdlpBlockedProposal({ total: v, qty, evaluation: edlpEvaluation });
@@ -248,6 +273,7 @@ export function ItemEditDrawer({
         return;
       }
     }
+    setBaseValidationError(null);
     const prevPrice = item.newBasePrice ?? null;
     const prevQty = item.newBaseQty ?? undefined;
     updateBasePrice(item.id, v, qty);
@@ -308,6 +334,26 @@ export function ItemEditDrawer({
     }
     setChangingRetail(false);
     setRetailValidationError(null);
+  };
+
+  // Exit the base editing form without touching the committed state.
+  // If no price was committed yet (the form was opened but nothing saved),
+  // clear any orphaned reason that updateBasePrice may have written.
+  const cancelBaseEditing = () => {
+    if (item && item.newBasePrice == null) {
+      updateBasePrice(item.id, null);
+    }
+    setEditingBase(false);
+    setBaseValidationError(null);
+  };
+
+  // Exit the fuel saver editing form without touching the committed state.
+  // If no amount was committed yet, clear any orphaned reason/dates.
+  const cancelFuelEditing = () => {
+    if (item && (item.fuelSaver == null || item.fuelSaver <= 0)) {
+      updateFuelSaver(item.id, null);
+    }
+    setEditingFuelSaver(false);
   };
 
   // Commit the edited item's own PMR maximum instead of the proposed price —
@@ -377,6 +423,19 @@ export function ItemEditDrawer({
   // re-rendered yet — read the refs so Done doesn't close past a validation error.
   const handleDone = () => {
     if (retailRejectedRef.current || baseRejectedRef.current) return;
+    // Each section's timing is required once that section has a decided
+    // price/amount — same hard-stop tier as price validation. In practice
+    // this only fires mid-edit (e.g. a promo range with a start picked but no
+    // end yet): a decided/collapsed section always carries the default dates
+    // the store seeds the moment the price/amount was set.
+    if (item) {
+      const baseTimingMissing = item.newBasePrice != null && !item.baseEffectiveDate;
+      const retailTimingMissing =
+        item.newRetailPrice != null && (!item.allowanceStartDate || !item.allowanceEndDate);
+      const fuelTimingMissing =
+        item.fuelSaver != null && item.fuelSaver > 0 && (!item.fuelSaverStartDate || !item.fuelSaverEndDate);
+      if (baseTimingMissing || retailTimingMissing || fuelTimingMissing) return;
+    }
     handleClose();
   };
 
@@ -385,17 +444,6 @@ export function ItemEditDrawer({
   const baseInputBlock = () => {
     if (!item) return null;
     const priceLabel = item.category_type === "new_discontinued" ? intent?.priceLabel ?? "New base price" : "New base price";
-    // Revert always lives in the field's top-right action slot (consistent with
-    // the retail field), not crowding the input row.
-    const revertAction = item.newBasePrice != null ? (
-      <Button
-        variant="tertiary"
-        size="sm"
-        iconLeft={RotateCcw}
-        aria-label="Revert to current base price"
-        onClick={() => { revertField("base"); setEditingBase(false); }}
-      />
-    ) : undefined;
     // The input's ghost placeholder = the value you'd most likely type: HQ's
     // proposal when one is pending (or a new item's suggested opening price),
     // otherwise the CURRENT price — never a stray recommendation the director
@@ -403,7 +451,9 @@ export function ItemEditDrawer({
     const basePlaceholder = isNewItem || hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice;
     return (
       <div className="flex flex-col gap-4">
-        <Field label={priceLabel} action={revertAction}>
+        {/* One abandon control per edit form (Cancel, bottom-right) — same rule
+            as the retail and fuel forms. Revert lives only in the decided view. */}
+        <Field label={priceLabel}>
           {isEdlp ? (
             // EDLP is a markdown decision — like a temporary allowance, the
             // director picks HOW to apply it (% off / $ off / exact).
@@ -435,6 +485,11 @@ export function ItemEditDrawer({
               )}
             </>
           )}
+          {baseValidationError && (
+            <span className="text-xs font-medium text-red-500">
+              {baseValidationError}
+            </span>
+          )}
         </Field>
         {item.hqBaseReason ? (
           // Custom price on an HQ-recommended section keeps the HQ reason as
@@ -453,13 +508,39 @@ export function ItemEditDrawer({
             onChange={(v) => setBaseChangeReason(item.id, v as StoreBaseReason)}
           />
         )}
+        {(() => {
+          // Base is open-ended — one Effective Date, no end. SAP's validity
+          // end (12/31/9999) and NOW()-on-today are backend-only concerns
+          // with no field here (see baseEffectiveDate).
+          const baseDateMissing = item.newBasePrice != null && !item.baseEffectiveDate;
+          return (
+            <Field label="Effective date" required>
+              <DateField
+                value={item.baseEffectiveDate}
+                onChange={(d) => updateBaseEffectiveDate(item.id, d)}
+                error={baseDateMissing}
+                aria-label="Effective date"
+              />
+              {baseDateMissing && (
+                <span className="text-xs font-medium text-red-500">
+                  Pick the date this price takes effect.
+                </span>
+              )}
+            </Field>
+          );
+        })()}
         {familyItems.length > 0 && (
           <p className="flex items-center gap-1.5 text-xs text-gray-500">
             <Link2 className="size-3.5 text-brand" aria-hidden="true" /> Family price — updating this updates all {familyItems.length + 1} items in
             {" "}
-            {item.priceFamilyName ? <>“{item.priceFamilyName}”</> : "the family"}
+            {item.priceFamilyName ? <>"{item.priceFamilyName}"</> : "the family"}
           </p>
         )}
+        <div className="flex justify-end">
+          <Button variant="tertiary" size="sm" onClick={cancelBaseEditing}>
+            Cancel
+          </Button>
+        </div>
       </div>
     );
   };
@@ -561,23 +642,31 @@ export function ItemEditDrawer({
                     baseInputBlock()
                   ) : decided ? (
                     <div className="decision-pop flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm tabular-nums">
-                        <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                        {!isNewItem && (
-                          <>
-                            <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-                            <span aria-hidden="true" className="text-gray-300">→</span>
-                          </>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-2 text-sm tabular-nums">
+                          <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                          {!isNewItem && (
+                            <>
+                              <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
+                              <span aria-hidden="true" className="text-gray-300">→</span>
+                            </>
+                          )}
+                          <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice)}</span>
+                          {(() => {
+                            // Plain caption, deliberately not a second edit affordance —
+                            // "Change" is the one path back into the editor (which
+                            // carries the reason picker for store-origin items).
+                            const reason = changeReasonFor(item, "base");
+                            if (!reason) return null;
+                            return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
+                          })()}
+                        </div>
+                        {fmtEffectiveDate(item.baseEffectiveDate) && (
+                          <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
+                            <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
+                            {fmtEffectiveDate(item.baseEffectiveDate)}
+                          </span>
                         )}
-                        <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice)}</span>
-                        {(() => {
-                          // Plain caption, deliberately not a second edit affordance —
-                          // "Change" is the one path back into the editor (which
-                          // carries the reason picker for store-origin items).
-                          const reason = changeReasonFor(item, "base");
-                          if (!reason) return null;
-                          return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
-                        })()}
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingBase(true)}>Change</Button>
@@ -721,14 +810,26 @@ export function ItemEditDrawer({
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setChangingRetail(true)}>Change</Button>
-                          <Button
-                            variant="tertiary"
-                            size="sm"
-                            iconLeft={RotateCcw}
-                            onClick={() => revertField("retail")}
-                          >
-                            Revert
-                          </Button>
+                          {(() => {
+                            // One undo-affordance rule across all three sections:
+                            // "Revert" (RotateCcw) restores a prior live value;
+                            // "Remove" (Trash2) deletes an additive promo that had
+                            // none — same signifier the fuel saver uses. A promo
+                            // newly created on a non-TA item (retailAutoTypedFrom
+                            // remembers the conversion) has no prior TPR, so
+                            // undoing it is a removal back to "No promo".
+                            const isRemoval = item.retailAutoTypedFrom != null;
+                            return (
+                              <Button
+                                variant="tertiary"
+                                size="sm"
+                                iconLeft={isRemoval ? Trash2 : RotateCcw}
+                                onClick={() => revertField("retail")}
+                              >
+                                {isRemoval ? "Remove" : "Revert"}
+                              </Button>
+                            );
+                          })()}
                         </div>
                       </div>
                     ) : !changingRetail ? (
@@ -786,6 +887,11 @@ export function ItemEditDrawer({
                           const promoDatesMissing =
                             item.newRetailPrice != null &&
                             (!item.allowanceStartDate || !item.allowanceEndDate);
+                          // >14 days is a non-blocking heads-up, not a validation
+                          // error — Retail and Fuel Saver may run long promos and
+                          // may overlap each other freely; this is advisory only.
+                          const promoDays = promoDurationDays(item.allowanceStartDate, item.allowanceEndDate);
+                          const isLongPromo = promoDays != null && promoDays > 14;
                           return (
                             <Field label="Promo period" required>
                               <DateRangeField
@@ -800,6 +906,7 @@ export function ItemEditDrawer({
                                   Pick a start and end date for the promo.
                                 </span>
                               )}
+                              {isLongPromo && <LongPromoNotice days={promoDays!} />}
                             </Field>
                           );
                         })()}
@@ -882,6 +989,10 @@ export function ItemEditDrawer({
                       </div>
                       <div className="flex items-center gap-1.5">
                         <Button variant="secondary" size="sm" iconLeft={Pencil} onClick={() => setEditingFuelSaver(true)}>Change</Button>
+                        {/* "Remove" (Trash2), not "Revert": this deletes the fuel
+                            saver outright (there is no revert-to-prior operation) —
+                            the same removal signifier retail uses when undoing a
+                            newly created promo. */}
                         <Button
                           variant="tertiary"
                           size="sm"
@@ -938,16 +1049,37 @@ export function ItemEditDrawer({
                         onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason)}
                       />
                     ) : null}
-                    {fuelDecided && (
-                      <Field label="Fuel saver period">
-                        <DateRangeField
-                          start={item.fuelSaverStartDate}
-                          end={item.fuelSaverEndDate}
-                          onChange={(s, e) => updateFuelSaverDates(item.id, s, e)}
-                          aria-label="Fuel saver date range"
-                        />
-                      </Field>
-                    )}
+                    {fuelDecided && (() => {
+                      // Same required-period model as Retail's promo period —
+                      // a fuel saver must carry a start + end window too.
+                      const fuelDatesMissing = !item.fuelSaverStartDate || !item.fuelSaverEndDate;
+                      // >14 days is advisory only — Fuel Saver and Retail may
+                      // overlap and either may run long with no blocking check.
+                      const fuelDays = promoDurationDays(item.fuelSaverStartDate, item.fuelSaverEndDate);
+                      const isLongPromo = fuelDays != null && fuelDays > 14;
+                      return (
+                        <Field label="Fuel saver period" required>
+                          <DateRangeField
+                            start={item.fuelSaverStartDate}
+                            end={item.fuelSaverEndDate}
+                            onChange={(s, e) => updateFuelSaverDates(item.id, s, e)}
+                            error={fuelDatesMissing}
+                            aria-label="Fuel saver date range"
+                          />
+                          {fuelDatesMissing && (
+                            <span className="text-xs font-medium text-red-500">
+                              Pick a start and end date for the fuel saver.
+                            </span>
+                          )}
+                          {isLongPromo && <LongPromoNotice days={fuelDays!} />}
+                        </Field>
+                      );
+                    })()}
+                    <div className="flex justify-end">
+                      <Button variant="tertiary" size="sm" onClick={cancelFuelEditing}>
+                        Cancel
+                      </Button>
+                    </div>
                   </div>
                 );
               })()}
@@ -1141,7 +1273,7 @@ export function ItemEditDrawer({
       description={
         item
           ? confirmRevert === "base" && familyItems.length > 0
-            ? `All ${familyItems.length + 1} items in ${item.priceFamilyName ? `“${item.priceFamilyName}”` : "this family"} return to their current base price.`
+            ? `All ${familyItems.length + 1} items in ${item.priceFamilyName ? `"${item.priceFamilyName}"` : "this family"} return to their current base price.`
             : `${item.name} returns to its current ${confirmRevert === "retail" ? "retail" : "base"} price.`
           : undefined
       }

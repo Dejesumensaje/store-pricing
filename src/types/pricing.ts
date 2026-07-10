@@ -84,6 +84,14 @@ export type PricingItem = {
   edlpMaxAllowedPrice?: number;
   /** Total price for `newBaseQty` units (pack-size deal). qty 1 (or null) = single-unit price. */
   newBaseQty?: number | null;
+  /**
+   * The date the store's Base price change takes effect — required once a
+   * price is set. Today or any future date; Base prices are open-ended, so
+   * there is no end date to collect here — the backend sends 12/31/9999 as
+   * SAP's validity end automatically, and NOW() in place of a "today" pick.
+   * Both are backend-only details with no UI representation.
+   */
+  baseEffectiveDate?: string | null;
   // Temp allowance fields (only for temporary_allowance category)
   currentRetailPrice?: number;
   /** Net cost during the allowance period (vendor-funded discount applied). */
@@ -175,6 +183,15 @@ export type PricingItem = {
    * edit is cleared. Cleared the moment the user picks a type manually.
    */
   autoTypedFrom?: PricingCategory | null;
+  /**
+   * Set when a plain (non-TA) item is converted to `temporary_allowance` via
+   * `updatePriceType`. Stores the original `category_type` so that
+   * `removeFromLooseTray` can restore it when a committed retail price is
+   * reverted — including across drawer close/reopen, where component-local
+   * `preConversionType` state is reset. Cleared once the revert completes or
+   * the type is set back to non-TA.
+   */
+  retailAutoTypedFrom?: PricingCategory | null;
 };
 
 export type PriceField = "base" | "retail";

@@ -29,6 +29,11 @@ export function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+/** Base Price's single Effective Date as "Effective May 23" (null if unset). */
+export function fmtEffectiveDate(date?: string | null): string | null {
+  return date ? `Effective ${fmtDateShort(date)}` : null;
+}
+
 /**
  * Compact signed money for impact metrics, scaling the suffix to the magnitude
  * so small values don't collapse to "+0.0M". Input is in millions of dollars:

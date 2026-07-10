@@ -21,6 +21,7 @@ type PricingStore = {
   // grant/edit action here.
   edlpExceptions: Record<string, EdlpException>;
   updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
+  updateBaseEffectiveDate: (itemId: string, date: string | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
   updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
@@ -159,13 +160,25 @@ export const usePricingStore = create<PricingStore>((set) => ({
         overrides = r.overrides;
         statusById[id] = r.status;
       }
+      // A Base price change MUST carry an effective date — default to today
+      // the moment a price is set (mirrors Retail/Fuel Saver's promo-window
+      // defaulting below), so the field is never blank in practice.
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const today = iso(new Date());
       return {
         items: state.items.map((item) => {
           if (!groupIds.includes(item.id)) return item;
           let next: PricingItem = { ...item, newBasePrice: newPrice, newBaseQty: normQty, baseOverrideStatus: statusById[item.id] };
           // Reverting to the current price drops the director's store-chosen
           // reason too — it described a decision that no longer exists.
-          if (newPrice == null) next.chosenBaseReason = undefined;
+          if (newPrice == null) {
+            next.chosenBaseReason = undefined;
+            // ...and the effective date, which described the timing of a
+            // change that no longer exists.
+            next.baseEffectiveDate = null;
+          } else {
+            next.baseEffectiveDate = item.baseEffectiveDate ?? today;
+          }
           // Deciding on an HQ rec (accept or override) reviews it for good — it
           // must not return to the queue when the override later goes confirmed.
           if (newPrice != null && item.hqReviewPending) next.reviewed = true;
@@ -264,6 +277,14 @@ export const usePricingStore = create<PricingStore>((set) => ({
             ...item,
             category_type: type,
             autoTypedFrom: null,
+            // Record the original type so removeFromLooseTray can restore it when
+            // a committed retail price is reverted — even across drawer close/reopen
+            // where component-local preConversionType state is reset. Only record
+            // when the item is NOT already a TA (i.e. this is a fresh conversion).
+            retailAutoTypedFrom:
+              item.category_type !== "temporary_allowance"
+                ? item.category_type
+                : (item.retailAutoTypedFrom ?? null),
             currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
             allowanceCost: item.allowanceCost ?? Math.round(item.cost * 0.8 * 100) / 100,
             recommendedRetailPrice: item.recommendedRetailPrice ?? Math.round(item.currentBasePrice * 0.85 * 100) / 100,
@@ -271,7 +292,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
             allowanceEndDate: item.allowanceEndDate ?? iso(weekOut),
           };
         }
-        return { ...item, category_type: type, autoTypedFrom: null };
+        // Setting any type other than TA (including reverting to the original
+        // type via cancelRetailEditing / handleClose) clears the saved origin.
+        return { ...item, category_type: type, autoTypedFrom: null, retailAutoTypedFrom: null };
       }),
     })),
 
@@ -280,6 +303,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
       items: state.items.map((item) =>
         item.id === itemId ? { ...item, allowanceStartDate: start, allowanceEndDate: end } : item
       ),
+    })),
+
+  updateBaseEffectiveDate: (itemId, date) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, baseEffectiveDate: date } : item)),
     })),
 
   acceptNoChange: (itemId) =>
@@ -321,10 +349,26 @@ export const usePricingStore = create<PricingStore>((set) => ({
       const ov = state.overrides.find((o) => o.id === overrideId);
       const clear = (item: PricingItem) => {
         if (!ov || item.id !== ov.itemId) return item;
-        const next =
-          ov.priceField === "base"
-            ? { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined, chosenBaseReason: undefined }
-            : { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined, chosenRetailReason: undefined };
+        let next: PricingItem;
+        if (ov.priceField === "base") {
+          next = {
+            ...item,
+            newBasePrice: null,
+            newBaseQty: null,
+            baseOverrideStatus: undefined,
+            chosenBaseReason: undefined,
+            baseEffectiveDate: null,
+          };
+        } else {
+          next = { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined, chosenRetailReason: undefined };
+          // If the item was auto-converted to TA when the promo was created (and
+          // retailAutoTypedFrom records the original type), revert category_type
+          // back to what it was before the promotion — including when the drawer
+          // was closed and reopened (component-local preConversionType is gone).
+          if (item.retailAutoTypedFrom != null) {
+            next = { ...next, category_type: item.retailAutoTypedFrom, retailAutoTypedFrom: null };
+          }
+        }
         return withOverrideFlags(next);
       };
       return {
