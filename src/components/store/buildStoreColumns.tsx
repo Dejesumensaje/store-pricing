@@ -141,8 +141,8 @@ export function HqBadge({ reasons }: { reasons?: PriceChangeReason[] }) {
 // is the director's committed decision or HQ's proposal, the tag looks the same;
 // the HQ name badge + "Needs review" status carry the "this is a proposal" signal.
 const TAG_CHIP: Record<"white" | "yellow", string> = {
-  white: "rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
-  yellow: "rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
+  white: "whitespace-nowrap rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
+  yellow: "whitespace-nowrap rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
 };
 
 // One "original → after" line. No change ⇒ just the current price (muted). New
@@ -236,29 +236,10 @@ export function PriceCell({ item }: { item: PricingItem }) {
     />
   );
 
-  // A pending HQ recommendation's reason, scannable in the row itself — the HQ
-  // pill (next to the item name) says a change is proposed; this says why,
-  // without needing a hover to find out. Base and Retail carry independent
-  // reasons, so each gets its OWN caption on its OWN line rather than one
-  // item-level reason that would misrepresent a row where they differ. When
-  // the BASE·RETAIL labels are shown, the caption indents past the label to
-  // sit under its own price value — proximity + alignment say which price the
-  // reason describes, not just reading order.
-  const captionClass = `text-xs text-gray-500${showRetail ? " pl-[42px]" : ""}`;
-  const baseReasonLine =
-    hqReviewNeeded(item) && item.hqBaseReason ? (
-      <span className={captionClass}>{REASON_META[item.hqBaseReason].label}</span>
-    ) : null;
-  const retailReasonLine =
-    hqReviewNeeded(item) && item.hqRetailReason ? (
-      <span className={captionClass}>{REASON_META[item.hqRetailReason].label}</span>
-    ) : null;
-
   if (!showRetail) {
-    return edlpIndicator || baseReasonLine ? (
+    return edlpIndicator ? (
       <span className="flex flex-col gap-0.5">
         {baseLine}
-        {baseReasonLine}
         {edlpIndicator}
       </span>
     ) : (
@@ -284,28 +265,18 @@ export function PriceCell({ item }: { item: PricingItem }) {
   );
 
   return (
-    // Each price line and its caption form a tight pair (gap-0.5) with a wider
-    // gap between the pairs (gap-1) — Gestalt proximity binds "Cost change" to
-    // the base line above it, not the retail line below.
     <span className="flex flex-col gap-1">
       <span className="flex flex-col gap-0.5">
         {baseLine}
-        {baseReasonLine}
         {edlpIndicator}
       </span>
-      <span className="flex flex-col gap-0.5">
-        {promoRange ? (
-          <Tooltip content={`Promo ${promoRange}`}>
-            <span className="inline-flex w-fit cursor-default">{retailLine}</span>
-          </Tooltip>
-        ) : (
-          retailLine
-        )}
-        {/* The retail reason sits under the retail line specifically — base and
-            retail are independent decisions with independent reasons, so a row
-            where they differ shows each caption against its own price line. */}
-        {retailReasonLine}
-      </span>
+      {promoRange ? (
+        <Tooltip content={`Promo ${promoRange}`}>
+          <span className="inline-flex w-fit cursor-default">{retailLine}</span>
+        </Tooltip>
+      ) : (
+        retailLine
+      )}
     </span>
   );
 }
@@ -335,7 +306,7 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
     : recommended != null && recommended !== current ? recommended
     : null;
 
-  if (current == null && target == null) return <span className="text-sm text-gray-300">—</span>;
+  if (current == null && target == null) return null;
 
   // The fuel-saver run-window lives on hover over the chip itself (no calendar icon).
   const fuelRange = dateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
@@ -352,9 +323,7 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
   if (target == null) {
     return current != null && current > 0 ? (
       <span className="flex items-center gap-1.5">{withDates(<FuelChip amount={current} />)}</span>
-    ) : (
-      <span className="text-sm text-gray-300">—</span>
-    );
+    ) : null;
   }
 
   return (
