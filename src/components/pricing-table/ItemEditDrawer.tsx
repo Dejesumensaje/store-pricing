@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
-import { PricingItem, StoreBaseReason, StorePromoReason } from "@/types/pricing";
+import { PricingCategory, PricingItem, StoreBaseReason, StorePromoReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
@@ -142,6 +142,9 @@ export function ItemEditDrawer({
   // Accept-first: a TA with an HQ rec opens on the recommendation; this flips to
   // the reduction-method chooser once the director chooses to set their own price.
   const [changingRetail, setChangingRetail] = useState(false);
+  // When a non-TA item is converted to TA by opening the retail editor, remember
+  // the original type so we can revert it if the director closes without a price.
+  const [preConversionType, setPreConversionType] = useState<PricingCategory | null>(null);
   const [confirmRevert, setConfirmRevert] = useState<"base" | "retail" | null>(null);
   // A proposed base price that breaches an EDLP item's hard ceiling (>10% over
   // the SAP PMR maximum) with no active exception — parked (NOT committed)
@@ -177,6 +180,7 @@ export function ItemEditDrawer({
     setEditingFuelSaver(false);
     setEditingBase(false);
     setChangingRetail(false);
+    setPreConversionType(null);
     setConfirmRevert(null);
     setRetailValidationError(null);
     retailRejectedRef.current = false;
@@ -187,8 +191,30 @@ export function ItemEditDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
+  // Silently discard any half-open editing form before closing. Called from Done,
+  // the × button, and Escape — any close path. Three cases:
+  // 1. Retail form open but no price committed → revert the TA type conversion
+  //    that startPromo() made, and clear any orphaned retail reason.
+  // 2. Base form open but no price committed → clear the orphaned base reason.
+  // 3. Fuel form open but no amount set → clear the orphaned fuel reason.
+  const handleClose = () => {
+    if (item) {
+      if (changingRetail && item.newRetailPrice == null) {
+        if (preConversionType != null) updatePriceType(item.id, preConversionType);
+        updateRetailPrice(item.id, 1, null);
+      }
+      if (editingBase && item.newBasePrice == null) {
+        updateBasePrice(item.id, null);
+      }
+      if (editingFuelSaver && (item.fuelSaver == null || item.fuelSaver <= 0)) {
+        updateFuelSaver(item.id, null);
+      }
+    }
+    onClose();
+  };
+
   // Deliberately no auto-advance — hopping to the next item added noise without helping the decide-then-send task.
-  const advance = () => onClose();
+  const advance = () => handleClose();
 
   const itemsById = useMemo(() => buildItemsById([items]), [items]);
   const familyItems = item?.familyId
@@ -336,7 +362,7 @@ export function ItemEditDrawer({
   // re-rendered yet — read the refs so Done doesn't close past a validation error.
   const handleDone = () => {
     if (retailRejectedRef.current || baseRejectedRef.current) return;
-    onClose();
+    handleClose();
   };
 
   // The base (white-tag) price input — shown only once the director chooses to
@@ -428,7 +454,7 @@ export function ItemEditDrawer({
     <Drawer
       open={item != null}
       onOpenChange={(o) => {
-        if (!o) onClose();
+        if (!o) handleClose();
       }}
       title={item?.name ?? "Item"}
       size="lg"
@@ -622,8 +648,13 @@ export function ItemEditDrawer({
             const retailHasRec = isTemp && showAccept && item.recommendedRetailPrice != null;
             const acceptFirst = retailHasRec && !changingRetail && !retailDecided;
             // A plain item gets converted to a TA the moment a promo is set.
+            // Remember the original type so handleClose can revert it if the
+            // director closes without committing a price.
             const startPromo = () => {
-              if (!isTemp) updatePriceType(item.id, "temporary_allowance");
+              if (!isTemp) {
+                setPreConversionType(item.category_type);
+                updatePriceType(item.id, "temporary_allowance");
+              }
               setChangingRetail(true);
             };
             return (
