@@ -258,9 +258,9 @@ export function ItemEditDrawer({
     }
   };
 
-  // Validate and commit a retail price. Hard stops (zero/negative, above base)
-  // show an inline error and do not commit. A discount greater than 50% of the
-  // base parks the proposal and opens a soft-warning dialog.
+  // Validate and commit a retail price. Hard stops (zero/negative, at or above
+  // base) show an inline error and keep the editor open. A discount greater than
+  // 50% of the base parks the proposal and opens a soft-warning dialog.
   const commitRetail = (qty: number, price: number | null) => {
     if (!item) return;
     setRetailValidationError(null);
@@ -276,23 +276,38 @@ export function ItemEditDrawer({
       retailRejectedRef.current = true;
       return;
     }
-    if (unitPrice > baseRef) {
-      setRetailValidationError(`Retail price cannot exceed the base price (${fmt(baseRef)}).`);
+    // A retail price equal to the base is not a discount — it must be strictly
+    // lower. Previously the equal case silently collapsed the editor; now it
+    // shows the same inline error as the above-base case so the director knows
+    // why and can correct the value rather than wondering why the form closed.
+    if (unitPrice >= baseRef) {
+      setRetailValidationError(`Retail price must be lower than the base price (${fmt(baseRef)}).`);
       retailRejectedRef.current = true;
       return;
     }
     const discountPct = (baseRef - unitPrice) / baseRef;
-    if (discountPct <= 0) {
-      revertField("retail");
-      setChangingRetail(false);
-      return;
-    }
     if (discountPct > 0.5) {
       setPendingRetailProposal({ qty, price, suggestedPrice: round2(baseRef * 0.9) });
       retailRejectedRef.current = true;
       return;
     }
     updateRetailPrice(item.id, qty, price);
+  };
+
+  // Exit the retail editing form without touching the committed state.
+  // Two cases: (A) new promo — nothing committed yet, so revert the TA
+  // type conversion startPromo() made and return to the "No promo" idle
+  // state; (B) editing an existing promo — just close the form, keeping
+  // the committed price. No confirmation needed in either case: A has no
+  // committed data to lose; B explicitly preserves what's saved.
+  const cancelRetailEditing = () => {
+    if (item && item.newRetailPrice == null) {
+      if (preConversionType != null) updatePriceType(item.id, preConversionType);
+      updateRetailPrice(item.id, 1, null);
+      setPreConversionType(null);
+    }
+    setChangingRetail(false);
+    setRetailValidationError(null);
   };
 
   // Commit the edited item's own PMR maximum instead of the proposed price —
@@ -801,6 +816,11 @@ export function ItemEditDrawer({
                             </Field>
                           );
                         })()}
+                        <div className="flex justify-end">
+                          <Button variant="tertiary" size="sm" onClick={cancelRetailEditing}>
+                            Cancel
+                          </Button>
+                        </div>
                       </>
                     )}
                   </div>
