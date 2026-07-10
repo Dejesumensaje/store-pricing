@@ -89,7 +89,7 @@ export function ItemEditDrawer({
   const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const toast = useToast();
   // The active store's EDLP ceiling exception, if AVP – Pricing granted one.
-  // View-only here — store users never grant/edit it (see SettingsDrawer).
+  // View-only here — store users never grant/edit it.
   const edlpException = useEdlpException();
 
   const item = items.find((i) => i.id === itemId) ?? null;

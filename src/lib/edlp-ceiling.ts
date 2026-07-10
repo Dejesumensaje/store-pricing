@@ -10,7 +10,7 @@ function familyGroupIds(item: PricingItem, itemsById: Map<string, PricingItem>):
 
 /**
  * A store-level exception to the EDLP hard stop, granted by AVP – Pricing —
- * store users can only view it (see SettingsDrawer), never grant or edit it.
+ * store users can only view it, never grant or edit it.
  * `scope: "store"` covers every EDLP item in the store; an item-id array
  * covers only those items. An active exception downgrades a hard breach to a
  * soft warning — never silent (see evaluateEdlpCeiling).

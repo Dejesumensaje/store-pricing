@@ -19,8 +19,8 @@ type PricingStore = {
   batches: Batch[];
   // Per-store EDLP ceiling exception, granted by AVP – Pricing. Lives outside
   // the stash working-set mechanism — it's keyed by storeId directly, so it
-  // survives store switching. Store users can only view it (see
-  // SettingsDrawer); there is no grant/edit action here.
+  // survives store switching. Store users can only view it; there is no
+  // grant/edit action here.
   edlpExceptions: Record<string, EdlpException>;
   updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
