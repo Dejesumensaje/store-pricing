@@ -25,8 +25,7 @@ export type HqChangeReason = "cost_change" | "competitor_move" | "category_revie
 export type StoreOriginReason = "store_cost" | "store_competitor" | "local_ad_hoc";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
-export type OverrideStatus = "pending" | "in_batch" | "submitted" | "confirmed";
-export type BatchStatus = "scheduled" | "submitted" | "confirmed";
+export type OverrideStatus = "pending" | "confirmed";
 
 export type PricingItem = {
   id: string;
@@ -121,11 +120,6 @@ export type PricingItem = {
    * recommendation to derive the reason from. Defaults to "local ad hoc".
    */
   chosenChangeReason?: StoreOriginReason;
-  /**
-   * Demo-only: the last send to SAP failed. Renders a "Failed" status badge.
-   * Visual state only — no real retry/timed-revert is wired.
-   */
-  sendFailed?: boolean;
   category_type: PricingCategory;
   /**
    * The pricing strategy currently live in SAP. `category_type` is the strategy
@@ -158,22 +152,8 @@ export type Override = {
   qty?: number;
   sequence?: string;
   status: OverrideStatus;
-  batchId?: string;
   /** Last time this edit was touched — drives recent-first ordering in All items. */
   updatedAt?: number;
-};
-
-export type Batch = {
-  id: string;
-  name: string;
-  status: BatchStatus;
-  overrideIds: string[];
-  createdAt: string;
-  /** Set when the batch is sent to SAP. */
-  submittedAt?: string;
-  /** SAP reference returned on confirmation (post-submit acknowledgment). */
-  sapReference?: string;
-  confirmedAt?: string;
 };
 
 export type SummaryMetrics = {

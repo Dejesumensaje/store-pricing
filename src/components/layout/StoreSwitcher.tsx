@@ -7,8 +7,8 @@ import { usePricingStore, useActiveStore, useStoreSummaries } from "@/store/pric
 import { useMenuNav } from "@/components/shared/useMenuNav";
 
 // The store name at the top of the page doubles as a store switcher. A director
-// runs ~5 stores; this lets them jump between them without losing unsent work in
-// each. Each entry shows how much work is waiting there (unsent changes + HQ recs).
+// runs ~5 stores; this lets them jump between them without losing in-progress work
+// in each. Each entry shows how much work is waiting there (edited items + HQ recs).
 // The DS has no Popover/DropdownMenu yet, so this mirrors ColumnsMenu's headless
 // popover (click-outside + useMenuNav for focus/arrow/Escape).
 export function StoreSwitcher() {
@@ -90,7 +90,7 @@ export function StoreSwitcher() {
                   <span className="mt-1 flex flex-wrap items-center gap-1.5">
                     {unsent > 0 && (
                       <Badge tone="in-progress" size="sm">
-                        {unsent} unsent
+                        {unsent} edited
                       </Badge>
                     )}
                     {hqCount > 0 && (

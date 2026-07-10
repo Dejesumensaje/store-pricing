@@ -1,4 +1,4 @@
-import { PricingItem, Override } from "@/types/pricing";
+import { PricingItem } from "@/types/pricing";
 import { perUnit } from "./pricing-math";
 
 // The ids a base-price commit on `item` will actually reprice — the item plus
@@ -6,6 +6,21 @@ import { perUnit } from "./pricing-math";
 function familyGroupIds(item: PricingItem, itemsById: Map<string, PricingItem>): string[] {
   if (!item.familyId) return [item.id];
   return [...itemsById.values()].filter((i) => i.familyId === item.familyId).map((i) => i.id);
+}
+
+/**
+ * Build an id → item lookup across every catalog. Base price is shared, so the
+ * same id can appear in multiple arrays; the first wins (impact fields are
+ * identical across copies).
+ */
+export function buildItemsById(catalogs: PricingItem[][]): Map<string, PricingItem> {
+  const map = new Map<string, PricingItem>();
+  for (const catalog of catalogs) {
+    for (const item of catalog) {
+      if (!map.has(item.id)) map.set(item.id, item);
+    }
+  }
+  return map;
 }
 
 /**
@@ -159,24 +174,4 @@ export function evaluateEdlpCeilingChange(
     (result.level === "hard" ? hard : soft).push(violation);
   }
   return { hard, soft, changedIds };
-}
-
-/**
- * Whether any base override in `overridesInBatch` would send an EDLP item
- * over its hard ceiling with no active exception — the batch-send backstop.
- * Exceptions can be revoked after a change was committed/batched, so this is
- * re-checked at send time, not just at commit time.
- */
-export function batchBlockedByEdlpCeiling(
-  overridesInBatch: Override[],
-  itemsById: Map<string, PricingItem>,
-  exception: EdlpException | undefined
-): boolean {
-  return overridesInBatch.some((o) => {
-    if (o.priceField !== "base") return false;
-    const item = itemsById.get(o.itemId);
-    if (!item) return false;
-    const proposedPerUnit = perUnit(o.newPrice, o.qty);
-    return evaluateEdlpCeiling(item, proposedPerUnit, exception).level === "hard";
-  });
 }

@@ -61,9 +61,9 @@ body {
 
 /*
  * Tailwind v4's preflight dropped the default `cursor: pointer` on buttons, so
- * our hand-rolled <button> elements (batch cards, store switcher, menu items…)
- * showed the default arrow with no hint they were clickable. The DS stylesheet
- * is imported UNLAYERED, so a layered rule can't beat its reset — these rules are
+ * our hand-rolled <button> elements (store switcher, menu items…) showed the
+ * default arrow with no hint they were clickable. The DS stylesheet is
+ * imported UNLAYERED, so a layered rule can't beat its reset — these rules are
  * unlayered too, and the `:not()` compounds out-specify a bare `button` selector.
  */
 button:not(:disabled),
@@ -75,51 +75,8 @@ label:has(> input:not(:disabled)) {
 }
 
 /*
- * Subtle attention pulse for count badges when they increment (e.g. the batch
- * tray badge after an item is added) so the user sees where their action
- * landed. Honors reduced-motion like the DS's own animations.
- */
-@keyframes badge-pop {
-  0% { transform: scale(1); }
-  25% { transform: scale(1.7); }
-  55% { transform: scale(0.88); }
-  75% { transform: scale(1.12); }
-  100% { transform: scale(1); }
-}
-.badge-pop {
-  animation: badge-pop 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/*
- * The whole "To send" button gives a little bounce when its count grows, so the
- * increment reads even when the user's eye is elsewhere on the page.
- */
-@keyframes send-bump {
-  0% { transform: translateY(0); }
-  30% { transform: translateY(-4px); }
-  55% { transform: translateY(1px); }
-  100% { transform: translateY(0); }
-}
-.send-bump {
-  animation: send-bump 0.55s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/*
- * Brief landing highlight on the batch a selection just dropped into, so the
- * user sees exactly where their items went (request: To-send batch feedback).
- */
-@keyframes batch-flash {
-  0%   { background-color: rgba(0, 58, 93, 0.12); box-shadow: 0 0 0 2px var(--color-brand); }
-  70%  { background-color: rgba(0, 58, 93, 0.06); box-shadow: 0 0 0 2px var(--color-brand); }
-  100% { background-color: transparent; box-shadow: 0 0 0 0 rgba(0, 58, 93, 0); }
-}
-.batch-flash {
-  animation: batch-flash 1.5s ease-out;
-}
-
-/*
  * A decision just committed (a price accepted / set in the drawer). The summary
- * row pops in so the user feels their choice register — same family as send-bump.
+ * row pops in so the user feels their choice register.
  */
 @keyframes decision-pop {
   0% { transform: scale(0.94); opacity: 0; }
@@ -177,9 +134,6 @@ label:has(> input:not(:disabled)) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .badge-pop,
-  .send-bump,
-  .batch-flash,
   .decision-pop,
   .review-dot,
   .review-dot-once,

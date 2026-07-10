@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { Check, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { PriceCellState, BORDER } from "./PriceInputCell";
 import { fmtQtyPrice, fmtUnitPrice } from "@/lib/format";
 
@@ -122,11 +122,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
         </div>
       )}
 
-      {state === "sent" ? (
-        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
-          <Check className="size-3" aria-hidden="true" /> Sent{isDeal ? ` · ${fmtUnitPrice(liveQty, livePrice)}` : ""}
-        </span>
-      ) : state === "alert" ? (
+      {state === "alert" ? (
         <Button variant="tertiary" size="sm" iconLeft={AlertCircle} onClick={onViewAlerts}>
           View alerts
         </Button>

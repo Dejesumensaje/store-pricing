@@ -1,9 +1,9 @@
 "use client";
 
-import { Loader2, Fuel, AlertTriangle } from "lucide-react";
+import { Fuel, AlertTriangle } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
-import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
+import { PricingItem, HqChangeReason } from "@/types/pricing";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { REASON_META } from "@/lib/price-change-reason";
 import { fmt, fmtQtyPrice } from "@/lib/format";
@@ -323,15 +323,11 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
   );
 }
 
-// Why a send to SAP can read "Failed" — shown on hover so the state isn't alarming.
-const FAILED_HELP =
-  "The last send to SAP didn't go through. It retries automatically; the price stays at its previous value until it succeeds.";
-
-export function StatusCell({ item, batches }: { item: PricingItem; batches: Batch[] }) {
-  const status = deriveItemStatus(item, batches);
+export function StatusCell({ item }: { item: PricingItem }) {
+  const status = deriveItemStatus(item);
   const isReview = status.label === "Needs review";
 
-  const badge = (
+  return (
     <Badge tone={status.tone} size="sm">
       <span className="inline-flex items-center gap-1">
         {isReview && (
@@ -340,33 +336,14 @@ export function StatusCell({ item, batches }: { item: PricingItem; batches: Batc
             className="review-dot inline-block size-1.5 shrink-0 rounded-full bg-current"
           />
         )}
-        {status.loading && (
-          <Loader2 aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />
-        )}
         {status.label}
       </span>
     </Badge>
   );
-
-  // Failed → explain what it means and that it self-heals.
-  if (status.label === "Failed") {
-    return <Tooltip content={FAILED_HELP}>{wrapTip(badge)}</Tooltip>;
-  }
-
-  return badge;
 }
 
-// Tooltip triggers want a single focusable/hoverable child — wrap the badge so the
-// cursor reads as informational.
-function wrapTip(node: React.ReactNode) {
-  return <span className="inline-flex cursor-default">{node}</span>;
-}
-
-// No select column — decisions happen in the drawer and are forced into a batch.
-export function buildStoreColumns(
-  batches: Batch[],
-  visibleCols: Set<string>
-): DataColumn<PricingItem>[] {
+// No select column — decisions happen in the drawer, applied directly.
+export function buildStoreColumns(visibleCols: Set<string>): DataColumn<PricingItem>[] {
   const optional = STORE_OPTIONAL_COLUMNS.filter((c) => visibleCols.has(c.id)).map((c) => OPTIONAL_DEFS[c.id]);
 
   return [
@@ -402,8 +379,8 @@ export function buildStoreColumns(
       width: 150,
       header: "Status",
       sortable: true,
-      sortAccessor: (r) => deriveItemStatus(r, batches).label,
-      cell: (r) => <StatusCell item={r} batches={batches} />,
+      sortAccessor: (r) => deriveItemStatus(r).label,
+      cell: (r) => <StatusCell item={r} />,
     },
   ];
 }

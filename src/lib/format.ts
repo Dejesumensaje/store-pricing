@@ -29,12 +29,6 @@ export function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/** ISO datetime → "Jun 10, 9:00 AM" (date + time, for batch schedules). */
-export function fmtDateTime(iso: string) {
-  const d = new Date(iso.length <= 10 ? `${iso}T00:00:00` : iso);
-  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
-}
-
 /**
  * Compact signed money for impact metrics, scaling the suffix to the magnitude
  * so small values don't collapse to "+0.0M". Input is in millions of dollars:

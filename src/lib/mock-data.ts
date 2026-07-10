@@ -1,4 +1,4 @@
-import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason } from "@/types/pricing";
+import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -94,7 +94,7 @@ const baseMockItems: PricingItem[] = [
     currentRetailPrice: 3.99,
     newRetailQty: 1,
     newRetailPrice: 3.49,
-    retailOverrideStatus: "in_batch",
+    retailOverrideStatus: "pending",
     hasOverride: true,
     // A fuel saver already live on the shelf — the table shows it steady (no change).
     currentFuelSaver: 0.1,
@@ -112,10 +112,10 @@ const baseMockItems: PricingItem[] = [
     // increase, the 3-for-$12 multi-unit deal, and a fuel saver. See the matching
     // RBCS5-1:base / RBCS5-1:retail seeds in mockOverrides.
     newBasePrice: 5.79,
-    baseOverrideStatus: "in_batch",
+    baseOverrideStatus: "pending",
     newRetailQty: 3,
     newRetailPrice: 12.0,
-    retailOverrideStatus: "in_batch",
+    retailOverrideStatus: "pending",
     // A 3-week promo — long enough that the yellow tag reads "Sale price", not
     // "Savings this week".
     allowanceStartDate: "2026-06-24",
@@ -136,7 +136,8 @@ const baseMockItems: PricingItem[] = [
     cost: 3.1,
     recommendedBasePrice: 4.99,
     newBasePrice: 4.89,
-    baseOverrideStatus: "submitted",
+    baseOverrideStatus: "pending",
+    hasOverride: true,
   },
   {
     ...baseItem,
@@ -149,7 +150,7 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 5.29,
     newBasePrice: 5.99,
     hasOverride: true,
-    baseOverrideStatus: "in_batch",
+    baseOverrideStatus: "pending",
     hasAlert: true,
     impactConfidence: "Low",
     impactSalesValue: -0.6,
@@ -167,12 +168,12 @@ const baseMockItems: PricingItem[] = [
     cost: 1.55,
     recommendedBasePrice: 2.49,
     itemRole: "Convenience",
-    // Seeded retail (temp allowance) — see mockOverrides RBCS5-4:retail. The last
-    // send to SAP failed → demoes the "Failed" status badge (visual only).
+    // Seeded retail (temp allowance), edited but not yet committed live — see
+    // mockOverrides RBCS5-4:retail.
     newRetailQty: 1,
     newRetailPrice: 1.99,
-    retailOverrideStatus: "submitted",
-    sendFailed: true,
+    retailOverrideStatus: "pending",
+    hasOverride: true,
   },
   {
     ...baseItem,
@@ -220,7 +221,7 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 4.99,
     newBasePrice: 4.99,
     hasOverride: true,
-    baseOverrideStatus: "in_batch",
+    baseOverrideStatus: "pending",
   },
   {
     ...baseItem,
@@ -233,7 +234,7 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 4.39,
     newBasePrice: 4.39,
     hasOverride: true,
-    baseOverrideStatus: "in_batch",
+    baseOverrideStatus: "pending",
     impactConfidence: "Medium",
   },
   {
@@ -306,7 +307,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.79,
     newPrice: 4.89,
-    status: "submitted",
+    status: "pending",
   },
   {
     id: "RBCS5-3:base",
@@ -316,8 +317,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.99,
     newPrice: 5.99,
-    status: "in_batch",
-    batchId: "batch-3",
+    status: "pending",
   },
   {
     id: "RBCS5-5:base",
@@ -327,8 +327,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 5.19,
     newPrice: 4.99,
-    status: "in_batch",
-    batchId: "batch-1",
+    status: "pending",
   },
   {
     id: "RBCS5-6:base",
@@ -338,8 +337,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.49,
     newPrice: 4.39,
-    status: "in_batch",
-    batchId: "batch-2",
+    status: "pending",
   },
   {
     id: "RBCS5-1:base",
@@ -349,8 +347,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 5.49,
     newPrice: 5.79,
-    status: "in_batch",
-    batchId: "batch-3",
+    status: "pending",
   },
   {
     id: "EDLP-2:base",
@@ -360,8 +357,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 1.98,
     newPrice: 1.88,
-    status: "in_batch",
-    batchId: "batch-3",
+    status: "pending",
   },
   {
     id: "W7BESS:retail",
@@ -371,8 +367,7 @@ export const mockOverrides: Override[] = [
     priceField: "retail",
     currentPrice: 3.99,
     newPrice: 3.49,
-    status: "in_batch",
-    batchId: "batch-3",
+    status: "pending",
   },
   {
     id: "RBCS5-1:retail",
@@ -383,8 +378,7 @@ export const mockOverrides: Override[] = [
     currentPrice: 5.49,
     newPrice: 12.0,
     qty: 3,
-    status: "in_batch",
-    batchId: "batch-3",
+    status: "pending",
   },
   {
     id: "RBCS5-4:retail",
@@ -394,31 +388,7 @@ export const mockOverrides: Override[] = [
     priceField: "retail",
     currentPrice: 2.39,
     newPrice: 1.99,
-    status: "submitted",
-  },
-];
-
-export const mockBatches: Batch[] = [
-  {
-    id: "batch-1",
-    name: "Tuesday, ad prep",
-    status: "scheduled",
-    overrideIds: ["RBCS5-5:base"],
-    createdAt: "2026-06-10T09:00:00Z",
-  },
-  {
-    id: "batch-2",
-    name: "Friday endcap reset",
-    status: "scheduled",
-    overrideIds: ["RBCS5-6:base"],
-    createdAt: "2026-06-10T14:00:00Z",
-  },
-  {
-    id: "batch-3",
-    name: "This week's promos",
-    status: "scheduled",
-    overrideIds: ["RBCS5-3:base", "RBCS5-1:base", "RBCS5-1:retail", "EDLP-2:base", "W7BESS:retail"],
-    createdAt: "2026-06-24T08:00:00Z",
+    status: "pending",
   },
 ];
 
@@ -428,8 +398,8 @@ export const mockBatches: Batch[] = [
 // ceiling is max × 1.10. Chosen per item to cover every ceiling demo state:
 //  EDLP-1 current AND HQ's rec both breach the hard ceiling (accepting the
 //    rec gets blocked in commitBase — see HQ_REVIEW_IDS below).
-//  EDLP-2 an already-batched override (see mockOverrides) breaches the hard
-//    ceiling with no exception — demos the batch-send backstop.
+//  EDLP-2 an edited-but-not-yet-live override (see mockOverrides) breaches the
+//    hard ceiling with no exception — demos the "Edited" over-ceiling state.
 //  EDLP-3 breaches the hard ceiling but carries the seeded per-item exception
 //    (see edlpExceptions in the store) — downgraded to a soft warning.
 //  EDLP-4 current price sits in the soft zone (over max, within +10%) with no
@@ -463,7 +433,7 @@ const edlpCatalog: PricingItem[] = [
   // Price" (an EDLP conversion is demoed separately on RBCS5-5). See EDLP-2:base.
   .map((it) =>
     it.id === "EDLP-2"
-      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "in_batch" as const, hasOverride: true }
+      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "pending" as const, hasOverride: true }
       : it
   );
 
@@ -513,7 +483,7 @@ const newDiscontinuedCatalog: PricingItem[] = [
 // HQ recommendations: HQ proposes a new price for these items. The proposal is
 // NOT live in SAP — `currentBasePrice` stays the live (old) price and
 // `recommendedBasePrice` carries HQ's proposal, so the director can compare the
-// two and decide (accept / override / keep current) before anything is sent.
+// two and decide (accept / override / keep current) before anything changes.
 const HQ_REVIEW_IDS = new Set([
   "RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4", "RBCS5-9",
   "HQ-101", "HQ-102", "HQ-103", "HQ-104", "HQ-105", "HQ-106", "HQ-107", "HQ-108",
@@ -628,12 +598,12 @@ export const mockItems: PricingItem[] = [
 export const TOTAL_ITEM_COUNT = mockItems.length;
 
 // ─── Per-store data (multi-store support) ────────────────────────────────────
-// Each store the director manages gets its own slice of items/overrides/batches.
+// Each store the director manages gets its own slice of items/overrides.
 // #1402 is the primary, richly seeded demo store (all the flows above). The other
 // stores share the same SKU catalog but boot "clean": prices nudged per store,
 // no in-progress edits, their own HQ worklist.
 
-export type StoreSlice = { items: PricingItem[]; overrides: Override[]; batches: Batch[] };
+export type StoreSlice = { items: PricingItem[]; overrides: Override[] };
 
 // SKUs HQ is recommending on the primary store — the pool we rotate a per-store
 // subset from, so each store shows a different HQ review count.
@@ -661,7 +631,6 @@ function cleanForStore(item: PricingItem, factor: number): PricingItem {
     newRetailQty: null,
     retailOverrideStatus: undefined,
     hasOverride: false,
-    sendFailed: false,
     reviewed: false,
     hqReviewPending: false,
     autoTypedFrom: null,
@@ -681,7 +650,7 @@ function buildSecondaryStore(index: number): StoreSlice {
     const clean = cleanForStore(it, factor);
     return hqSet.has(it.id) ? { ...clean, hqReviewPending: true } : clean;
   });
-  return { items, overrides: [], batches: [] };
+  return { items, overrides: [] };
 }
 
 export function buildInitialStoreData(): Record<string, StoreSlice> {
@@ -689,7 +658,7 @@ export function buildInitialStoreData(): Record<string, StoreSlice> {
   STORES.forEach((store, index) => {
     data[store.id] =
       store.id === DEFAULT_STORE_ID
-        ? { items: mockItems, overrides: mockOverrides, batches: mockBatches }
+        ? { items: mockItems, overrides: mockOverrides }
         : buildSecondaryStore(index);
   });
   return data;

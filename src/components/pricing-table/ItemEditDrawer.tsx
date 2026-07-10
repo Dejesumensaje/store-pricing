@@ -5,11 +5,10 @@ import Image from "next/image";
 import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje/converge-ds-experimental";
 import { DateRangeField } from "../shared/DateRangeField";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
-import { OverrideStatus, Batch, StoreOriginReason } from "@/types/pricing";
+import { StoreOriginReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
-import { BatchPickerModal } from "../store/BatchPickerModal";
 import { HqBadge } from "../store/buildStoreColumns";
 import { ShelfTagPreview } from "./ShelfTagPreview";
 import { CollapsibleSection } from "./CollapsibleSection";
@@ -25,19 +24,13 @@ import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/l
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateRange } from "@/lib/format";
 import { perUnit, round2 } from "@/lib/pricing-math";
-import { buildItemsById } from "@/lib/batch-utils";
-import { RotateCcw, Trash2, Check, Package, Link2, Lock, Info, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
+import { buildItemsById } from "@/lib/edlp-ceiling";
+import { RotateCcw, Trash2, Check, Package, Link2, Info, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
 
 type Props = {
   itemId: string | null;
   /** Which flow opened the drawer — sets the footer's primary action. */
   flow: "all" | "hq";
-  /** Open batches the per-item "Add to batch" menu can target. */
-  openBatches: Batch[];
-  /** Assign this item's pending change(s) to a batch (owned by the page). */
-  onAddToBatch: (batchId: string, overrideIds: string[]) => void;
-  /** Start a new batch seeded with these override ids (owned by the page). */
-  onNewBatch: (seedIds: string[]) => void;
   onClose: () => void;
 };
 
@@ -69,13 +62,9 @@ function Field({
 export function ItemEditDrawer({
   itemId,
   flow,
-  openBatches,
-  onAddToBatch,
-  onNewBatch,
   onClose,
 }: Props) {
   const items = usePricingStore((s) => s.items);
-  const batches = usePricingStore((s) => s.batches);
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
   const updateRetailPrice = usePricingStore((s) => s.updateRetailPrice);
   const updateFuelSaver = usePricingStore((s) => s.updateFuelSaver);
@@ -86,7 +75,6 @@ export function ItemEditDrawer({
   const setReviewed = usePricingStore((s) => s.setReviewed);
   const setChangeReason = usePricingStore((s) => s.setChangeReason);
   const removeFromLooseTray = usePricingStore((s) => s.removeFromLooseTray);
-  const moveOverrideToBatch = usePricingStore((s) => s.moveOverrideToBatch);
   const toast = useToast();
   // The active store's EDLP ceiling exception, if AVP – Pricing granted one.
   // View-only here — store users never grant/edit it.
@@ -103,17 +91,6 @@ export function ItemEditDrawer({
   // A brand-new item has no current price to keep — it gets a "set opening price"
   // prompt instead of a read-only "current price" row.
   const isNewItem = item?.category_type === "new_discontinued" && item?.itemStatus === "new";
-  // Sent to SAP, not yet confirmed: the change is in flight and nothing can be
-  // altered until SAP accepts it. An item that's Sending (any submitted field) is
-  // FULLY locked — base, retail AND fuel saver, regardless of which field is the
-  // one in flight. So a single `sending` flag locks every section.
-  // sendFailed items retain overrideStatus "submitted" but the send never landed —
-  // the price is not live in SAP, so the director must be able to edit and retry.
-  const sending =
-    !item?.sendFailed &&
-    (item?.baseOverrideStatus === "submitted" || item?.retailOverrideStatus === "submitted");
-  const baseLocked = sending;
-  const retailLocked = sending;
   // Per-type intent (labels + helper copy). New/discontinued is refined by itemStatus.
   const intent = item
     ? item.category_type === "new_discontinued"
@@ -135,8 +112,6 @@ export function ItemEditDrawer({
   // the reduction-method chooser once the director chooses to set their own price.
   const [changingRetail, setChangingRetail] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState<"base" | "retail" | null>(null);
-  const [batchPromptOpen, setBatchPromptOpen] = useState(false);
-  const [movePickerOpen, setMovePickerOpen] = useState(false);
   // A proposed base price that breaches an EDLP item's hard ceiling (>10% over
   // the SAP PMR maximum) with no active exception — parked (NOT committed)
   // while the blocking modal asks the director to revert or use the max.
@@ -172,8 +147,6 @@ export function ItemEditDrawer({
     setEditingBase(false);
     setChangingRetail(false);
     setConfirmRevert(null);
-    setBatchPromptOpen(false);
-    setMovePickerOpen(false);
     setRetailValidationError(null);
     retailRejectedRef.current = false;
     baseRejectedRef.current = false;
@@ -288,14 +261,13 @@ export function ItemEditDrawer({
   };
 
   // Revert one price field back to its current value. Base and retail are
-  // independent changes, so each input reverts only its own. A pending (not-yet-
-  // batched) edit reverts directly — cheap and reversible; once it's in a batch or
-  // sent, confirm first.
-  const inBatchOrSent = (s?: OverrideStatus) => s === "in_batch" || s === "submitted";
+  // independent changes, so each input reverts only its own. A pending
+  // (Edited, not-yet-live) edit reverts directly — cheap and reversible; a
+  // confirmed (Live) price confirms first since it's already in effect.
   const revertField = (field: "base" | "retail") => {
     if (!item) return;
     const status = field === "base" ? item.baseOverrideStatus : item.retailOverrideStatus;
-    if (inBatchOrSent(status)) {
+    if (status === "confirmed") {
       setConfirmRevert(field);
       return;
     }
@@ -308,55 +280,31 @@ export function ItemEditDrawer({
     removeFromLooseTray(`${item.id}:${field}`);
   };
 
-  const status = item ? deriveItemStatus(item, batches) : null;
+  const status = item ? deriveItemStatus(item) : null;
   // An HQ rec still awaiting the store's decision.
   const showAccept = item != null && hqReviewNeeded(item);
 
-  // This item's not-yet-batched edits — the unit the footer batches or saves.
-  const myPendingIds = item
-    ? [
-        item.baseOverrideStatus === "pending" ? `${item.id}:base` : null,
-        item.retailOverrideStatus === "pending" ? `${item.id}:retail` : null,
-      ].filter((x): x is string => x != null)
-    : [];
-  const hasPendingOverride = myPendingIds.length > 0;
+  // This item has a not-yet-committed (Edited) change.
+  const hasPendingOverride =
+    item != null && (item.baseOverrideStatus === "pending" || item.retailOverrideStatus === "pending");
 
-  // This item's changes that already sit in a (scheduled) batch — surfaced so the
-  // director can see WHERE it's queued and move it to another / a new batch.
-  const inBatchIds = item
-    ? [
-        item.baseOverrideStatus === "in_batch" ? `${item.id}:base` : null,
-        item.retailOverrideStatus === "in_batch" ? `${item.id}:retail` : null,
-      ].filter((x): x is string => x != null)
-    : [];
-  const myBatch = inBatchIds.length > 0
-    ? batches.find((b) => inBatchIds.some((id) => b.overrideIds.includes(id))) ?? null
-    : null;
-
-  // Reject the recommendation — keep the current SAP price. Nothing is sent. Reversible.
+  // Reject the recommendation — keep the current SAP price. Reversible.
   const keepCurrent = () => {
     if (!item) return;
     const id = item.id;
     acceptNoChange(id);
     toast.success("Kept current price", {
-      description: "Recommendation rejected — nothing sent to SAP.",
+      description: "Recommendation rejected — the current price is unchanged.",
       action: { label: "Undo", onClick: () => setReviewed(id, false) },
     });
     advance();
   };
 
-  // Finishing: a saved change isn't lost, but the director still owes one decision
-  // — which batch (or none) it goes in. Rather than a cramped footer split-button,
-  // ask in a small modal. No pending change → just close.
+  // Finishing: commit and close. A pending price commit that was just rejected
+  // or parked for a dialog (base or retail) in the same event flush hasn't
+  // re-rendered yet — read the refs so Done doesn't close past a validation error.
   const handleDone = () => {
-    // If a price commit was just rejected or parked for a dialog (base or retail)
-    // in the same event flush, state hasn't re-rendered yet — read the refs.
     if (retailRejectedRef.current || baseRejectedRef.current) return;
-    if (hasPendingOverride) setBatchPromptOpen(true);
-    else onClose();
-  };
-  const closeAfterBatch = () => {
-    setBatchPromptOpen(false);
     onClose();
   };
 
@@ -440,13 +388,12 @@ export function ItemEditDrawer({
       headerActions={status ? <Badge tone={status.tone} size="sm">{status.label}</Badge> : undefined}
       footer={
         // The decision (accept / set a price / keep current) lives in the body now,
-        // so the footer is just "Done". When a change is pending, Done asks where it
-        // should go (a small batch prompt) instead of a cramped split-button.
+        // so the footer is just "Done", which simply closes the drawer.
         <div className="flex items-center justify-between gap-3">
           {hasPendingOverride ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-gray-600">
               <Check className="size-4 text-emerald-600" aria-hidden="true" />
-              Change saved · add to a batch to send
+              Change saved
             </span>
           ) : (
             <span />
@@ -503,25 +450,6 @@ export function ItemEditDrawer({
 
           <ShelfTagPreview key={`${item.id}-${item.newBasePrice ?? 'none'}-${item.newBaseQty ?? 1}`} item={item} />
 
-          {sending && (
-            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
-              <Lock className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
-              <span className="text-amber-900">
-                Sent to SAP — locked until SAP confirms it. Nothing here can be changed yet.
-              </span>
-            </div>
-          )}
-          {/* Send failed — NOT locked: the price never made it to SAP, so the
-              director can edit the price and re-submit via a batch. */}
-          {item?.sendFailed && (
-            <div className="-mt-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs">
-              <AlertCircle className="size-4 shrink-0 text-red-600" aria-hidden="true" />
-              <span className="text-red-900">
-                Send failed — this price is <strong>not live in SAP</strong>. Edit it below and add it to a batch to retry.
-              </span>
-            </div>
-          )}
-
           {hqReviewNeeded(item) && (
             <div className="-mt-2 flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs">
               <Info className="size-4 shrink-0 text-brand" aria-hidden="true" />
@@ -535,23 +463,6 @@ export function ItemEditDrawer({
             </div>
           )}
 
-          {myBatch && (
-            <div className="-mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-brand/20 bg-brand/5 px-3 py-2.5">
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
-                <span className="inline-flex items-center gap-1.5 text-gray-700">
-                  <Package className="size-4 shrink-0 text-brand" aria-hidden="true" />
-                  In batch <span className="font-medium text-gray-900">{myBatch.name}</span>
-                </span>
-              </div>
-              {/* Mixed state guard: one override can be in flight (sending) while the
-                  other still sits in a batch. The sending lock covers the whole item,
-                  so re-batching is disabled too — consistent with the lock banner. */}
-              <Button variant="tertiary" size="sm" disabled={sending} onClick={() => setMovePickerOpen(true)}>
-                Change batch
-              </Button>
-            </div>
-          )}
-
           {(() => {
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
@@ -561,26 +472,8 @@ export function ItemEditDrawer({
                 <h3 className="text-sm font-semibold text-gray-700">
                   Base price <span className="font-normal text-gray-400">· white tag</span>
                 </h3>
-                <div className={`rounded-xl border border-gray-200 bg-gray-50 px-4 py-3${item.sendFailed ? " ring-2 ring-orange-300" : ""}`}>
-                  {baseLocked ? (
-                    // Sent to SAP — read-only until SAP confirms. Show the change if
-                    // there is one, otherwise just the (unchanged) current price.
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm tabular-nums">
-                        <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                        {item.newBasePrice != null ? (
-                          <>
-                            <span className="text-gray-400 line-through">{fmt(item.currentBasePrice)}</span>
-                            <span aria-hidden="true" className="text-gray-300">→</span>
-                            <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice)}</span>
-                          </>
-                        ) : (
-                          <span className="text-base font-semibold text-gray-900">{fmt(item.currentBasePrice)}</span>
-                        )}
-                      </div>
-                      <span className="text-xs font-medium text-gray-500">Locked</span>
-                    </div>
-                  ) : editingBase ? (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+                  {editingBase ? (
                     baseInputBlock()
                   ) : decided ? (
                     <div className="decision-pop flex items-center justify-between gap-3">
@@ -678,7 +571,6 @@ export function ItemEditDrawer({
               <Select
                 label="Change reason"
                 size="sm"
-                disabled={sending}
                 options={STORE_REASON_OPTIONS}
                 value={item.chosenChangeReason ?? "local_ad_hoc"}
                 onChange={(v) => setChangeReason(item.id, v as StoreOriginReason)}
@@ -709,31 +601,7 @@ export function ItemEditDrawer({
                 </h3>
                 <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                   <div className="flex flex-col gap-4">
-                    {retailLocked ? (
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-2 text-sm tabular-nums">
-                            <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                            {item.newRetailPrice != null ? (
-                              <>
-                                <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
-                                <span aria-hidden="true" className="text-gray-300">→</span>
-                                <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice)}</span>
-                              </>
-                            ) : (
-                              <span className="text-base font-semibold text-gray-900">{isTemp ? fmt(curRetail) : "No promo"}</span>
-                            )}
-                          </div>
-                          {item.newRetailPrice != null && fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) && (
-                            <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
-                              <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
-                              {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate)}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs font-medium text-gray-500">Locked</span>
-                      </div>
-                    ) : acceptFirst ? (
+                    {acceptFirst ? (
                       <div className="decision-pop flex flex-wrap items-center gap-2">
                         <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
                           Accept {fmt(recRetail)}
@@ -849,27 +717,7 @@ export function ItemEditDrawer({
           <section className="flex flex-col gap-2">
             <h3 className="text-sm font-semibold text-gray-700">Fuel saver</h3>
             <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
-              {sending ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-2 text-sm tabular-nums">
-                      <Lock className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-                      {item.fuelSaver != null && item.fuelSaver > 0 ? (
-                        <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver)} fuel</span>
-                      ) : (
-                        <span className="text-gray-500">No fuel saver</span>
-                      )}
-                    </div>
-                    {item.fuelSaver != null && item.fuelSaver > 0 && fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate) && (
-                      <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
-                        <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
-                        {fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate)}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs font-medium text-gray-500">Locked</span>
-                </div>
-              ) : (() => {
+              {(() => {
                 const fuelDecided = item.fuelSaver != null && item.fuelSaver > 0;
                 const fuelHadPrior = item.currentFuelSaver != null && item.currentFuelSaver > 0;
                 const fuelPeriod = fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
@@ -1059,8 +907,8 @@ export function ItemEditDrawer({
       description={
         item
           ? confirmRevert === "base" && familyItems.length > 0
-            ? `All ${familyItems.length + 1} items in ${item.priceFamilyName ? `“${item.priceFamilyName}”` : "this family"} return to their current base price and leave their batch.`
-            : `${item.name} returns to its current ${confirmRevert === "retail" ? "retail" : "base"} price and leaves its batch.`
+            ? `All ${familyItems.length + 1} items in ${item.priceFamilyName ? `“${item.priceFamilyName}”` : "this family"} return to their current base price.`
+            : `${item.name} returns to its current ${confirmRevert === "retail" ? "retail" : "base"} price.`
           : undefined
       }
       confirmLabel="Revert"
@@ -1070,32 +918,6 @@ export function ItemEditDrawer({
         if (confirmRevert === "base" && item.familyId) updateBasePrice(item.id, null);
         else removeFromLooseTray(`${item.id}:${confirmRevert}`);
       }}
-    />
-
-    <BatchPickerModal
-      open={batchPromptOpen}
-      onOpenChange={(o) => { if (!o) setBatchPromptOpen(false); }}
-      description="Your change is saved. Add it to a batch to control when it reaches SAP."
-      openBatches={openBatches}
-      count={new Set(myPendingIds.map((id) => id.split(":")[0])).size}
-      onAddToBatch={(id) => { onAddToBatch(id, myPendingIds); closeAfterBatch(); }}
-      onNewBatch={() => { onNewBatch(myPendingIds); closeAfterBatch(); }}
-    />
-
-    <BatchPickerModal
-      open={movePickerOpen}
-      onOpenChange={(o) => { if (!o) setMovePickerOpen(false); }}
-      title="Change batch"
-      description="Move this change to a different batch, or create a new one."
-      openBatches={openBatches.filter((b) => b.id !== myBatch?.id)}
-      count={1}
-      onAddToBatch={(id) => {
-        inBatchIds.forEach((oid) => moveOverrideToBatch(oid, id));
-        const name = batches.find((b) => b.id === id)?.name ?? "batch";
-        toast.success(`Moved to ${name}`);
-        setMovePickerOpen(false);
-      }}
-      onNewBatch={() => { onNewBatch(inBatchIds); setMovePickerOpen(false); }}
     />
     </>
   );
