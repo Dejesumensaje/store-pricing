@@ -3,6 +3,10 @@ import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// Deterministic (no Math.random — hydration must be stable) char-code sum,
+// used below to decide which competitors have an active TPR on a given item.
+const idCharCodeSum = (id: string) => [...id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+
 // Family pricing: the one seeded family in this catalog — a store editing any
 // member's base price updates them all (see updateBasePrice).
 const FAMILY_IDS: Record<string, string> = {
@@ -19,10 +23,29 @@ const FAMILY_NAMES: Record<string, string> = {
 // temporary allowance (retail price + fuel saver) on the fly.
 function enrichItemContext(item: PricingItem): PricingItem {
   const base = item.currentBasePrice;
+  const idSum = idCharCodeSum(item.id);
+  // Deterministic TPR presence per competitor — no Math.random, so hydration
+  // stays stable. Target never TPRs in this narrative. The featured demo item
+  // (Lay's Classic Potato Chips 18oz) is special-cased so the drawer always
+  // has a full comparison to show.
+  const walmartHasTpr = idSum % 2 === 0 || item.id === "W7BESS";
+  const aldiHasTpr = idSum % 5 === 0;
   const competitors: CompetitorPrice[] = [
-    { name: "Walmart", price: round2(base * 0.96), distanceMi: 2.1 },
-    { name: "Target", price: round2(base * 1.04), distanceMi: 3.4 },
-    { name: "Aldi", price: round2(base * 0.89), distanceMi: 5.2 },
+    {
+      name: "Walmart",
+      price: round2(base * 0.96),
+      ...(walmartHasTpr ? { retailPrice: round2(base * 0.88) } : {}),
+      distanceMi: 2.1,
+      address: "123 Main St, Madison WI",
+    },
+    { name: "Target", price: round2(base * 1.04), distanceMi: 3.4, address: "2500 University Ave, Madison WI" },
+    {
+      name: "Aldi",
+      price: round2(base * 0.89),
+      ...(aldiHasTpr ? { retailPrice: round2(base * 0.82) } : {}),
+      distanceMi: 5.2,
+      address: "345 Main St, Madison WI",
+    },
   ];
   const familyId = FAMILY_IDS[item.id];
   return {

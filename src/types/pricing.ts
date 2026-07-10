@@ -11,8 +11,16 @@ export type ItemRole = "Traffic driver" | "Margin driver" | "Destination" | "Con
 export type CompetitorPrice = {
   name: string;
   price: number;
+  /**
+   * The competitor's active TPR/promo shelf price for this item, when one is
+   * currently running. Absent = no TPR currently running at that competitor
+   * (they're selling at their base `price`).
+   */
+  retailPrice?: number;
   /** Distance to the competitor store, in miles. */
   distanceMi?: number;
+  /** Street address of the competitor store, e.g. "123 Main St, Madison WI". */
+  address?: string;
 };
 export type NationalVsStore = "National" | "Store";
 /** Why HQ proposed a price change. A director's own price is a "local ad hoc"

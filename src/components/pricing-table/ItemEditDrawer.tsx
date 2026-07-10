@@ -802,31 +802,108 @@ export function ItemEditDrawer({
 
           {item.competitors && item.competitors.length > 0 && (() => {
             // Compare per-unit — a pack-size base competes on its unit price.
-            const ourPrice = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
+            const ourBase = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
+            // Our active TPR, if any — decided override first, else the live
+            // allowance price. A plain base item has no active TPR even
+            // though currentRetailPrice is seeded (it defaults to base).
+            const ourTpr = item.newRetailPrice != null
+              ? perUnit(item.newRetailPrice, item.newRetailQty)
+              : item.category_type === "temporary_allowance"
+                ? item.currentRetailPrice ?? null
+                : null;
+            const orderedCompetitors = orderCompetitors(item.competitors);
+            const showTprColumn = ourTpr != null || orderedCompetitors.some((c) => c.retailPrice != null);
+            const diffLabel = (diff: number) =>
+              diff > 0 ? `+${fmt(diff)} higher` : diff < 0 ? `${fmt(diff)} lower` : "matches";
+            const diffClass = (diff: number) =>
+              diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500";
             return (
               <CollapsibleSection title="Competitor prices" count={item.competitors.length}>
                 <div className="-mx-4 -my-3">
-                  <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
-                    <span className="text-xs font-medium text-gray-500">Our price</span>
-                    <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourPrice)}</span>
-                  </div>
-                  {orderCompetitors(item.competitors).map((c) => {
-                    const diff = ourPrice - c.price;
-                    return (
-                      <div key={c.name} className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
-                        <div className="min-w-0">
-                          <span className="text-sm text-gray-700">{c.name}</span>
-                          {c.distanceMi != null && <span className="ml-2 text-xs text-gray-500">{c.distanceMi} mi</span>}
-                        </div>
-                        <div className="flex items-center gap-2 tabular-nums">
-                          <span className="text-sm text-gray-700">{fmt(c.price)}</span>
-                          <span className={`w-24 text-right text-xs font-medium ${diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500"}`}>
-                            {diff > 0 ? `+${fmt(diff)} higher` : diff < 0 ? `${fmt(diff)} lower` : "matches"}
-                          </span>
+                  {showTprColumn ? (
+                    <>
+                      <div className="flex items-start justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
+                        <span className="text-xs font-medium text-gray-500">Our price</span>
+                        <div className="flex gap-3">
+                          <div className="w-20 text-right">
+                            <div className="text-[11px] text-gray-500">Base</div>
+                            <div className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourBase)}</div>
+                          </div>
+                          <div className="w-20 text-right">
+                            <div className="text-[11px] text-gray-500">TPR</div>
+                            <div className="text-sm font-semibold tabular-nums text-gray-900">
+                              {ourTpr != null ? fmt(ourTpr) : "—"}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
+                      {orderedCompetitors.map((c) => {
+                        const baseDiff = ourBase - c.price;
+                        const hasCompetitorTpr = c.retailPrice != null;
+                        const tprDiff = hasCompetitorTpr && ourTpr != null ? ourTpr - c.retailPrice! : null;
+                        const meta = [
+                          c.distanceMi != null ? `${c.distanceMi} mi` : null,
+                          c.address ?? null,
+                        ].filter(Boolean).join(" · ");
+                        return (
+                          <div key={c.name} className="flex items-start justify-between gap-3 px-4 py-1.5 border-b border-gray-100 last:border-0">
+                            <div className="min-w-0">
+                              <span className="text-sm text-gray-700">{c.name}</span>
+                              {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
+                            </div>
+                            <div className="flex gap-3 tabular-nums">
+                              <div className="w-20 text-right">
+                                <div className="text-sm text-gray-700">{fmt(c.price)}</div>
+                                <div className={`text-xs font-medium ${diffClass(baseDiff)}`}>{diffLabel(baseDiff)}</div>
+                              </div>
+                              <div className="w-20 text-right">
+                                {hasCompetitorTpr ? (
+                                  <>
+                                    <div className="text-sm text-gray-700">{fmt(c.retailPrice!)}</div>
+                                    {tprDiff != null ? (
+                                      <div className={`text-xs font-medium ${diffClass(tprDiff)}`}>{diffLabel(tprDiff)}</div>
+                                    ) : (
+                                      <div className="text-xs font-medium text-amber-600">their TPR</div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="text-sm text-gray-400">—</div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
+                        <span className="text-xs font-medium text-gray-500">Our price</span>
+                        <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourBase)}</span>
+                      </div>
+                      {orderedCompetitors.map((c) => {
+                        const diff = ourBase - c.price;
+                        const meta = [
+                          c.distanceMi != null ? `${c.distanceMi} mi` : null,
+                          c.address ?? null,
+                        ].filter(Boolean).join(" · ");
+                        return (
+                          <div key={c.name} className="flex items-start justify-between gap-3 px-4 py-1.5 border-b border-gray-100 last:border-0">
+                            <div className="min-w-0">
+                              <span className="text-sm text-gray-700">{c.name}</span>
+                              {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
+                            </div>
+                            <div className="flex items-center gap-2 tabular-nums">
+                              <span className="text-sm text-gray-700">{fmt(c.price)}</span>
+                              <span className={`w-24 text-right text-xs font-medium ${diffClass(diff)}`}>
+                                {diffLabel(diff)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
                 </div>
               </CollapsibleSection>
             );
