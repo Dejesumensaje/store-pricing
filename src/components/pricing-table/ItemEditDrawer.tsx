@@ -12,6 +12,7 @@ import { BasePriceMethodField } from "./BasePriceMethodField";
 import { HqBadge } from "../store/buildStoreColumns";
 import { ShelfTagPreview } from "./ShelfTagPreview";
 import { CollapsibleSection } from "./CollapsibleSection";
+import { ProductRelationships } from "./ProductRelationships";
 import { RetailPriceWarningModal } from "./RetailPriceWarningModal";
 import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
@@ -799,6 +800,8 @@ export function ItemEditDrawer({
               })()}
             </div>
           </section>
+
+          <ProductRelationships item={item} itemsById={itemsById} />
 
           {item.competitors && item.competitors.length > 0 && (() => {
             // Compare per-unit — a pack-size base competes on its unit price.
