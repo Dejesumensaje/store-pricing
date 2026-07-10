@@ -20,6 +20,7 @@ import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
 import {
   REASON_META,
+  PriceChangeReason,
   changeReasonFor,
   STORE_BASE_REASON_OPTIONS,
   STORE_BASE_REASON_DEFAULT,
@@ -103,6 +104,18 @@ function HqRationale({ item, section }: { item: PricingItem; section: "base" | "
       {label && <span className="font-medium text-gray-700">{label}</span>}
       {label ? " — " : ""}
       {hqRecRationale(item, "retail")}
+    </p>
+  );
+}
+
+// Compact read-only trace shown after the Director has decided against an HQ
+// recommendation — keeps the Proposed layer visible per the ticket decision
+// workspace model (inputs are permanent).
+function HqRef({ price, reasonKey, prefix = "", suffix = "" }: { price: number; reasonKey?: PriceChangeReason | null; prefix?: string; suffix?: string }) {
+  const label = reasonKey ? REASON_META[reasonKey]?.label : null;
+  return (
+    <p className="mt-1.5 text-xs tabular-nums text-gray-400">
+      HQ recommended {prefix}{fmt(price)}{suffix}{label ? ` · ${label}` : ""}
     </p>
   );
 }
@@ -632,6 +645,8 @@ export function ItemEditDrawer({
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
             const baseHasRec = showAccept && item.recommendedBasePrice != null && Math.abs(rec - item.currentBasePrice) > 0.005;
+            const effectiveBase = decided ? perUnit(item.newBasePrice!, item.newBaseQty) : item.currentBasePrice;
+            const baseRecRef = !showAccept && rec != null && Math.abs(rec - item.currentBasePrice) > 0.005 && Math.abs(effectiveBase - rec) > 0.005;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
@@ -641,6 +656,7 @@ export function ItemEditDrawer({
                   {editingBase ? (
                     baseInputBlock()
                   ) : decided ? (
+                    <>
                     <div className="decision-pop flex items-center justify-between gap-3">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2 text-sm tabular-nums">
@@ -680,6 +696,8 @@ export function ItemEditDrawer({
                         </Button>
                       </div>
                     </div>
+                    {rec != null && baseRecRef && <HqRef price={rec} reasonKey={item.hqBaseReason} />}
+                    </>
                   ) : baseHasRec ? (
                     <div className="flex flex-col gap-3">
                       <HqRationale item={item} section="base" />
@@ -701,6 +719,7 @@ export function ItemEditDrawer({
                       </div>
                     </div>
                   ) : (
+                    <>
                     <div className="flex items-center justify-between gap-3">
                       {isNewItem ? (
                         <span className="text-sm text-gray-600">{intent?.helper ?? "Set the opening price."}</span>
@@ -714,6 +733,8 @@ export function ItemEditDrawer({
                         {isNewItem ? "Set price" : "Change price"}
                       </Button>
                     </div>
+                    {rec != null && baseRecRef && <HqRef price={rec} reasonKey={item.hqBaseReason} />}
+                    </>
                   )}
                   {edlpCeilingState && edlpCeilingState.level === "hard" && (
                     // A committed price already past the hard stop with no exception —
@@ -751,6 +772,8 @@ export function ItemEditDrawer({
             // Accept-first only for a TA whose HQ promo rec is still undecided.
             const retailHasRec = isTemp && showAccept && item.recommendedRetailPrice != null;
             const acceptFirst = retailHasRec && !changingRetail && !retailDecided;
+            const effectiveRetail = retailDecided ? perUnit(item.newRetailPrice!, item.newRetailQty ?? 1) : curRetail;
+            const retailRecRef = isTemp && !showAccept && item.recommendedRetailPrice != null && Math.abs(effectiveRetail - item.recommendedRetailPrice) > 0.005;
             // A plain item gets converted to a TA the moment a promo is set.
             // Remember the original type so handleClose can revert it if the
             // director closes without committing a price.
@@ -786,6 +809,7 @@ export function ItemEditDrawer({
                         </div>
                       </div>
                     ) : retailDecided && !changingRetail ? (
+                      <>
                       <div className="decision-pop flex items-center justify-between gap-3">
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2 text-sm tabular-nums">
@@ -832,7 +856,10 @@ export function ItemEditDrawer({
                           })()}
                         </div>
                       </div>
+                      {item.recommendedRetailPrice != null && retailRecRef && <HqRef price={item.recommendedRetailPrice} reasonKey={item.hqRetailReason} />}
+                      </>
                     ) : !changingRetail ? (
+                      <>
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-baseline gap-2 tabular-nums">
                           <span className="text-xs text-gray-500">{isTemp ? "Current" : "No promo"}</span>
@@ -842,6 +869,8 @@ export function ItemEditDrawer({
                           Set promo price
                         </Button>
                       </div>
+                      {item.recommendedRetailPrice != null && retailRecRef && <HqRef price={item.recommendedRetailPrice} reasonKey={item.hqRetailReason} />}
+                      </>
                     ) : (
                       <>
                         <Field label="New retail price">
@@ -937,6 +966,9 @@ export function ItemEditDrawer({
                   showAccept && item.recommendedFuelSaver != null && item.recommendedFuelSaver > 0
                     ? item.recommendedFuelSaver
                     : null;
+                const fuelRecAmt = item.recommendedFuelSaver != null && item.recommendedFuelSaver > 0 ? item.recommendedFuelSaver : null;
+                const effectiveFuel = fuelDecided ? (item.fuelSaver ?? 0) : (fuelHadPrior ? (item.currentFuelSaver ?? 0) : 0);
+                const fuelRecRef = !showAccept && fuelRecAmt != null && Math.abs(effectiveFuel - fuelRecAmt) > 0.005;
                 if (!editingFuelSaver && !fuelDecided && fuelRec != null) {
                   return (
                     <div className="flex flex-col gap-3">
@@ -961,6 +993,7 @@ export function ItemEditDrawer({
                 }
                 if (!editingFuelSaver) {
                   return fuelDecided ? (
+                    <>
                     <div className="decision-pop flex items-center justify-between gap-3">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2 text-sm tabular-nums">
@@ -1003,7 +1036,10 @@ export function ItemEditDrawer({
                         </Button>
                       </div>
                     </div>
+                    {fuelRecAmt != null && fuelRecRef && <HqRef price={fuelRecAmt} reasonKey={item.hqFuelReason} prefix="+" suffix=" fuel" />}
+                    </>
                   ) : (
+                    <>
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-baseline gap-2 tabular-nums">
                         <span className="text-xs text-gray-500">No fuel saver</span>
@@ -1012,6 +1048,8 @@ export function ItemEditDrawer({
                         Add fuel saver
                       </Button>
                     </div>
+                    {fuelRecAmt != null && fuelRecRef && <HqRef price={fuelRecAmt} reasonKey={item.hqFuelReason} prefix="+" suffix=" fuel" />}
+                    </>
                   );
                 }
                 return (
