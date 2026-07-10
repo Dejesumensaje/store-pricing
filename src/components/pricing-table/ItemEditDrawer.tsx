@@ -816,8 +816,11 @@ export function ItemEditDrawer({
                 : null;
             const orderedCompetitors = orderCompetitors(item.competitors);
             const showTprColumn = ourTpr != null || orderedCompetitors.some((c) => c.retailPrice != null);
-            const diffLabel = (diff: number) =>
-              diff > 0 ? `+${fmt(diff)} higher` : diff < 0 ? `${fmt(diff)} lower` : "matches";
+            const diffLabel = (diff: number, theirPrice: number) => {
+              if (diff === 0) return "matches";
+              const pct = ((diff / theirPrice) * 100).toFixed(1);
+              return diff > 0 ? `+${pct}% higher` : `${pct}% lower`;
+            };
             const diffClass = (diff: number) =>
               diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500";
             return (
@@ -828,12 +831,12 @@ export function ItemEditDrawer({
                       <div className="flex items-start justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
                         <span className="text-xs font-medium text-gray-500">Our price</span>
                         <div className="flex gap-3">
-                          <div className="w-20 text-right">
+                          <div className="w-24 text-right">
                             <div className="text-[11px] text-gray-500">Base</div>
                             <div className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourBase)}</div>
                           </div>
-                          <div className="w-20 text-right">
-                            <div className="text-[11px] text-gray-500">TPR</div>
+                          <div className="w-24 text-right">
+                            <div className="text-[11px] text-gray-500">Retail</div>
                             <div className="text-sm font-semibold tabular-nums text-gray-900">
                               {ourTpr != null ? fmt(ourTpr) : "—"}
                             </div>
@@ -855,18 +858,16 @@ export function ItemEditDrawer({
                               {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
                             </div>
                             <div className="flex gap-3 tabular-nums">
-                              <div className="w-20 text-right">
+                              <div className="w-24 text-right">
                                 <div className="text-sm text-gray-700">{fmt(c.price)}</div>
-                                <div className={`text-xs font-medium ${diffClass(baseDiff)}`}>{diffLabel(baseDiff)}</div>
+                                <div className={`text-xs font-medium ${diffClass(baseDiff)}`}>{diffLabel(baseDiff, c.price)}</div>
                               </div>
-                              <div className="w-20 text-right">
+                              <div className="w-24 text-right">
                                 {hasCompetitorTpr ? (
                                   <>
                                     <div className="text-sm text-gray-700">{fmt(c.retailPrice!)}</div>
-                                    {tprDiff != null ? (
-                                      <div className={`text-xs font-medium ${diffClass(tprDiff)}`}>{diffLabel(tprDiff)}</div>
-                                    ) : (
-                                      <div className="text-xs font-medium text-amber-600">their TPR</div>
+                                    {tprDiff != null && (
+                                      <div className={`text-xs font-medium ${diffClass(tprDiff)}`}>{diffLabel(tprDiff, c.retailPrice!)}</div>
                                     )}
                                   </>
                                 ) : (
@@ -899,7 +900,7 @@ export function ItemEditDrawer({
                             <div className="flex items-center gap-2 tabular-nums">
                               <span className="text-sm text-gray-700">{fmt(c.price)}</span>
                               <span className={`w-24 text-right text-xs font-medium ${diffClass(diff)}`}>
-                                {diffLabel(diff)}
+                                {diffLabel(diff, c.price)}
                               </span>
                             </div>
                           </div>
