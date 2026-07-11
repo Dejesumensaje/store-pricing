@@ -700,11 +700,11 @@ export function ItemEditDrawer({
                     </>
                   ) : baseHasRec ? (
                     <div className="flex flex-col gap-3">
-                      <HqRationale item={item} section="base" />
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
                         <span aria-hidden="true" className="text-gray-300">→</span>
                         <span className="font-semibold text-gray-900">HQ recommends {fmt(rec)}</span>
+                        {item.hqBaseReason && <span className="text-xs text-gray-500">· {REASON_META[item.hqBaseReason].label}</span>}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <Button variant="primary" size="sm" iconLeft={Check} onClick={() => commitBase(rec)}>

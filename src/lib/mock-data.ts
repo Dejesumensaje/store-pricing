@@ -565,8 +565,8 @@ const HQ_RETAIL_REASON_SEEDS: Record<string, HqPromoReason> = {
 // item can surface more than one section's HQ reason at once (see HQ-108:
 // a "Competitor change" base reason alongside a "Discontinued" fuel reason).
 const HQ_FUEL_REASON_SEEDS: Record<string, { amount: number; reason: HqPromoReason }> = {
-  "HQ-102": { amount: 0.03, reason: "wow_buy" },
-  "HQ-108": { amount: 0.05, reason: "discontinued" },
+  "HQ-102": { amount: 0.10, reason: "wow_buy" },
+  "HQ-108": { amount: 0.10, reason: "discontinued" },
 };
 
 function applyHqReview(item: PricingItem): PricingItem {
