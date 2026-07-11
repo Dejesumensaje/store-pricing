@@ -551,11 +551,7 @@ export function ItemEditDrawer({
           )}
         </Field>
         {item.hqBaseReason ? (
-          // Custom price on an HQ-recommended section keeps the HQ reason as
-          // its origin — read-only context here, not an editable selector.
-          <p className="text-sm text-gray-500">
-            Reason: <span className="font-medium text-gray-700">{REASON_META[item.hqBaseReason].label}</span>
-          </p>
+          <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqBaseReason].label}</span></p>
         ) : (
           // Part of setting the price, not a post-hoc afterthought — the director
           // picks why alongside what, before the price is even committed.
@@ -715,15 +711,12 @@ export function ItemEditDrawer({
                             </>
                           )}
                           <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice)}</span>
-                          {(() => {
-                            // Plain caption, deliberately not a second edit affordance —
-                            // "Change" is the one path back into the editor (which
-                            // carries the reason picker for store-origin items).
-                            const reason = changeReasonFor(item, "base");
-                            if (!reason) return null;
-                            return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
-                          })()}
                         </div>
+                        {(() => {
+                          const reason = changeReasonFor(item, "base");
+                          if (!reason) return null;
+                          return <p className="pl-6 text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[reason].label}</span></p>;
+                        })()}
                         {fmtEffectiveDate(item.baseEffectiveDate) && (
                           <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
                             <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
@@ -860,6 +853,15 @@ export function ItemEditDrawer({
                           <Button variant="secondary" size="sm" onClick={() => setChangingRetail(true)}>
                             Set a different price
                           </Button>
+                          <Button variant="secondary" size="sm" onClick={() => {
+                            setReviewed(item.id, true);
+                            toast.success("No promotion", {
+                              description: "HQ recommendation declined — no yellow ticket.",
+                              action: { label: "Undo", onClick: () => setReviewed(item.id, false) },
+                            });
+                          }}>
+                            No promotion
+                          </Button>
                         </div>
                       </div>
                     ) : retailDecided && !changingRetail ? (
@@ -871,14 +873,12 @@ export function ItemEditDrawer({
                             <span className="text-gray-400 line-through">{fmt(curRetail)}</span>
                             <span aria-hidden="true" className="text-gray-300">→</span>
                             <span className="text-base font-semibold text-gray-900">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice ?? curRetail)}</span>
-                            {(() => {
-                              // Plain caption — same one-edit-path rule as the base
-                              // section's; "Change" reopens the editor + reason picker.
-                              const reason = changeReasonFor(item, "retail");
-                              if (!reason) return null;
-                              return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
-                            })()}
                           </div>
+                          {(() => {
+                            const reason = changeReasonFor(item, "retail");
+                            if (!reason) return null;
+                            return <p className="pl-6 text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[reason].label}</span></p>;
+                          })()}
                           {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) && (
                             <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
                               <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
@@ -950,11 +950,7 @@ export function ItemEditDrawer({
                         </Field>
 
                         {item.hqRetailReason ? (
-                          // Custom price on an HQ-recommended section keeps the HQ
-                          // reason as its origin — read-only context, not a selector.
-                          <p className="text-sm text-gray-500">
-                            Reason: <span className="font-medium text-gray-700">{REASON_META[item.hqRetailReason].label}</span>
-                          </p>
+                          <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqRetailReason].label}</span></p>
                         ) : (
                           // Part of setting the price, not a post-hoc afterthought —
                           // the director picks why alongside what, before the price
@@ -1050,6 +1046,15 @@ export function ItemEditDrawer({
                         <Button variant="secondary" size="sm" onClick={() => setEditingFuelSaver(true)}>
                           Set a different amount
                         </Button>
+                        <Button variant="secondary" size="sm" onClick={() => {
+                          setReviewed(item.id, true);
+                          toast.success("No fuel saver", {
+                            description: "HQ recommendation declined.",
+                            action: { label: "Undo", onClick: () => setReviewed(item.id, false) },
+                          });
+                        }}>
+                          No fuel saver
+                        </Button>
                       </div>
                     </div>
                   );
@@ -1068,14 +1073,12 @@ export function ItemEditDrawer({
                             </>
                           )}
                           <span className="text-base font-semibold text-gray-900">+{fmt(item.fuelSaver ?? 0)} fuel</span>
-                          {(() => {
-                            // Plain caption, same one-edit-path rule as base/retail's —
-                            // "Change" reopens the editor + reason picker.
-                            const reason = changeReasonFor(item, "fuel");
-                            if (!reason) return null;
-                            return <span className="text-xs text-gray-500">· {REASON_META[reason].label}</span>;
-                          })()}
                         </div>
+                        {(() => {
+                          const reason = changeReasonFor(item, "fuel");
+                          if (!reason) return null;
+                          return <p className="pl-6 text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[reason].label}</span></p>;
+                        })()}
                         {fuelPeriod && (
                           <span className="flex items-center gap-1 pl-6 text-xs text-gray-500">
                             <CalendarClock className="size-3 shrink-0 text-gray-400" aria-hidden="true" />
@@ -1140,15 +1143,8 @@ export function ItemEditDrawer({
                       )}
                     </div>
                     {item.hqFuelReason ? (
-                      // Custom price on an HQ-recommended section keeps the HQ
-                      // reason as its origin — read-only context, not a selector.
-                      <p className="text-sm text-gray-500">
-                        Reason: <span className="font-medium text-gray-700">{REASON_META[item.hqFuelReason].label}</span>
-                      </p>
-                    ) : fuelDecided ? (
-                      // The reason is asked only once an amount exists — like the
-                      // period field below, "why" follows "what". No default —
-                      // starts unselected until the director actively picks one.
+                      <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqFuelReason].label}</span></p>
+                    ) : (
                       <Select
                         label="Change reason"
                         size="sm"
@@ -1157,7 +1153,7 @@ export function ItemEditDrawer({
                         placeholder="Select a reason"
                         onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason)}
                       />
-                    ) : null}
+                    )}
                     {fuelDecided && (() => {
                       // Same required-period model as Retail's promo period —
                       // a fuel saver must carry a start + end window too.
