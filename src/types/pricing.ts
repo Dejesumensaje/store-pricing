@@ -214,28 +214,3 @@ export type Override = {
   updatedAt?: number;
 };
 
-export type SummaryMetrics = {
-  salesCurrent: number;
-  salesNew: number;
-  salesImpactPct: number;
-  unitsCurrent: number;
-  unitsNew: number;
-  unitsImpactPct: number;
-  marginCurrent: number;
-  marginNew: number;
-  marginImpactPct: number;
-  transactionsCurrent: number;
-  transactionsNew: number;
-  transactionsImpactPct: number;
-  ciVsCompCurrent: number;
-  ciVsCompNew: number;
-};
-
-export type CategorySummary = {
-  type: PricingCategory;
-  label: string;
-  description: string;
-  newPricesFromHQ: number;
-  priceOverrides: number;
-  alerts: number;
-};

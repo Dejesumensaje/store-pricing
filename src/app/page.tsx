@@ -395,7 +395,6 @@ export default function StorePricingPage() {
 
       <ItemEditDrawer
         itemId={drawerItemId}
-        flow="all"
         onClose={() => setDrawerItemId(null)}
       />
     </div>

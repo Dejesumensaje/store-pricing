@@ -6,6 +6,7 @@ import { QtyPriceInput } from "./QtyPriceInput";
 import { derivePriceState } from "./PriceInputCell";
 import { OverrideStatus } from "@/types/pricing";
 import { fmt } from "@/lib/format";
+import { round2 } from "@/lib/pricing-math";
 
 // The four ways a director can set an allowance retail price. The mental model
 // (per Neil/HQ) is to pick the *kind* of discount first, then enter the number —
@@ -20,12 +21,9 @@ const METHODS: { id: Method; label: string }[] = [
 ];
 
 // Infer the starting method from a committed deal: a multi-unit quantity opens
-// "Multi-unit"; any other committed price opens "Exact price"; an untouched
-// field defaults to "% off" (the most common allowance promo).
-function initialMethod(qty: number | null, price: number | null): Method {
-  if (qty != null && qty > 1) return "multi";
-  if (price != null) return "exact";
-  return "exact";
+// "Multi-unit"; everything else opens "Exact price".
+function initialMethod(qty: number | null): Method {
+  return qty != null && qty > 1 ? "multi" : "exact";
 }
 
 // Progressive retail-price control for a temporary allowance. The % / $ off
@@ -48,7 +46,7 @@ export function RetailReductionField({
   status?: OverrideStatus;
   onCommit: (qty: number, price: number | null) => void;
 }) {
-  const [method, setMethod] = useState<Method>(() => initialMethod(qty, price));
+  const [method, setMethod] = useState<Method>(() => initialMethod(qty));
 
   // The committed per-unit price (a deal divides its total across the quantity).
   const unit = price != null ? price / Math.max(1, qty ?? 1) : null;
@@ -58,7 +56,6 @@ export function RetailReductionField({
   // discount survives the jump into (and out of) multi-unit. Example: $5 → 10% =
   // $4.50/unit; entering Multi-unit seeds "2 for $9.00" (4.50 × 2), not "2 for
   // $4.50". Leaving multi-unit collapses the deal total back to the per-unit price.
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   const selectMethod = (m: Method) => {
     if (m === method) return;
     const dealQty = qty ?? 1;

@@ -40,6 +40,8 @@ type PricingStore = {
   removeFromLooseTray: (overrideId: string) => void;
 };
 
+const SIX_DAYS_MS = 6 * 86400000;
+
 const isActive = (s?: OverrideStatus) => s === "pending";
 
 function withOverrideFlags(item: PricingItem): PricingItem {
@@ -207,7 +209,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
       // item doesn't already carry one.
       const today = new Date();
       const iso = (d: Date) => d.toISOString().slice(0, 10);
-      const weekOut = new Date(today.getTime() + 6 * 86400000);
+      const weekOut = new Date(today.getTime() + SIX_DAYS_MS);
       return {
         items: state.items.map((item) =>
           item.id === itemId
@@ -243,7 +245,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
         }
         const today = new Date();
         const iso = (d: Date) => d.toISOString().slice(0, 10);
-        const weekOut = new Date(today.getTime() + 6 * 86400000);
+        const weekOut = new Date(today.getTime() + SIX_DAYS_MS);
         return {
           ...item,
           fuelSaver: value,
@@ -272,7 +274,7 @@ export const usePricingStore = create<PricingStore>((set) => ({
           // yellow tag has dates the moment a plain item is converted.
           const today = new Date();
           const iso = (d: Date) => d.toISOString().slice(0, 10);
-          const weekOut = new Date(today.getTime() + 6 * 86400000);
+          const weekOut = new Date(today.getTime() + SIX_DAYS_MS);
           return {
             ...item,
             category_type: type,
@@ -377,12 +379,6 @@ export const usePricingStore = create<PricingStore>((set) => ({
       };
     }),
 }));
-
-// selectPendingOverrides returns a fresh array — use with useShallow() to avoid re-render loops.
-export const selectPendingOverrides = (s: PricingStore) =>
-  s.overrides.filter((o) => o.status === "pending");
-export const selectPendingCount = (s: PricingStore) =>
-  s.overrides.reduce((n, o) => n + (o.status === "pending" ? 1 : 0), 0);
 
 // The store currently in view (stable object from STORES).
 export const useActiveStore = (): Store =>

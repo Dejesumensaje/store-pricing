@@ -1,7 +1,6 @@
 import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
+import { round2 } from "@/lib/pricing-math";
 
 // Deterministic (no Math.random — hydration must be stable) char-code sum,
 // used below to decide which competitors have an active TPR on a given item.

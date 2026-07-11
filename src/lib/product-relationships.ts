@@ -67,6 +67,3 @@ export function relationshipsFor(itemId: string): ProductRelationship[] {
   return PRODUCT_RELATIONSHIPS.filter((r) => r.itemIds.includes(itemId));
 }
 
-export function familyRelationshipFor(itemId: string): ProductRelationship | undefined {
-  return PRODUCT_RELATIONSHIPS.find((r) => r.type === "family" && r.itemIds.includes(itemId));
-}

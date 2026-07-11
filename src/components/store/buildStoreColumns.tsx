@@ -6,7 +6,7 @@ import { itemCol, idCol } from "../pricing-table/columns/shared";
 import { PricingItem, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { REASON_META, PriceChangeReason } from "@/lib/price-change-reason";
-import { fmt, fmtQtyPrice } from "@/lib/format";
+import { fmt, fmtQtyPrice, fmtDateShort } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { committedEdlpCeilingState } from "@/lib/edlp-ceiling";
 import { useEdlpException } from "@/store/pricing-store";
@@ -80,21 +80,16 @@ export const SHELF_TAG_META: Record<ShelfTagKind, { label: string; swatch: strin
   clearance: { label: "Clearance", swatch: "bg-rose-300 border-rose-400", text: "text-rose-800", pill: "bg-rose-100 text-rose-800" },
 };
 
-export function fmtShortDate(iso?: string | null): string | null {
-  if (!iso) return null;
-  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
 // The run-window for a promo / fuel saver, phrased for a tooltip. Dates now live
 // on hover over the tag itself (no standalone calendar icon), so this is the
 // tooltip copy rather than a rendered element.
 function dateRange(start?: string | null, end?: string | null): string | null {
   if (!start && !end) return null;
   return start && end
-    ? `${fmtShortDate(start)} – ${fmtShortDate(end)}`
+    ? `${fmtDateShort(start)} – ${fmtDateShort(end)}`
     : end
-    ? `ends ${fmtShortDate(end)}`
-    : `from ${fmtShortDate(start)}`;
+    ? `ends ${fmtDateShort(end)}`
+    : `from ${fmtDateShort(start)}`;
 }
 
 // The shelf-tag chip: a colored tag swatch + label. The lens a director scans on

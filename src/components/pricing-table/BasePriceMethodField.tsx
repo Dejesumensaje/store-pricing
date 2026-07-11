@@ -4,6 +4,7 @@ import { useState } from "react";
 import { QtyPriceInput } from "./QtyPriceInput";
 import { derivePriceState } from "./PriceInputCell";
 import { OverrideStatus } from "@/types/pricing";
+import { round2 } from "@/lib/pricing-math";
 
 // The two shapes a plain (non-EDLP) base price can take: one shelf price, or a
 // pack-size deal ("3 for $6.00"). Mirrors the retail chooser's pick-the-kind-
@@ -47,7 +48,6 @@ export function BasePriceMethodField({
   // Switching methods must preserve the PER-UNIT price, not the deal total
   // (same rule as the retail chooser): $4.50 entering Multi-unit seeds
   // "2 for $9.00"; leaving collapses the deal total back to the per-unit price.
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   const selectMethod = (m: Method) => {
     if (m === method) return;
     const dealQty = qty ?? 1;

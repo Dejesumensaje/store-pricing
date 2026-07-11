@@ -38,8 +38,6 @@ import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertC
 
 type Props = {
   itemId: string | null;
-  /** Which flow opened the drawer — sets the footer's primary action. */
-  flow: "all" | "hq";
   onClose: () => void;
 };
 
@@ -123,7 +121,6 @@ function HqRef({ price, reasonKey, prefix = "", suffix = "" }: { price: number; 
 
 export function ItemEditDrawer({
   itemId,
-  flow,
   onClose,
 }: Props) {
   const items = usePricingStore((s) => s.items);
