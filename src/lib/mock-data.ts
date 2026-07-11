@@ -1,3 +1,11 @@
+// ─── INTEGRATION SEAM ────────────────────────────────────────────────────────
+// This file is the ONLY data source in the MVP. To connect a real backend:
+//   1. Replace the body of loadStoreData() in src/lib/api.ts with a real fetch
+//   2. Wire each Zustand action in pricing-store.ts to call commitDecision()
+//   3. The API contract is src/types/pricing.ts — PricingItem is what the
+//      backend must return; Override is what the store sends on each edit
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 import { round2 } from "@/lib/pricing-math";

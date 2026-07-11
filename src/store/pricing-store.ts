@@ -2,7 +2,8 @@
 
 import { create } from "zustand";
 import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason } from "@/types/pricing";
-import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
+import { StoreSlice } from "@/lib/mock-data";
+import { loadStoreData } from "@/lib/api";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { EdlpException } from "@/lib/edlp-ceiling";
@@ -103,7 +104,7 @@ function upsertOverride(
 
 // Boot every store's data; the active store becomes the working set, the rest
 // go to the stash. Switching stores swaps a slice in and out (see setActiveStore).
-const initialData = buildInitialStoreData();
+const initialData = loadStoreData();
 const initialStash: Record<string, StoreSlice> = {};
 for (const s of STORES) if (s.id !== DEFAULT_STORE_ID) initialStash[s.id] = initialData[s.id];
 const initialActive = initialData[DEFAULT_STORE_ID];
