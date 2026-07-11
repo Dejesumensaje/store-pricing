@@ -97,7 +97,7 @@ function HqRationale({ item, section }: { item: PricingItem; section: "base" | "
     section === "base" ? item.hqBaseReason : section === "fuel" ? item.hqFuelReason : item.hqRetailReason;
   const label = hqReason ? REASON_META[hqReason].label : null;
   if (section !== "retail") {
-    return label ? <p className="text-sm font-medium text-gray-700">{label}</p> : null;
+    return label ? <p className="text-xs font-medium text-gray-500">{label}</p> : null;
   }
   return (
     <p className="text-sm text-gray-600">
@@ -114,7 +114,7 @@ function HqRationale({ item, section }: { item: PricingItem; section: "base" | "
 function HqRef({ price, reasonKey, prefix = "", suffix = "" }: { price: number; reasonKey?: PriceChangeReason | null; prefix?: string; suffix?: string }) {
   const label = reasonKey ? REASON_META[reasonKey]?.label : null;
   return (
-    <p className="mt-1.5 text-xs tabular-nums text-gray-400">
+    <p className="mt-1.5 text-xs tabular-nums text-gray-500">
       HQ recommended {prefix}{fmt(price)}{suffix}{label ? ` · ${label}` : ""}
     </p>
   );
@@ -490,7 +490,7 @@ export function ItemEditDrawer({
                 hasAlert={item.hasAlert}
                 onCommit={(qty, price) => commitBase(price, qty)}
               />
-              {isHq && item.newBasePrice != null && (
+              {isHq && item.newBasePrice != null && Math.abs(perUnit(item.newBasePrice, item.newBaseQty) - (item.recommendedBasePrice ?? 0)) > 0.005 && (
                 <p className="mt-1.5 text-xs tabular-nums text-gray-500">
                   HQ recommended {fmt(item.recommendedBasePrice)} · new price{" "}
                   <span className="font-medium text-gray-700">{fmtQtyPrice(item.newBaseQty, item.newBasePrice)}</span>
@@ -887,6 +887,12 @@ export function ItemEditDrawer({
                               {retailValidationError}
                             </span>
                           )}
+                          {item.recommendedRetailPrice != null && item.newRetailPrice != null && Math.abs(perUnit(item.newRetailPrice, item.newRetailQty ?? 1) - item.recommendedRetailPrice) > 0.005 && (
+                            <p className="mt-1.5 text-xs tabular-nums text-gray-500">
+                              HQ recommended {fmt(item.recommendedRetailPrice)} · new price{" "}
+                              <span className="font-medium text-gray-700">{fmtQtyPrice(item.newRetailQty, item.newRetailPrice)}</span>
+                            </p>
+                          )}
                         </Field>
 
                         {item.hqRetailReason ? (
@@ -1054,20 +1060,28 @@ export function ItemEditDrawer({
                 }
                 return (
                   <div className="flex flex-col gap-4">
-                    <Select
-                      options={FUEL_SAVER_OPTIONS}
-                      value={fuelSaverSelectValue(item.fuelSaver)}
-                      onChange={(v) => {
-                        if (v === '0.00' || v === '0' || parseFloat(v as string) === 0) {
-                          updateFuelSaver(item.id, null);
-                          setEditingFuelSaver(false);
-                        } else {
-                          updateFuelSaver(item.id, parseFloat(v as string));
-                        }
-                      }}
-                      label="Fuel saver"
-                      size="sm"
-                    />
+                    <div className="flex flex-col gap-1.5">
+                      <Select
+                        options={FUEL_SAVER_OPTIONS}
+                        value={fuelSaverSelectValue(item.fuelSaver)}
+                        onChange={(v) => {
+                          if (v === '0.00' || v === '0' || parseFloat(v as string) === 0) {
+                            updateFuelSaver(item.id, null);
+                            setEditingFuelSaver(false);
+                          } else {
+                            updateFuelSaver(item.id, parseFloat(v as string));
+                          }
+                        }}
+                        label="Fuel saver"
+                        size="sm"
+                      />
+                      {fuelRecAmt != null && fuelDecided && Math.abs((item.fuelSaver ?? 0) - fuelRecAmt) > 0.005 && (
+                        <p className="text-xs tabular-nums text-gray-500">
+                          HQ recommended +{fmt(fuelRecAmt)} · adding{" "}
+                          <span className="font-medium text-gray-700">+{fmt(item.fuelSaver ?? 0)} fuel</span>
+                        </p>
+                      )}
+                    </div>
                     {item.hqFuelReason ? (
                       // Custom price on an HQ-recommended section keeps the HQ
                       // reason as its origin — read-only context, not a selector.
