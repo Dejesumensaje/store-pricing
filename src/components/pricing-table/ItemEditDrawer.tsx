@@ -34,7 +34,7 @@ import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateRange, fmtEffectiveDate } from "@/lib/format";
 import { perUnit, round2, promoDurationDays } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/edlp-ceiling";
-import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertCircle, AlertTriangle } from "lucide-react";
+import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertCircle, AlertTriangle, Info } from "lucide-react";
 
 type Props = {
   itemId: string | null;
@@ -69,14 +69,15 @@ function Field({
 }
 
 // Non-blocking informational note for a promo period running longer than two
-// weeks — Retail and Fuel Saver only (Base has no period to be "long"). Same
-// amber tone/shape as the EDLP soft-ceiling banner below; the director can
-// still proceed, this is advisory only.
+// weeks — Retail and Fuel Saver only (Base has no period to be "long").
+// Deliberately a low-key blue Info treatment, NOT the amber triangle: amber +
+// AlertTriangle is reserved for cautions that ask the director to reconsider
+// (the EDLP soft-ceiling banner); this is purely a heads-up and never blocks.
 function LongPromoNotice({ days }: { days: number }) {
   return (
-    <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
-      <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
-      <span className="text-amber-900">
+    <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs">
+      <Info className="size-4 shrink-0 text-blue-600" aria-hidden="true" />
+      <span className="text-blue-900">
         This promotion runs {days} days — longer than the typical two-week window.
       </span>
     </div>
@@ -208,6 +209,18 @@ export function ItemEditDrawer({
     price: number;
     suggestedPrice: number;
   } | null>(null);
+  // Last COMPLETE promo windows (both ends picked). A mid-pick range edit
+  // (new start chosen, end not yet — DateRangeField clears the end on the
+  // first click) abandoned via × / Escape rolls back to these in handleClose,
+  // so no close path can persist the half-open window Done rejects.
+  const lastAllowanceRange = useRef<{ start: string; end: string } | null>(null);
+  const lastFuelRange = useRef<{ start: string; end: string } | null>(null);
+  useEffect(() => {
+    if (item?.allowanceStartDate && item?.allowanceEndDate)
+      lastAllowanceRange.current = { start: item.allowanceStartDate, end: item.allowanceEndDate };
+    if (item?.fuelSaverStartDate && item?.fuelSaverEndDate)
+      lastFuelRange.current = { start: item.fuelSaverStartDate, end: item.fuelSaverEndDate };
+  }, [item?.allowanceStartDate, item?.allowanceEndDate, item?.fuelSaverStartDate, item?.fuelSaverEndDate]);
   useEffect(() => {
     setEditingFuelSaver(false);
     setEditingBase(false);
@@ -221,15 +234,20 @@ export function ItemEditDrawer({
     setPendingRetailProposal(null);
     setEdlpBlockedProposal(null);
     setEdlpSoftProposal(null);
+    // (lastAllowanceRange / lastFuelRange deliberately not reset here: their
+    // capture effect re-runs whenever the dates change, so switching items
+    // re-captures — and a value-identical leftover restores the same values.)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
-  // Silently discard any half-open editing form before closing. Called from Done,
-  // the × button, and Escape — any close path. Three cases:
+  // Silently discard any half-open editing state before closing. Called from Done,
+  // the × button, and Escape — any close path. Four cases:
   // 1. Retail form open but no price committed → revert the TA type conversion
   //    that startPromo() made, and clear any orphaned retail reason.
   // 2. Base form open but no price committed → clear the orphaned base reason.
   // 3. Fuel form open but no amount set → clear the orphaned fuel reason.
+  // 4. Mid-pick promo range on a committed price → roll back to the last
+  //    complete window (see below).
   const handleClose = () => {
     if (item) {
       if (changingRetail && item.newRetailPrice == null) {
@@ -241,6 +259,20 @@ export function ItemEditDrawer({
       }
       if (editingFuelSaver && (item.fuelSaver == null || item.fuelSaver <= 0)) {
         updateFuelSaver(item.id, null);
+      }
+      // 4. A committed promo with a mid-pick range (new start chosen, end not
+      //    yet — the first calendar click clears the end) → roll back to the
+      //    last complete window, so × / Escape can't persist the half-open
+      //    state Done rejects. Falls back to a same-day window only if no
+      //    complete range was ever seen (unreachable in practice: setting the
+      //    price seeds both dates).
+      if (item.newRetailPrice != null && item.allowanceStartDate && !item.allowanceEndDate) {
+        const prev = lastAllowanceRange.current;
+        updateAllowanceDates(item.id, prev?.start ?? item.allowanceStartDate, prev?.end ?? item.allowanceStartDate);
+      }
+      if (item.fuelSaver != null && item.fuelSaver > 0 && item.fuelSaverStartDate && !item.fuelSaverEndDate) {
+        const prev = lastFuelRange.current;
+        updateFuelSaverDates(item.id, prev?.start ?? item.fuelSaverStartDate, prev?.end ?? item.fuelSaverStartDate);
       }
     }
     onClose();
@@ -447,7 +479,21 @@ export function ItemEditDrawer({
         item.newRetailPrice != null && (!item.allowanceStartDate || !item.allowanceEndDate);
       const fuelTimingMissing =
         item.fuelSaver != null && item.fuelSaver > 0 && (!item.fuelSaverStartDate || !item.fuelSaverEndDate);
-      if (baseTimingMissing || retailTimingMissing || fuelTimingMissing) return;
+      if (baseTimingMissing || retailTimingMissing || fuelTimingMissing) {
+        // Never a silent no-op on the primary action: say what's missing and
+        // bring the offending field into view (it carries aria-invalid).
+        toast.error(
+          baseTimingMissing
+            ? "Pick the date the base price takes effect to finish."
+            : retailTimingMissing
+            ? "Pick a start and end date for the promo to finish."
+            : "Pick a start and end date for the fuel saver to finish."
+        );
+        document
+          .querySelector('[aria-invalid="true"]')
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
     }
     handleClose();
   };
@@ -533,9 +579,10 @@ export function ItemEditDrawer({
                 onChange={(d) => updateBaseEffectiveDate(item.id, d)}
                 error={baseDateMissing}
                 aria-label="Effective date"
+                aria-describedby={baseDateMissing ? "base-effective-date-error" : undefined}
               />
               {baseDateMissing && (
-                <span className="text-xs font-medium text-red-500">
+                <span id="base-effective-date-error" className="text-xs font-medium text-red-500">
                   Pick the date this price takes effect.
                 </span>
               )}
@@ -942,9 +989,10 @@ export function ItemEditDrawer({
                                 onChange={(s, e) => updateAllowanceDates(item.id, s, e)}
                                 error={promoDatesMissing}
                                 aria-label="Promo date range"
+                                aria-describedby={promoDatesMissing ? "promo-period-error" : undefined}
                               />
                               {promoDatesMissing && (
-                                <span className="text-xs font-medium text-red-500">
+                                <span id="promo-period-error" className="text-xs font-medium text-red-500">
                                   Pick a start and end date for the promo.
                                 </span>
                               )}
@@ -1126,9 +1174,10 @@ export function ItemEditDrawer({
                             onChange={(s, e) => updateFuelSaverDates(item.id, s, e)}
                             error={fuelDatesMissing}
                             aria-label="Fuel saver date range"
+                            aria-describedby={fuelDatesMissing ? "fuel-period-error" : undefined}
                           />
                           {fuelDatesMissing && (
-                            <span className="text-xs font-medium text-red-500">
+                            <span id="fuel-period-error" className="text-xs font-medium text-red-500">
                               Pick a start and end date for the fuel saver.
                             </span>
                           )}

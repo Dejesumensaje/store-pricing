@@ -63,6 +63,10 @@ function enrichItemContext(item: PricingItem): PricingItem {
     recommendedRetailPrice: item.recommendedRetailPrice ?? round2(item.currentBasePrice * 0.85),
     newRetailPrice: item.newRetailPrice ?? null,
     newRetailQty: item.newRetailQty ?? null,
+    // A decided Base price always carries an effective date (the store seeds
+    // one the moment a price is set) — pending fixtures must honor the same
+    // invariant, or Done blocks on a date the user never had a say in.
+    baseEffectiveDate: item.baseEffectiveDate ?? (item.newBasePrice != null ? "2026-07-10" : null),
     currentFuelSaver: item.currentFuelSaver ?? null,
     fuelSaver: item.fuelSaver ?? null,
     // Give any seeded fuel saver a one-week run so the table date tooltip has data.
@@ -476,7 +480,10 @@ const edlpCatalog: PricingItem[] = [
   // Price" (an EDLP conversion is demoed separately on RBCS5-5). See EDLP-2:base.
   .map((it) =>
     it.id === "EDLP-2"
-      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "pending" as const, hasOverride: true }
+      // This repricing lands after enrichItemContext, so it must carry its own
+      // effective date — a decided Base price is never date-less (see the
+      // baseEffectiveDate default in enrichItemContext).
+      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "pending" as const, hasOverride: true, baseEffectiveDate: "2026-07-10" }
       : it
   );
 
@@ -695,6 +702,8 @@ function cleanForStore(item: PricingItem, factor: number): PricingItem {
     // Start clean — no decisions carried over from the primary store.
     newBasePrice: null,
     baseOverrideStatus: undefined,
+    // No decided base price → no effective date describing it.
+    baseEffectiveDate: null,
     newRetailPrice: null,
     newRetailQty: null,
     retailOverrideStatus: undefined,

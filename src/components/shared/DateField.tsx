@@ -49,9 +49,11 @@ type Props = {
   onChange: (date: string | null) => void;
   /** Earliest selectable day, YYYY-MM-DD. Defaults to today. */
   min?: string;
-  /** Red invalid styling (e.g. required-but-empty). */
+  /** Red invalid styling (e.g. required-but-empty). Also sets aria-invalid. */
   error?: boolean;
   "aria-label"?: string;
+  /** Id of the helper/error text describing this field, for screen readers. */
+  "aria-describedby"?: string;
 };
 
 export function DateField({ value, onChange, min, error, ...rest }: Props) {
@@ -75,14 +77,21 @@ export function DateField({ value, onChange, min, error, ...rest }: Props) {
     function onDown(e: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     }
+    // Escape dismisses only THIS popover, not the enclosing Drawer. The DS
+    // Drawer (Radix) closes on a capture-phase document Escape listener, so we
+    // intercept one level earlier — window capture precedes document capture —
+    // and stop the event before it reaches the Drawer.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
     }
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, { capture: true });
     };
   }, [open]);
 
@@ -125,6 +134,9 @@ export function DateField({ value, onChange, min, error, ...rest }: Props) {
                 disabled={disabled && !isSelected}
                 onClick={() => pick(day)}
                 aria-pressed={isSelected}
+                // Full date, not just the bare day number — a SR user tabbing
+                // the grid needs "Thursday, July 15", not "15".
+                aria-label={day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
                 className={`flex size-7 items-center justify-center rounded-full text-[13px] tabular-nums ${
                   isSelected
                     ? "bg-brand font-semibold text-white"
@@ -146,6 +158,12 @@ export function DateField({ value, onChange, min, error, ...rest }: Props) {
 
   return (
     <div ref={rootRef} className="relative">
+      {/* aria-invalid announces the error state, not just paints it red —
+          paired with aria-describedby pointing at the visible helper text so
+          SRs also hear the "why". jsx-a11y flags aria-invalid on a button per
+          strict ARIA role mapping, but SRs announce it on focusable popup
+          triggers in practice — worth the exception. */}
+      {/* eslint-disable-next-line jsx-a11y/role-supports-aria-props */}
       <button
         type="button"
         onClick={() => {
@@ -158,6 +176,8 @@ export function DateField({ value, onChange, min, error, ...rest }: Props) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={rest["aria-label"]}
+        aria-invalid={error || undefined}
+        aria-describedby={rest["aria-describedby"]}
         className={`flex w-full items-center gap-2 rounded-md border bg-white px-3 py-1.5 text-left text-sm ${
           error ? "border-red-300 ring-1 ring-red-200" : "border-gray-300"
         } ${selected ? "text-gray-900" : "text-gray-400"}`}
