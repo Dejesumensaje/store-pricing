@@ -704,8 +704,10 @@ export function ItemEditDrawer({
                         <span className="text-gray-500">Current {fmt(item.currentBasePrice)}</span>
                         <span aria-hidden="true" className="text-gray-300">→</span>
                         <span className="font-semibold text-gray-900">HQ recommends {fmt(rec)}</span>
-                        {item.hqBaseReason && <span className="text-xs text-gray-500">· {REASON_META[item.hqBaseReason].label}</span>}
                       </div>
+                      {item.hqBaseReason && (
+                        <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqBaseReason].label}</span></p>
+                      )}
                       <div className="flex flex-wrap items-center gap-2">
                         <Button variant="primary" size="sm" iconLeft={Check} onClick={() => commitBase(rec)}>
                           Accept {fmt(rec)}
@@ -793,12 +795,17 @@ export function ItemEditDrawer({
                   <div className="flex flex-col gap-4">
                     {acceptFirst ? (
                       <div className="flex flex-col gap-3">
-                        <HqRationale item={item} section="retail" />
                         <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                           <span className="text-gray-500">Current {fmt(curRetail)}</span>
                           <span aria-hidden="true" className="text-gray-300">→</span>
                           <span className="font-semibold text-gray-900">HQ recommends {fmt(recRetail)}</span>
                         </div>
+                        {item.hqRetailReason && (
+                          <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqRetailReason].label}</span></p>
+                        )}
+                        {hqRecRationale(item, "retail") && (
+                          <p className="text-sm text-gray-600">{hqRecRationale(item, "retail")}</p>
+                        )}
                         <div className="decision-pop flex flex-wrap items-center gap-2">
                           <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateRetailPrice(item.id, 1, recRetail)}>
                             Accept {fmt(recRetail)}
@@ -978,7 +985,6 @@ export function ItemEditDrawer({
                 if (!editingFuelSaver && !fuelDecided && fuelRec != null) {
                   return (
                     <div className="flex flex-col gap-3">
-                      <HqRationale item={item} section="fuel" />
                       <div className="flex flex-wrap items-baseline gap-2 text-sm tabular-nums">
                         <span className="text-gray-500">
                           Current {fuelHadPrior ? `+${fmt(item.currentFuelSaver ?? 0)}` : "none"}
@@ -986,6 +992,9 @@ export function ItemEditDrawer({
                         <span aria-hidden="true" className="text-gray-300">→</span>
                         <span className="font-semibold text-gray-900">HQ recommends +{fmt(fuelRec)} fuel</span>
                       </div>
+                      {item.hqFuelReason && (
+                        <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqFuelReason].label}</span></p>
+                      )}
                       <div className="decision-pop flex flex-wrap items-center gap-2">
                         <Button variant="primary" size="sm" iconLeft={Check} onClick={() => updateFuelSaver(item.id, fuelRec)}>
                           Accept +{fmt(fuelRec)}
