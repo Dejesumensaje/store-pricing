@@ -700,7 +700,7 @@ export function ItemEditDrawer({
                     baseInputBlock()
                   ) : decided ? (
                     <>
-                    <div className="decision-pop flex items-center justify-between gap-3">
+                    <div className="decision-pop flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2 text-sm tabular-nums">
                           <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -866,7 +866,7 @@ export function ItemEditDrawer({
                       </div>
                     ) : retailDecided && !changingRetail ? (
                       <>
-                      <div className="decision-pop flex items-center justify-between gap-3">
+                      <div className="decision-pop flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2 text-sm tabular-nums">
                             <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />
@@ -1062,7 +1062,7 @@ export function ItemEditDrawer({
                 if (!editingFuelSaver) {
                   return fuelDecided ? (
                     <>
-                    <div className="decision-pop flex items-center justify-between gap-3">
+                    <div className="decision-pop flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2 text-sm tabular-nums">
                           <Check className="size-4 shrink-0 text-emerald-600" aria-hidden="true" />

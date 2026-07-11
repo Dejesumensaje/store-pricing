@@ -40,7 +40,9 @@ function MemberRow({ member, label, isCurrent }: { member: PricingItem; label?: 
   );
 }
 
-const SIZE_PARITY_GRID = "grid grid-cols-[1fr_4.5rem_6.5rem_5rem] items-center gap-3";
+// Mobile: drop the Price/UoM column — 3-column grid gives item name ~95px,
+// readable enough. Desktop keeps all four columns.
+const SIZE_PARITY_GRID = "grid grid-cols-[1fr_4.5rem_6.5rem] items-center gap-3 md:grid-cols-[1fr_4.5rem_6.5rem_5rem]";
 
 /** Column header row for size-group sections (item code/description, size, base price, price/UoM). */
 function SizeParityHeader() {
@@ -49,7 +51,7 @@ function SizeParityHeader() {
       <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Item</span>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Size</span>
       <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">Base price</span>
-      <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">Price / UoM</span>
+      <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400 max-md:hidden">Price / UoM</span>
     </div>
   );
 }
@@ -83,7 +85,7 @@ function SizeParityRow({ member, label, isCurrent }: { member: PricingItem; labe
       </div>
       <span className="text-xs text-gray-500">{size}</span>
       <div className="text-right text-sm">{price}</div>
-      <span className="text-right text-sm tabular-nums text-gray-700">{priceUom ?? "—"}</span>
+      <span className="text-right text-sm tabular-nums text-gray-700 max-md:hidden">{priceUom ?? "—"}</span>
     </div>
   );
 }

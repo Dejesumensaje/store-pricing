@@ -63,15 +63,22 @@ export function BasePriceMethodField({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* One shelf price or a pack deal? — one path at a time. */}
-      <div className="flex w-fit overflow-hidden rounded-lg border border-gray-300">
+      {/* One shelf price or a pack deal? — one path at a time.
+          Two buttons fit in one row even on narrow screens; overflow-hidden
+          clips the active-tab highlight to the container's border-radius
+          (matches BaseReductionField so both white-tag pickers feel the same). */}
+      <div
+        role="group"
+        aria-label="Pricing method"
+        className="flex w-fit overflow-hidden rounded-lg border border-gray-300"
+      >
         {METHODS.map((m) => (
           <button
             key={m.id}
             type="button"
             onClick={() => selectMethod(m.id)}
             aria-pressed={method === m.id}
-            className={`border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
+            className={`whitespace-nowrap border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
               method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"
             }`}
           >

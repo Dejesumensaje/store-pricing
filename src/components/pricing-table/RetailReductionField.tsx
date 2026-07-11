@@ -74,21 +74,35 @@ export function RetailReductionField({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* How do you want to discount? — one path at a time. */}
-      <div className="flex w-fit overflow-hidden rounded-lg border border-gray-300">
-        {METHODS.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => selectMethod(m.id)}
-            aria-pressed={method === m.id}
-            className={`border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
-              method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
+      {/* How do you want to discount? — one path at a time.
+          On mobile: 2×2 grid so all four labels are visible and the active tab
+          is never clipped. On desktop: single-row flex (original layout). */}
+      <div
+        role="group"
+        aria-label="Pricing method"
+        className="grid grid-cols-2 overflow-hidden rounded-lg border border-gray-300 md:flex md:w-fit"
+      >
+        {METHODS.map((m, i) => {
+          const isRightCol = i % 2 === 1;
+          const isBottomRow = i >= 2;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => selectMethod(m.id)}
+              aria-pressed={method === m.id}
+              className={`whitespace-nowrap px-3 py-1.5 text-sm font-medium${
+                isRightCol ? " border-l border-gray-300" : ""
+              }${isBottomRow ? " border-t border-gray-300" : ""}${
+                i > 0 ? " md:border-l md:border-gray-300" : " md:border-l-0"
+              } md:border-t-0 ${
+                method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {m.label}
+            </button>
+          );
+        })}
       </div>
 
       {(method === "pct" || method === "amount") && (

@@ -226,11 +226,36 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
         <div
           role="dialog"
           aria-label="Select date range"
-          className={`absolute left-0 z-50 rounded-lg border border-gray-200 bg-white p-2 shadow-lg ${
+          className={`absolute left-0 z-50 rounded-lg border border-gray-200 bg-white p-2 shadow-lg max-md:right-0 max-md:shadow-xl ${
             openUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
-          <div className="mb-1 flex items-center gap-3">
+          {/* Mobile: single-month header with full prev/next navigation */}
+          <div className="mb-1 flex items-center justify-between md:hidden">
+            <button
+              type="button"
+              aria-label="Previous month"
+              disabled={leftAtMin}
+              onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}
+              className="flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:cursor-default disabled:text-gray-300 disabled:hover:bg-transparent"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <span className="text-sm font-semibold text-gray-700">
+              {view.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+            </span>
+            <button
+              type="button"
+              aria-label="Next month"
+              onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}
+              className="flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </div>
+
+          {/* Desktop: two-month header */}
+          <div className="mb-1 hidden items-center gap-3 md:flex">
             <div className="flex w-[196px] items-center justify-between">
               <button
                 type="button"
@@ -261,9 +286,14 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
               </button>
             </div>
           </div>
-          <div className="flex gap-3" onMouseLeave={() => setHoverDate(null)}>
+
+          {/* Mobile: popover spans the field width (max-md:right-0 above) so it
+              reads as its own layer instead of colliding with siblings; the
+              single month grid centers in that width. */}
+          <div className="flex gap-3 max-md:justify-center" onMouseLeave={() => setHoverDate(null)}>
             {monthGrid(view)}
-            {monthGrid(rightView)}
+            {/* Second month only on desktop — too wide for mobile drawer */}
+            <div className="hidden md:block">{monthGrid(rightView)}</div>
           </div>
         </div>
       )}

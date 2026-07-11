@@ -62,7 +62,7 @@ export function PriceInputCell({ recommended, value, state, onCommit, onViewAler
 
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="relative w-[120px]">
+      <div className="relative w-[120px] max-md:w-full">
         <span aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
         <input
           ref={inputRef}
