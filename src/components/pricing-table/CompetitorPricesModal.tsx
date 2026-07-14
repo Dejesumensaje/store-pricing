@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, Button, Badge, Input } from "@dejesumensaje/converge-ds-experimental";
+import { Modal, Button, Badge, Input, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 import { Plus, Trash2 } from "lucide-react";
 import { CompetitorPrice, PricingItem } from "@/types/pricing";
 import { useGuardedActions } from "../shared/useGuardedActions";
@@ -120,7 +120,13 @@ export function CompetitorPricesModal({ open, item, ourBase, onClose, onSave }: 
               <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Competitor</span>
               <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">Price</span>
               <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">Manual price</span>
-              <span className="text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">Index</span>
+              {/* z-[70]: DS Modal sits at z-[60]; the tooltip's default z-50 renders behind it */}
+              <Tooltip
+                className="max-w-64 z-[70]"
+                content="Competitor price index — competitor price ÷ our base price. 1.00 matches our base; below 1.00 the competitor is cheaper."
+              >
+                <span className="cursor-help text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">Index</span>
+              </Tooltip>
               <span />
             </div>
 

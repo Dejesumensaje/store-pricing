@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button } from "@dejesumensaje/converge-ds-experimental";
+import { Badge, Button, Tooltip } from "@dejesumensaje/converge-ds-experimental";
 import { Pencil, Store } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
 import { usePricingStore } from "@/store/pricing-store";
@@ -52,10 +52,22 @@ export function CompetitorPrices({ item }: Props) {
             <>
               <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
                 <span className="text-xs font-medium text-gray-500">Our base price</span>
+                {/* Mirrors the competitor-row grid ([price][diff w-24][index w-10]) so the
+                    price lands in the price column. INDEX stacks directly above 1.00
+                    inside the index column itself — the row doubles as column header
+                    (label) and parity anchor (1.00 = our base). */}
                 <span className="flex items-center gap-2 tabular-nums">
                   <span className="text-sm font-semibold text-gray-900">{fmt(ourBase)}</span>
-                  {/* 1.00 anchors the index column: parity with our base. */}
-                  <span className="w-10 text-right text-xs text-gray-400">1.00</span>
+                  <span aria-hidden="true" className="w-24" />
+                  <Tooltip
+                    className="max-w-64"
+                    content="Competitor price index — competitor price ÷ our base price. 1.00 matches our base; below 1.00 the competitor is cheaper."
+                  >
+                    <span className="flex w-10 cursor-help flex-col items-end">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Index</span>
+                      <span className="text-xs text-gray-400">1.00</span>
+                    </span>
+                  </Tooltip>
                 </span>
               </div>
               {orderedCompetitors.map((c) => {
