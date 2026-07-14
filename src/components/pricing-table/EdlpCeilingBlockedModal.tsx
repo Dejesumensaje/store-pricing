@@ -1,7 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Modal, Button, Badge } from "@dejesumensaje/converge-ds-experimental";
-import { useGuardedActions } from "@/components/shared/useGuardedActions";
 import { AlertCircle, Info } from "lucide-react";
 import { EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
 import { fmt } from "@/lib/format";
@@ -24,7 +24,16 @@ export function EdlpCeilingBlockedModal({ open, evaluation, editedItemId, onReve
   const selfViolation = hard.find((v) => v.itemId === editedItemId);
   const canUseMax = hard.length === 1 && selfViolation != null;
 
-  const guarded = useGuardedActions(open);
+  // Same Enter-guard as BlockedPriceChangeModal — the keydown that triggered
+  // the commit must not immediately activate a button on the newly focused modal.
+  const openedAt = useRef(0);
+  useEffect(() => {
+    if (open) openedAt.current = Date.now();
+  }, [open]);
+  const guarded = (fn: () => void) => () => {
+    if (Date.now() - openedAt.current < 350) return;
+    fn();
+  };
 
   return (
     <Modal

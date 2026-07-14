@@ -2,9 +2,9 @@
 
 import { Fuel } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
-import { fmt, fmtQtyPrice, fmtDateShort } from "@/lib/format";
+import { fmt, fmtQtyPrice } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
-import { shelfTagKind } from "../store/buildStoreColumns";
+import { shelfTagKind, fmtShortDate } from "../store/buildStoreColumns";
 import { useActiveStore } from "@/store/pricing-store";
 
 // Savings the way a Hy-Vee yellow tag prints it: cents under a dollar ("78¢"),
@@ -132,8 +132,8 @@ export function ShelfTagPreview({ item }: { item: PricingItem }) {
       // Savings measured off the regular (white-tag) per-unit price; multi-unit
       // shows the whole-deal savings the way the shelf tag does.
       const save = (whiteUnit - retailUnit) * qty;
-      const start = fmtDateShort(item.allowanceStartDate);
-      const end = fmtDateShort(item.allowanceEndDate);
+      const start = fmtShortDate(item.allowanceStartDate);
+      const end = fmtShortDate(item.allowanceEndDate);
       const dates = end ? (start ? `${start} – ${end}` : `ends ${end}`) : null;
       // "Savings this week" only reads right for a ~weekly promo; a longer run
       // (2–3 weeks) gets the generic "Sale price" header.

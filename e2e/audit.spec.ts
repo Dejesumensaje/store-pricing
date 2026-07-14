@@ -44,6 +44,8 @@ test.describe("Initial load", () => {
     await goto(page);
     // Heading
     await expect(page.getByRole("heading", { name: /All items/i })).toBeVisible();
+    // Batches button (primary nav CTA)
+    await expect(page.getByRole("button", { name: /^Batches$/i })).toBeVisible();
     // At least one known item visible: W7BESS = "Lay's Classic Potato Chips 18oz"
     // Both desktop table and mobile list are in DOM simultaneously (one hidden each).
     // filter({ visible: true }) picks whichever is rendered for the current viewport.
@@ -166,10 +168,10 @@ test.describe("Item drawer states", () => {
     expect(inputs).toBe(0);
   });
 
-  test("Edited item — shows decided summary, no Accept prompt", async ({
+  test("Scheduled item — shows decided summary, no Accept prompt", async ({
     page,
   }) => {
-    // W7BESS = "Lay's Classic Potato Chips 18oz" — has a pending retail override
+    // W7BESS = "Lay's Classic Potato Chips 18oz" — has retail override in batch-3
     await goto(page);
     await clickRow(page, /Lay's Classic Potato Chips/i);
     await expect(page.locator('[role="dialog"]')).toBeVisible();
@@ -182,7 +184,7 @@ test.describe("Item drawer states", () => {
     await expect(page.getByRole("button", { name: /^Change$/i }).first()).toBeVisible();
   });
 
-  test("Edited item drawer — no console errors", async ({ page }) => {
+  test("Scheduled item drawer — no console errors", async ({ page }) => {
     const errors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") errors.push(msg.text());
@@ -205,6 +207,55 @@ test.describe("Item drawer states", () => {
     await expect(page.getByRole("button", { name: /^Accept \$/ })).toBeVisible();
     // "Keep current" is the rejection path
     await expect(page.getByRole("button", { name: /Keep current/i })).toBeVisible();
+  });
+});
+
+// ─── 7 + 8. Batches surface ───────────────────────────────────────────────────
+
+test.describe("Batches surface", () => {
+  test("Batches button opens batch management view", async ({ page }) => {
+    await goto(page);
+    await page.getByRole("button", { name: /^Batches$/i }).click();
+    await expect(page.getByRole("heading", { name: /Batches/i })).toBeVisible();
+  });
+
+  test("scheduled batches show seeded batch names", async ({ page }) => {
+    await goto(page);
+    await page.getByRole("button", { name: /^Batches$/i }).click();
+    // Mock seeds 3 scheduled batches
+    await expect(page.getByText(/Tuesday.*ad prep/i)).toBeVisible();
+    await expect(page.getByText(/Friday endcap reset/i)).toBeVisible();
+    await expect(page.getByText(/This week's promos/i)).toBeVisible();
+  });
+
+  test("Sent tab renders without crashing", async ({ page }) => {
+    await goto(page);
+    await page.getByRole("button", { name: /^Batches$/i }).click();
+    // Click the Sent tab (ToggleGroup radio)
+    await page.getByRole("radio", { name: /Sent/i }).click();
+    // Either shows an empty state or sent batch rows — no crash
+    await expect(page.locator("body")).not.toContainText("Something went wrong");
+  });
+
+  test("New batch modal opens with date + time fields", async ({ page }) => {
+    await goto(page);
+    await page.getByRole("button", { name: /^Batches$/i }).click();
+    await page.getByRole("button", { name: /New batch/i }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    // Should have a date input (DateField renders an <input type="date">)
+    await expect(
+      page.locator('[role="dialog"] input[type="date"]')
+    ).toBeVisible();
+  });
+
+  test("no console errors on batches surface", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") errors.push(msg.text());
+    });
+    await goto(page);
+    await page.getByRole("button", { name: /^Batches$/i }).click();
+    expect(errors).toHaveLength(0);
   });
 });
 
@@ -310,7 +361,7 @@ test("no console errors across main flows (desktop)", async ({ page, isMobile })
 
   await goto(page);
 
-  // Open drawer for an edited item
+  // Open drawer for a scheduled item
   await clickRow(page, /Lay's Classic Potato Chips/i);
   await expect(page.locator('[role="dialog"]')).toBeVisible();
   await page.getByRole("button", { name: /^Done$/i }).click();
@@ -319,6 +370,10 @@ test("no console errors across main flows (desktop)", async ({ page, isMobile })
   await page.getByRole("button", { name: /HQ sent.*recommendation/i }).click();
   await expect(page.getByText(/items that need review/i)).toBeVisible();
   await page.getByRole("button", { name: /Back to all items/i }).click();
+
+  // Open batches
+  await page.getByRole("button", { name: /^Batches$/i }).click();
+  await expect(page.getByRole("heading", { name: /Batches/i })).toBeVisible();
 
   expect(errors).toHaveLength(0);
 });

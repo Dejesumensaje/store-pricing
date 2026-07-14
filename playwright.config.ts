@@ -7,7 +7,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: "html",
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+    baseURL: "http://localhost:3000",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
@@ -23,7 +23,7 @@ export default defineConfig({
   ],
   webServer: {
     command: "npm run dev",
-    url: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+    url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

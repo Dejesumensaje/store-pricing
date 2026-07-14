@@ -1,7 +1,7 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Modal, Button, Badge } from "@dejesumensaje/converge-ds-experimental";
-import { useGuardedActions } from "@/components/shared/useGuardedActions";
 import { AlertTriangle, Info } from "lucide-react";
 import { EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
 import { fmt } from "@/lib/format";
@@ -34,7 +34,15 @@ export function EdlpCeilingWarningModal({
   const selfViolation = soft.find((v) => v.itemId === editedItemId);
   const canUseMax = selfViolation != null && selfViolation.maxAllowed < proposedPrice;
 
-  const guarded = useGuardedActions(open);
+  // Same Enter-guard as BasePriceSoftWarningModal.
+  const openedAt = useRef(0);
+  useEffect(() => {
+    if (open) openedAt.current = Date.now();
+  }, [open]);
+  const guarded = (fn: () => void) => () => {
+    if (Date.now() - openedAt.current < 350) return;
+    fn();
+  };
 
   return (
     <Modal

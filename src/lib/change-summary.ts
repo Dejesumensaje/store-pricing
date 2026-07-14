@@ -2,6 +2,23 @@ import { PricingItem, PricingCategory } from "@/types/pricing";
 import { fmt, fmtQtyPrice } from "./format";
 import { perUnit } from "./pricing-math";
 
+// ─── Pricing strategy (the item's current pricing model) ─────────────────────
+// Distinct from the Change Summary: this names the model, never an action.
+export function pricingStrategyLabel(item: PricingItem): string {
+  switch (item.category_type) {
+    case "everyday_low_price":
+      return "EDLP";
+    case "temporary_allowance":
+      return "TA";
+    case "new_discontinued":
+      return item.itemStatus === "discontinued" ? "Disc." : "New";
+    case "base":
+    case "no_change":
+    default:
+      return "Base";
+  }
+}
+
 // The unabbreviated change-type name, shown on hover over the short pill.
 export function pricingStrategyFullLabel(item: PricingItem): string {
   switch (item.category_type) {
@@ -22,7 +39,7 @@ export function pricingStrategyFullLabel(item: PricingItem): string {
 
 // Every distinct pricing action. Each maps to a verb-led label + outcome, and to
 // a coarser group used for filtering (CHANGE_FILTER_GROUP).
-type ChangeKind =
+export type ChangeKind =
   | "base_increase"
   | "base_decrease"
   | "retail_update"
@@ -37,7 +54,23 @@ type ChangeKind =
 
 // A single action: its kind, a verb-led label, and the resulting value (may be
 // empty, e.g. discontinuation has no price outcome).
-type ChangeEntry = { kind: ChangeKind; label: string; detail: string };
+export type ChangeEntry = { kind: ChangeKind; label: string; detail: string };
+
+// The director's decision on an item, relative to HQ's recommendation. Replaces
+// the old per-type verb summary — the price outcome lives in the price columns,
+// so this only says what was decided.
+export type DecisionState = "pending" | "accepted" | "overridden" | "kept_current" | "changed" | "none";
+
+type DecisionTone = "neutral" | "success" | "negative" | "warning" | "in-progress";
+
+export const DECISION_META: Record<DecisionState, { label: string; tone: DecisionTone } | null> = {
+  pending: { label: "Pending", tone: "in-progress" },
+  accepted: { label: "Accepted", tone: "success" },
+  overridden: { label: "Overridden", tone: "warning" },
+  kept_current: { label: "Kept current", tone: "neutral" },
+  changed: { label: "Changed", tone: "in-progress" },
+  none: null,
+};
 
 const transition = (from: number, to: number) => `${fmt(from)} → ${fmt(to)}`;
 const sapStrategyOf = (item: PricingItem): PricingCategory => item.sapStrategy ?? item.category_type;
@@ -114,6 +147,26 @@ export function changeEntries(item: PricingItem): ChangeEntry[] {
   );
 }
 
+// What the director decided about an item, relative to HQ's recommendation. The
+// relevant price field is retail for temporary allowances, base otherwise.
+// Independent of the workflow status (see deriveItemStatus).
+export function deriveDecision(item: PricingItem): DecisionState {
+  const isTemp = item.category_type === "temporary_allowance";
+  const decided = isTemp ? item.newRetailPrice ?? null : item.newBasePrice;
+  const recommended = isTemp ? item.recommendedRetailPrice ?? null : item.recommendedBasePrice;
+  const hasDecision = decided != null;
+
+  if (item.hqReviewPending) {
+    if (hasDecision) {
+      const matches = recommended != null && Math.abs(decided - recommended) < 0.005;
+      return matches ? "accepted" : "overridden";
+    }
+    return item.reviewed ? "kept_current" : "pending";
+  }
+  // No HQ recommendation — a director-initiated change, or nothing.
+  return hasDecision ? "changed" : "none";
+}
+
 // ─── Change-type filtering (AC7) ─────────────────────────────────────────────
 // Each action kind rolls up to a filterable group. Multi-change items expose all
 // of their groups, so they match when filtering by any one of them.
@@ -131,7 +184,7 @@ const CHANGE_FILTER_GROUP: Record<ChangeKind, string> = {
   discontinued: "Discontinuations",
 };
 
-const NO_CHANGE_FILTER = "No change";
+export const NO_CHANGE_FILTER = "No change";
 
 // Filter options in display order. Items with no changes fall under "No change".
 export const CHANGE_FILTER_OPTIONS: string[] = [

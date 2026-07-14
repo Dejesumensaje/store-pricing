@@ -11,7 +11,7 @@ import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
  *
  * The popover is rendered INLINE (absolutely positioned within this component),
  * NOT in a portal — the DS DatePicker's Radix PopoverPortal gets swallowed by the
- * Drawer focus-trap, so we stay in the local DOM.
+ * Drawer focus-trap (see DateField.tsx), so we stay in the local DOM.
  *
  * Values are the store's YYYY-MM-DD strings; Date conversion stays local here.
  */
@@ -51,11 +51,9 @@ type Props = {
   onChange: (start: string | null, end: string | null) => void;
   /** Earliest selectable day, YYYY-MM-DD. Defaults to today. */
   min?: string;
-  /** Red invalid styling (e.g. required-but-empty). Also sets aria-invalid. */
+  /** Red invalid styling (e.g. required-but-empty). */
   error?: boolean;
   "aria-label"?: string;
-  /** Id of the helper/error text describing this field, for screen readers. */
-  "aria-describedby"?: string;
 };
 
 export function DateRangeField({ start, end, onChange, min, error, ...rest }: Props) {
@@ -83,21 +81,14 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
     function onDown(e: MouseEvent) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     }
-    // Escape dismisses only THIS popover, not the enclosing Drawer. The DS
-    // Drawer (Radix) closes on a capture-phase document Escape listener, so we
-    // intercept one level earlier — window capture precedes document capture —
-    // and stop the event before it reaches the Drawer.
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        setOpen(false);
-      }
+      if (e.key === "Escape") setOpen(false);
     }
     document.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey, { capture: true });
+    document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey, { capture: true });
+      document.removeEventListener("keydown", onKey);
     };
   }, [open]);
 
@@ -164,9 +155,6 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
                 onClick={() => pick(day)}
                 onMouseEnter={() => !disabled && setHoverDate(day)}
                 aria-pressed={isEndpoint}
-                // Full date, not just the bare day number — a SR user tabbing
-                // the grid needs "Thursday, July 15", not "15".
-                aria-label={day.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
                 className={`flex size-7 items-center justify-center rounded-full text-[13px] tabular-nums ${
                   // Endpoint styling wins over "past/disabled" so an already-running
                   // promo's start reads as a filled endpoint, not a greyed day.
@@ -194,12 +182,6 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
 
   return (
     <div ref={rootRef} className="relative">
-      {/* aria-invalid announces the error state, not just paints it red —
-          paired with aria-describedby pointing at the visible helper text so
-          SRs also hear the "why". jsx-a11y flags aria-invalid on a button per
-          strict ARIA role mapping, but SRs announce it on focusable popup
-          triggers in practice — worth the exception. */}
-      {/* eslint-disable-next-line jsx-a11y/role-supports-aria-props */}
       <button
         type="button"
         onClick={() => {
@@ -212,8 +194,6 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={rest["aria-label"]}
-        aria-invalid={error || undefined}
-        aria-describedby={rest["aria-describedby"]}
         className={`flex w-full items-center gap-2 rounded-md border bg-white px-3 py-1.5 text-left text-sm ${
           error ? "border-red-300 ring-1 ring-red-200" : "border-gray-300"
         } ${from ? "text-gray-900" : "text-gray-400"}`}
@@ -226,36 +206,11 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
         <div
           role="dialog"
           aria-label="Select date range"
-          className={`absolute left-0 z-50 rounded-lg border border-gray-200 bg-white p-2 shadow-lg max-md:right-0 max-md:shadow-xl ${
+          className={`absolute left-0 z-50 rounded-lg border border-gray-200 bg-white p-2 shadow-lg ${
             openUp ? "bottom-full mb-1" : "top-full mt-1"
           }`}
         >
-          {/* Mobile: single-month header with full prev/next navigation */}
-          <div className="mb-1 flex items-center justify-between md:hidden">
-            <button
-              type="button"
-              aria-label="Previous month"
-              disabled={leftAtMin}
-              onClick={() => setView(new Date(view.getFullYear(), view.getMonth() - 1, 1))}
-              className="flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 disabled:cursor-default disabled:text-gray-300 disabled:hover:bg-transparent"
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-            <span className="text-sm font-semibold text-gray-700">
-              {view.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-            </span>
-            <button
-              type="button"
-              aria-label="Next month"
-              onClick={() => setView(new Date(view.getFullYear(), view.getMonth() + 1, 1))}
-              className="flex size-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100"
-            >
-              <ChevronRight className="size-4" />
-            </button>
-          </div>
-
-          {/* Desktop: two-month header */}
-          <div className="mb-1 hidden items-center gap-3 md:flex">
+          <div className="mb-1 flex items-center gap-3">
             <div className="flex w-[196px] items-center justify-between">
               <button
                 type="button"
@@ -286,14 +241,9 @@ export function DateRangeField({ start, end, onChange, min, error, ...rest }: Pr
               </button>
             </div>
           </div>
-
-          {/* Mobile: popover spans the field width (max-md:right-0 above) so it
-              reads as its own layer instead of colliding with siblings; the
-              single month grid centers in that width. */}
-          <div className="flex gap-3 max-md:justify-center" onMouseLeave={() => setHoverDate(null)}>
+          <div className="flex gap-3" onMouseLeave={() => setHoverDate(null)}>
             {monthGrid(view)}
-            {/* Second month only on desktop — too wide for mobile drawer */}
-            <div className="hidden md:block">{monthGrid(rightView)}</div>
+            {monthGrid(rightView)}
           </div>
         </div>
       )}

@@ -1,8 +1,8 @@
-import { OverrideStatus, PricingItem } from "@/types/pricing";
+import { Batch, OverrideStatus, PricingItem } from "@/types/pricing";
 
 type BadgeTone = "neutral" | "success" | "negative" | "warning" | "in-progress";
 
-export type ItemStatus = { label: string; tone: BadgeTone };
+export type ItemStatus = { label: string; tone: BadgeTone; loading?: boolean };
 
 const STATUS: Record<string, ItemStatus> = {
   live: { label: "Live", tone: "success" },
@@ -10,52 +10,54 @@ const STATUS: Record<string, ItemStatus> = {
   // live — the item still carries its current SAP price; this flags that a
   // decision (accept / override / keep current) is owed.
   review: { label: "Needs review", tone: "warning" },
-  // A local change the director has made but not yet committed as live — an
-  // in-progress edit, not a warning or a disabled state.
-  edited: { label: "Edited", tone: "in-progress" },
-  // Confirmed live — the price is in effect.
+  // In a scheduled batch — will send to SAP on the batch's date/time. Every
+  // decision lands here (batching is mandatory); there is no loose "ready to send".
+  // Informative blue (not neutral gray, which read as disabled) — matches the
+  // batch-level "Scheduled" pill.
+  scheduled: { label: "Scheduled", tone: "in-progress" },
+  // Sent to SAP, not live until SAP confirms — the spinner (loading) signals it's
+  // in flight; neutral gray keeps it calm (amber read as a warning).
+  sent: { label: "Sending", tone: "neutral", loading: true },
+  // The last send to SAP failed (reverts to Live after 3 days or retries). Visual
+  // state only in this prototype.
+  failed: { label: "Failed", tone: "negative" },
+  // SAP confirmed the change — the price is live.
   confirmed: { label: "Live", tone: "success" },
 };
 
-// One helper per pricing section: TRUE while that section carries an HQ
-// recommendation the director hasn't decided — neither accepted/overridden (a
-// new price/amount exists) nor declined (the section's reviewed flag). Sections
-// are independent: declining the fuel saver leaves a pending base rec pending.
-export const baseRecPending = (i: PricingItem) =>
-  !!i.hqReviewPending &&
-  Math.abs(i.recommendedBasePrice - i.currentBasePrice) > 0.005 &&
-  i.newBasePrice == null &&
-  !i.baseReviewed;
-
-export const retailRecPending = (i: PricingItem) =>
-  !!i.hqReviewPending &&
-  i.category_type === "temporary_allowance" &&
-  i.recommendedRetailPrice != null &&
-  i.newRetailPrice == null &&
-  !i.retailReviewed;
-
-export const fuelRecPending = (i: PricingItem) =>
-  !!i.hqReviewPending &&
-  (i.recommendedFuelSaver ?? 0) > 0 &&
-  (i.fuelSaver == null || i.fuelSaver <= 0) &&
-  !i.fuelReviewed;
-
-// An HQ recommendation the store hasn't fully decided on yet — any rec-bearing
-// section still pending. Shared by the page (HQ tab filter + count), the price
-// cell, and the drawer's decision actions.
+// An HQ recommendation the store hasn't decided on yet — neither kept ("Keep
+// current") nor accepted/overridden. Shared by the page (HQ tab filter + count),
+// the price cell, and the drawer's decision actions.
 export const hqReviewNeeded = (i: PricingItem) =>
-  baseRecPending(i) || retailRecPending(i) || fuelRecPending(i);
+  !!i.hqReviewPending && !i.reviewed && !i.hasOverride;
 
-// Reduce an item's base + retail override statuses to one display status for
-// the Status column: an in-progress local change reads "Edited"; otherwise
-// it's "Live", unless HQ is still waiting on the store's review.
-export function deriveItemStatus(item: PricingItem): ItemStatus {
+// A temp allowance whose effective date hasn't arrived yet is "Scheduled" even
+// after it's sent — the new price only goes live on the start date.
+function hasFutureAllowance(item: PricingItem): boolean {
+  if (item.category_type !== "temporary_allowance" || !item.allowanceStartDate) return false;
+  return new Date(`${item.allowanceStartDate}T00:00:00`).getTime() > Date.now();
+}
+
+// Reduce an item's base + retail override statuses (and its batch) to one
+// display status for the Status column.
+export function deriveItemStatus(item: PricingItem, _batches: Batch[]): ItemStatus {
   const statuses = [item.baseOverrideStatus, item.retailOverrideStatus].filter(
     (s): s is OverrideStatus => s != null
   );
+  // No committed change: Live unless HQ is still waiting on the store's review.
   if (statuses.length === 0) return hqReviewNeeded(item) ? STATUS.review : STATUS.live;
 
-  if (statuses.includes("pending")) return STATUS.edited;
+  // A failed send takes priority over the in-flight/confirmed state below.
+  if (item.sendFailed) return STATUS.failed;
+
+  // Every change lands in a scheduled batch (batching is mandatory on Done), so a
+  // decided change reads "Scheduled" — both once it's in a batch and in the brief
+  // pre-batch moment. There is no loose "ready to send" state.
+  if (statuses.includes("pending") || statuses.includes("in_batch")) return STATUS.scheduled;
+
+  if (statuses.includes("submitted")) {
+    return hasFutureAllowance(item) ? STATUS.scheduled : STATUS.sent;
+  }
 
   return STATUS.confirmed;
 }

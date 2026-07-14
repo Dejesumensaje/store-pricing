@@ -5,7 +5,7 @@ import { CompetitorPrice } from "@/types/pricing";
 // case-insensitively against the (free-form) competitor name. A store director
 // can override this order for their store (see useCompetitorOrder); this is
 // just the fallback when no override is set.
-const HQ_DEFAULT_ORDER = ["walmart", "aldi"];
+export const HQ_DEFAULT_ORDER = ["walmart", "aldi"];
 
 const priorityRank = (name: string, priority: string[]) => {
   const i = priority.indexOf(name.trim().toLowerCase());

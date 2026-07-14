@@ -1,28 +1,26 @@
-// ─── INTEGRATION SEAM ────────────────────────────────────────────────────────
-// This file is the ONLY data source in the MVP. To connect a real backend:
-//   1. Replace the body of loadStoreData() in src/lib/api.ts with a real fetch
-//   2. Wire each Zustand action in pricing-store.ts to call commitDecision()
-//   3. The API contract is src/types/pricing.ts — PricingItem is what the
-//      backend must return; Override is what the store sends on each edit
-// ─────────────────────────────────────────────────────────────────────────────
-
-import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
+import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason, StoreChangeReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
-import { round2 } from "@/lib/pricing-math";
+import { PRODUCT_RELATIONSHIPS } from "@/lib/product-relationships";
 
-// Deterministic (no Math.random — hydration must be stable) char-code sum,
-// used below to decide which competitors have an active TPR on a given item.
-const idCharCodeSum = (id: string) => [...id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
-// Family pricing: the one seeded family in this catalog — a store editing any
-// member's base price updates them all (see updateBasePrice).
-const FAMILY_IDS: Record<string, string> = {
-  "RBCS5-1": "fl-tortilla",
-  "RBCS5-7": "fl-tortilla",
-  "RBCS5-8": "fl-tortilla",
-};
-const FAMILY_NAMES: Record<string, string> = {
-  "fl-tortilla": "Reg Tortilla Chips 9–11 oz",
+// Families are defined in product-relationships.ts (single source of truth).
+// Derive the item→familyId and familyId→display-name maps from it.
+const FAMILY_IDS: Record<string, string> = {};
+const FAMILY_NAMES: Record<string, string> = {};
+for (const rel of PRODUCT_RELATIONSHIPS) {
+  if (rel.type !== "family") continue;
+  FAMILY_NAMES[rel.id] = rel.name;
+  for (const id of rel.itemIds) FAMILY_IDS[id] = rel.id;
+}
+
+// A few hand-picked "frequently priced together" relationships.
+const RELATED_ITEMS: Record<string, string[]> = {
+  "W7BESS": ["RBCS5-1", "RBCS5-2", "RBCS5-8"],
+  "RBCS5-1": ["RBCS5-5", "RBCS5-7", "W7BESS"],
+  "RBCS5-2": ["RBCS5-3", "RBCS5-6", "W7BESS"],
+  "RBCS5-5": ["RBCS5-1", "RBCS5-7"],
+  "RBCS5-7": ["RBCS5-1", "RBCS5-5"],
 };
 
 // Synthesize believable competitor prices + temp-allowance fields for every
@@ -30,34 +28,16 @@ const FAMILY_NAMES: Record<string, string> = {
 // temporary allowance (retail price + fuel saver) on the fly.
 function enrichItemContext(item: PricingItem): PricingItem {
   const base = item.currentBasePrice;
-  const idSum = idCharCodeSum(item.id);
-  // Deterministic TPR presence per competitor — no Math.random, so hydration
-  // stays stable. Target never TPRs in this narrative. The featured demo item
-  // (Lay's Classic Potato Chips 18oz) is special-cased so the drawer always
-  // has a full comparison to show.
-  const walmartHasTpr = idSum % 2 === 0 || item.id === "W7BESS";
-  const aldiHasTpr = idSum % 5 === 0;
   const competitors: CompetitorPrice[] = [
-    {
-      name: "Walmart",
-      price: round2(base * 0.96),
-      ...(walmartHasTpr ? { retailPrice: round2(base * 0.88) } : {}),
-      distanceMi: 2.1,
-      address: "123 Main St, Madison WI",
-    },
-    { name: "Target", price: round2(base * 1.04), distanceMi: 3.4, address: "2500 University Ave, Madison WI" },
-    {
-      name: "Aldi",
-      price: round2(base * 0.89),
-      ...(aldiHasTpr ? { retailPrice: round2(base * 0.82) } : {}),
-      distanceMi: 5.2,
-      address: "345 Main St, Madison WI",
-    },
+    { name: "Walmart", price: round2(base * 0.96), distanceMi: 2.1 },
+    { name: "Target", price: round2(base * 1.04), distanceMi: 3.4 },
+    { name: "Aldi", price: round2(base * 0.89), distanceMi: 5.2 },
   ];
   const familyId = FAMILY_IDS[item.id];
   return {
     ...item,
     competitors,
+    relatedItemIds: RELATED_ITEMS[item.id],
     familyId,
     // Identity context shown in the drawer's item-info block.
     vendorName: item.vendorName ?? `${item.brand} Distribution`,
@@ -70,10 +50,6 @@ function enrichItemContext(item: PricingItem): PricingItem {
     recommendedRetailPrice: item.recommendedRetailPrice ?? round2(item.currentBasePrice * 0.85),
     newRetailPrice: item.newRetailPrice ?? null,
     newRetailQty: item.newRetailQty ?? null,
-    // A decided Base price always carries an effective date (the store seeds
-    // one the moment a price is set) — pending fixtures must honor the same
-    // invariant, or Done blocks on a date the user never had a say in.
-    baseEffectiveDate: item.baseEffectiveDate ?? (item.newBasePrice != null ? "2026-07-10" : null),
     currentFuelSaver: item.currentFuelSaver ?? null,
     fuelSaver: item.fuelSaver ?? null,
     // Give any seeded fuel saver a one-week run so the table date tooltip has data.
@@ -128,13 +104,11 @@ const baseMockItems: PricingItem[] = [
     currentRetailPrice: 3.99,
     newRetailQty: 1,
     newRetailPrice: 3.49,
-    retailOverrideStatus: "pending",
+    retailOverrideStatus: "in_batch",
     hasOverride: true,
     // A fuel saver already live on the shelf — the table shows it steady (no change).
     currentFuelSaver: 0.1,
     fuelSaver: 0.1,
-    // Store-originated retail decision — no HQ rec on this item.
-    chosenRetailReason: "local_deal",
   },
   {
     ...baseItem,
@@ -148,10 +122,10 @@ const baseMockItems: PricingItem[] = [
     // increase, the 3-for-$12 multi-unit deal, and a fuel saver. See the matching
     // RBCS5-1:base / RBCS5-1:retail seeds in mockOverrides.
     newBasePrice: 5.79,
-    baseOverrideStatus: "pending",
+    baseOverrideStatus: "in_batch",
     newRetailQty: 3,
     newRetailPrice: 12.0,
-    retailOverrideStatus: "pending",
+    retailOverrideStatus: "in_batch",
     // A 3-week promo — long enough that the yellow tag reads "Sale price", not
     // "Savings this week".
     allowanceStartDate: "2026-06-24",
@@ -161,11 +135,6 @@ const baseMockItems: PricingItem[] = [
     impactSalesValue: 1.4,
     impactSalesPct: 3,
     impactConfidence: "Medium",
-    // Store-originated on all three sections — no HQ rec on this item. Shows
-    // a different reason per section on the same row (base ≠ retail ≠ fuel).
-    chosenBaseReason: "cost_change",
-    chosenRetailReason: "buys",
-    chosenFuelReason: "displays",
   },
   {
     ...baseItem,
@@ -177,10 +146,7 @@ const baseMockItems: PricingItem[] = [
     cost: 3.1,
     recommendedBasePrice: 4.99,
     newBasePrice: 4.89,
-    baseOverrideStatus: "pending",
-    hasOverride: true,
-    // Store-originated — no HQ rec on this item.
-    chosenBaseReason: "cost_change",
+    baseOverrideStatus: "submitted",
   },
   {
     ...baseItem,
@@ -193,9 +159,7 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 5.29,
     newBasePrice: 5.99,
     hasOverride: true,
-    baseOverrideStatus: "pending",
-    // Deliberately no chosenBaseReason — an in-flight edit still missing its
-    // required reason; the drawer blocks Done here until one is picked.
+    baseOverrideStatus: "in_batch",
     hasAlert: true,
     impactConfidence: "Low",
     impactSalesValue: -0.6,
@@ -213,14 +177,12 @@ const baseMockItems: PricingItem[] = [
     cost: 1.55,
     recommendedBasePrice: 2.49,
     itemRole: "Convenience",
-    // Seeded retail (temp allowance), edited but not yet committed live — see
-    // mockOverrides RBCS5-4:retail.
+    // Seeded retail (temp allowance) — see mockOverrides RBCS5-4:retail. The last
+    // send to SAP failed → demoes the "Failed" status badge (visual only).
     newRetailQty: 1,
     newRetailPrice: 1.99,
-    retailOverrideStatus: "pending",
-    hasOverride: true,
-    // Store-originated retail decision — no HQ rec on this item.
-    chosenRetailReason: "manager_special",
+    retailOverrideStatus: "submitted",
+    sendFailed: true,
   },
   {
     ...baseItem,
@@ -248,10 +210,7 @@ const baseMockItems: PricingItem[] = [
   { ...baseItem, id: "HQ-101", name: "Triscuit Original 8.5oz", brand: "Nabisco", subcategory: "Crackers", packSize: "8.5oz", currentBasePrice: 3.49, cost: 2.1, recommendedBasePrice: 3.69 },
   { ...baseItem, id: "HQ-102", name: "Wheat Thins Original 8oz", brand: "Nabisco", subcategory: "Crackers", packSize: "8oz", currentBasePrice: 3.99, cost: 2.45, recommendedBasePrice: 4.19 },
   { ...baseItem, id: "HQ-103", name: "Pop Secret Butter 6ct", brand: "Pop Secret", subcategory: "Popcorn", packSize: "6ct", currentBasePrice: 4.29, cost: 2.6, recommendedBasePrice: 3.99 },
-  // Carries BOTH an HQ base rec (cost change) and an HQ retail rec (vendor
-  // allowance) at once — one row, two independent sections, two different
-  // reasons.
-  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.69, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
+  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.49, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
   { ...baseItem, id: "HQ-105", name: "Planters Peanuts 16oz", brand: "Planters", subcategory: "Nuts", packSize: "16oz", currentBasePrice: 5.99, cost: 3.8, recommendedBasePrice: 7.49, itemRole: "Margin driver" },
   { ...baseItem, id: "HQ-106", name: "Jack Link's Jerky 5oz", brand: "Jack Link's", subcategory: "Jerky", packSize: "5oz", currentBasePrice: 8.99, cost: 6.2, recommendedBasePrice: 7.49, sensitivity: "H", hasAlert: true },
   { ...baseItem, id: "HQ-107", name: "SkinnyPop Original 4.4oz", brand: "SkinnyPop", subcategory: "Popcorn", packSize: "4.4oz", category_type: "temporary_allowance", currentBasePrice: 3.29, cost: 1.9, recommendedBasePrice: 3.29, currentRetailPrice: 3.29, recommendedRetailPrice: 2.5, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
@@ -271,9 +230,7 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 4.99,
     newBasePrice: 4.99,
     hasOverride: true,
-    baseOverrideStatus: "pending",
-    // Store-originated — no HQ rec on this item.
-    chosenBaseReason: "competitor_change",
+    baseOverrideStatus: "in_batch",
   },
   {
     ...baseItem,
@@ -286,10 +243,8 @@ const baseMockItems: PricingItem[] = [
     recommendedBasePrice: 4.39,
     newBasePrice: 4.39,
     hasOverride: true,
-    baseOverrideStatus: "pending",
+    baseOverrideStatus: "in_batch",
     impactConfidence: "Medium",
-    // Store-originated — no HQ rec on this item.
-    chosenBaseReason: "cost_change",
   },
   {
     ...baseItem,
@@ -361,7 +316,7 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.79,
     newPrice: 4.89,
-    status: "pending",
+    status: "submitted",
   },
   {
     id: "RBCS5-3:base",
@@ -371,7 +326,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.99,
     newPrice: 5.99,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "RBCS5-5:base",
@@ -381,7 +337,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 5.19,
     newPrice: 4.99,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-1",
   },
   {
     id: "RBCS5-6:base",
@@ -391,7 +348,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 4.49,
     newPrice: 4.39,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-2",
   },
   {
     id: "RBCS5-1:base",
@@ -401,7 +359,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 5.49,
     newPrice: 5.79,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "EDLP-2:base",
@@ -411,7 +370,8 @@ export const mockOverrides: Override[] = [
     priceField: "base",
     currentPrice: 1.98,
     newPrice: 1.88,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "W7BESS:retail",
@@ -421,7 +381,8 @@ export const mockOverrides: Override[] = [
     priceField: "retail",
     currentPrice: 3.99,
     newPrice: 3.49,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "RBCS5-1:retail",
@@ -432,7 +393,8 @@ export const mockOverrides: Override[] = [
     currentPrice: 5.49,
     newPrice: 12.0,
     qty: 3,
-    status: "pending",
+    status: "in_batch",
+    batchId: "batch-3",
   },
   {
     id: "RBCS5-4:retail",
@@ -442,7 +404,34 @@ export const mockOverrides: Override[] = [
     priceField: "retail",
     currentPrice: 2.39,
     newPrice: 1.99,
-    status: "pending",
+    status: "submitted",
+  },
+];
+
+export const mockBatches: Batch[] = [
+  {
+    id: "batch-1",
+    name: "Tuesday, ad prep",
+    status: "scheduled",
+    overrideIds: ["RBCS5-5:base"],
+    createdAt: "2026-06-10T09:00:00Z",
+    scheduledAt: "2026-06-30T06:00:00",
+  },
+  {
+    id: "batch-2",
+    name: "Friday endcap reset",
+    status: "scheduled",
+    overrideIds: ["RBCS5-6:base"],
+    createdAt: "2026-06-10T14:00:00Z",
+    scheduledAt: "2026-07-03T05:00:00",
+  },
+  {
+    id: "batch-3",
+    name: "This week's promos",
+    status: "scheduled",
+    overrideIds: ["RBCS5-3:base", "RBCS5-1:base", "RBCS5-1:retail", "EDLP-2:base", "W7BESS:retail"],
+    createdAt: "2026-06-24T08:00:00Z",
+    scheduledAt: "2026-06-26T06:00:00",
   },
 ];
 
@@ -452,8 +441,8 @@ export const mockOverrides: Override[] = [
 // ceiling is max × 1.10. Chosen per item to cover every ceiling demo state:
 //  EDLP-1 current AND HQ's rec both breach the hard ceiling (accepting the
 //    rec gets blocked in commitBase — see HQ_REVIEW_IDS below).
-//  EDLP-2 an edited-but-not-yet-live override (see mockOverrides) breaches the
-//    hard ceiling with no exception — demos the "Edited" over-ceiling state.
+//  EDLP-2 an already-batched override (see mockOverrides) breaches the hard
+//    ceiling with no exception — demos the batch-send backstop.
 //  EDLP-3 breaches the hard ceiling but carries the seeded per-item exception
 //    (see edlpExceptions in the store) — downgraded to a soft warning.
 //  EDLP-4 current price sits in the soft zone (over max, within +10%) with no
@@ -487,10 +476,7 @@ const edlpCatalog: PricingItem[] = [
   // Price" (an EDLP conversion is demoed separately on RBCS5-5). See EDLP-2:base.
   .map((it) =>
     it.id === "EDLP-2"
-      // This repricing lands after enrichItemContext, so it must carry its own
-      // effective date — a decided Base price is never date-less (see the
-      // baseEffectiveDate default in enrichItemContext).
-      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "pending" as const, hasOverride: true, baseEffectiveDate: "2026-07-10" }
+      ? { ...it, newBasePrice: 1.88, baseOverrideStatus: "in_batch" as const, hasOverride: true }
       : it
   );
 
@@ -540,7 +526,7 @@ const newDiscontinuedCatalog: PricingItem[] = [
 // HQ recommendations: HQ proposes a new price for these items. The proposal is
 // NOT live in SAP — `currentBasePrice` stays the live (old) price and
 // `recommendedBasePrice` carries HQ's proposal, so the director can compare the
-// two and decide (accept / override / keep current) before anything changes.
+// two and decide (accept / override / keep current) before anything is sent.
 const HQ_REVIEW_IDS = new Set([
   "RBCS5-7", "RBCS5-8", "EDLP-1", "ND-4", "RBCS5-9",
   "HQ-101", "HQ-102", "HQ-103", "HQ-104", "HQ-105", "HQ-106", "HQ-107", "HQ-108",
@@ -548,51 +534,60 @@ const HQ_REVIEW_IDS = new Set([
 
 // Every HQ recommendation carries the reason behind it — the director triages
 // the queue by these (competitor moves are time-sensitive, cost changes are
-// margin upkeep, HQ pricing reviews can batch for later). Reason is per
-// SECTION, not per item: a plain base-price rec carries a Base reason, while a
-// temporary allowance's rec is a RETAIL move and carries a Retail reason —
-// even though its base price is untouched.
-const HQ_BASE_REASON_SEEDS: Record<string, HqBaseReason> = {
+// margin upkeep, category reviews can batch for later).
+const HQ_CHANGE_REASONS: Record<string, HqChangeReason> = {
   "RBCS5-7": "cost_change",
   "RBCS5-8": "cost_change",
   "HQ-101": "cost_change",
   "HQ-102": "cost_change",
   "HQ-105": "cost_change",
-  "EDLP-1": "competitor_change",
-  "HQ-103": "competitor_change",
-  "HQ-106": "competitor_change",
-  "HQ-108": "competitor_change",
-  "ND-4": "hq_pricing_review",
-  "HQ-104": "cost_change", // also carries a retail rec below — differing reasons, same row
-};
-
-// TA/promo recommendations — vendor-funded allowances get "allowance", the
-// rest mix across the shared HQ retail/fuel catalog for variety.
-const HQ_RETAIL_REASON_SEEDS: Record<string, HqPromoReason> = {
-  "RBCS5-9": "displays",
-  "HQ-104": "allowance", // vendor-funded TA
-  "HQ-107": "wow_buy",
-};
-
-// A couple of the already-flagged items ALSO carry an HQ fuel-saver
-// recommendation, independent of their base/retail one — proof that a single
-// item can surface more than one section's HQ reason at once (see HQ-108:
-// a "Competitor change" base reason alongside a "Discontinued" fuel reason).
-const HQ_FUEL_REASON_SEEDS: Record<string, { amount: number; reason: HqPromoReason }> = {
-  "HQ-102": { amount: 0.10, reason: "wow_buy" },
-  "HQ-108": { amount: 0.10, reason: "discontinued" },
+  "EDLP-1": "competitor_move",
+  "HQ-103": "competitor_move",
+  "HQ-106": "competitor_move",
+  "HQ-108": "competitor_move",
+  "ND-4": "category_review",
+  "RBCS5-9": "category_review",
+  "HQ-104": "category_review",
+  "HQ-107": "category_review",
 };
 
 function applyHqReview(item: PricingItem): PricingItem {
   if (!HQ_REVIEW_IDS.has(item.id)) return item;
-  const fuel = HQ_FUEL_REASON_SEEDS[item.id];
-  return {
-    ...item,
-    hqReviewPending: true,
-    hqBaseReason: HQ_BASE_REASON_SEEDS[item.id],
-    hqRetailReason: HQ_RETAIL_REASON_SEEDS[item.id],
-    ...(fuel ? { recommendedFuelSaver: fuel.amount, hqFuelReason: fuel.reason } : {}),
-  };
+  return { ...item, hqReviewPending: true, hqChangeReason: HQ_CHANGE_REASONS[item.id] };
+}
+
+// Store-originated changes: items the store must react to with NO HQ
+// recommendation — the cost moved, or a competitor moved. These power the
+// "Cost changes" / "Competitor moves" view lenses. Several items here already
+// carry seeded director overrides (so the reason shows immediately); RBCS5-10/11
+// are clean, to demo the auto-populate-on-first-edit flow. None overlap the HQ
+// worklist. (Category reviews are always HQ-driven, so they never appear here.)
+const STORE_SIGNALS: Record<string, StoreChangeReason[]> = {
+  "RBCS5-2": ["cost_change"],
+  "RBCS5-6": ["cost_change"],
+  "RBCS5-10": ["cost_change"],
+  "RBCS5-3": ["competitor_move"],
+  "W7BESS": ["competitor_move"],
+  "RBCS5-11": ["competitor_move"],
+  "RBCS5-5": ["cost_change", "competitor_move"],
+  "RBCS5-1": ["competitor_move"],
+};
+
+// A competitor set with NEITHER Walmart nor Aldi — exercises orderCompetitors'
+// distance-only fallback (the default seed always has both, so it never would).
+const noBigBoxCompetitors = (base: number): CompetitorPrice[] => [
+  { name: "Costco", price: round2(base * 0.93), distanceMi: 6.8 },
+  { name: "Kroger", price: round2(base * 0.98), distanceMi: 1.2 },
+  { name: "Target", price: round2(base * 1.02), distanceMi: 3.1 },
+];
+
+function applyStoreSignals(item: PricingItem): PricingItem {
+  const signals = STORE_SIGNALS[item.id];
+  if (!signals) return item;
+  const next: PricingItem = { ...item, storeSignals: signals };
+  // RBCS5-1 is our fallback-ordering case: no Walmart/Aldi among its competitors.
+  if (item.id === "RBCS5-1") next.competitors = noBigBoxCompetitors(item.currentBasePrice);
+  return next;
 }
 
 // ─── Synthetic catalog (scale) ───────────────────────────────────────────────
@@ -674,18 +669,18 @@ export const mockItems: PricingItem[] = [
   ...noChangeCatalog,
   ...newDiscontinuedCatalog,
   ...syntheticCatalog,
-].map(applyHqReview);
+].map(applyHqReview).map(applyStoreSignals);
 
 // Headline count shown on the "All items (N)" pill.
 export const TOTAL_ITEM_COUNT = mockItems.length;
 
 // ─── Per-store data (multi-store support) ────────────────────────────────────
-// Each store the director manages gets its own slice of items/overrides.
+// Each store the director manages gets its own slice of items/overrides/batches.
 // #1402 is the primary, richly seeded demo store (all the flows above). The other
-// stores share the same SKU catalog but boot "clean": prices nudged per store,
-// no in-progress edits, their own HQ worklist.
+// stores share the same SKU catalog (so a change can fan out to them) but boot
+// "clean": prices nudged per store, no in-progress edits, their own HQ worklist.
 
-export type StoreSlice = { items: PricingItem[]; overrides: Override[] };
+export type StoreSlice = { items: PricingItem[]; overrides: Override[]; batches: Batch[] };
 
 // SKUs HQ is recommending on the primary store — the pool we rotate a per-store
 // subset from, so each store shows a different HQ review count.
@@ -709,15 +704,12 @@ function cleanForStore(item: PricingItem, factor: number): PricingItem {
     // Start clean — no decisions carried over from the primary store.
     newBasePrice: null,
     baseOverrideStatus: undefined,
-    // No decided base price → no effective date describing it.
-    baseEffectiveDate: null,
     newRetailPrice: null,
     newRetailQty: null,
     retailOverrideStatus: undefined,
     hasOverride: false,
-    baseReviewed: false,
-    retailReviewed: false,
-    fuelReviewed: false,
+    sendFailed: false,
+    reviewed: false,
     hqReviewPending: false,
     autoTypedFrom: null,
     // Undo any demo strategy conversion (e.g. Base → EDLP on the primary store).
@@ -736,7 +728,7 @@ function buildSecondaryStore(index: number): StoreSlice {
     const clean = cleanForStore(it, factor);
     return hqSet.has(it.id) ? { ...clean, hqReviewPending: true } : clean;
   });
-  return { items, overrides: [] };
+  return { items, overrides: [], batches: [] };
 }
 
 export function buildInitialStoreData(): Record<string, StoreSlice> {
@@ -744,7 +736,7 @@ export function buildInitialStoreData(): Record<string, StoreSlice> {
   STORES.forEach((store, index) => {
     data[store.id] =
       store.id === DEFAULT_STORE_ID
-        ? { items: mockItems, overrides: mockOverrides }
+        ? { items: mockItems, overrides: mockOverrides, batches: mockBatches }
         : buildSecondaryStore(index);
   });
   return data;

@@ -77,7 +77,7 @@ export function ReductionInput({
           ))}
         </div>
       )}
-      <div className="relative w-[90px] max-md:flex-1">
+      <div className="relative w-[90px]">
         <input
           type="text"
           inputMode="decimal"

@@ -1,31 +1,10 @@
-import { PricingItem } from "@/types/pricing";
+import { PricingItem, Override } from "@/types/pricing";
 import { perUnit } from "./pricing-math";
-
-// The ids a base-price commit on `item` will actually reprice — the item plus
-// every family member (mirrors the propagation in updateBasePrice).
-function familyGroupIds(item: PricingItem, itemsById: Map<string, PricingItem>): string[] {
-  if (!item.familyId) return [item.id];
-  return [...itemsById.values()].filter((i) => i.familyId === item.familyId).map((i) => i.id);
-}
-
-/**
- * Build an id → item lookup across every catalog. Base price is shared, so the
- * same id can appear in multiple arrays; the first wins (impact fields are
- * identical across copies).
- */
-export function buildItemsById(catalogs: PricingItem[][]): Map<string, PricingItem> {
-  const map = new Map<string, PricingItem>();
-  for (const catalog of catalogs) {
-    for (const item of catalog) {
-      if (!map.has(item.id)) map.set(item.id, item);
-    }
-  }
-  return map;
-}
+import { familyGroupIds } from "./relationship-validation";
 
 /**
  * A store-level exception to the EDLP hard stop, granted by AVP – Pricing —
- * store users can only view it, never grant or edit it.
+ * store users can only view it (see SettingsDrawer), never grant or edit it.
  * `scope: "store"` covers every EDLP item in the store; an item-id array
  * covers only those items. An active exception downgrades a hard breach to a
  * soft warning — never silent (see evaluateEdlpCeiling).
@@ -66,7 +45,7 @@ const OK: EdlpCeilingResult = { level: "ok", maxAllowed: 0, hardCeiling: 0, exce
  * SAP PMR maximum. Strict >10% is a hard stop; exactly +10% passes as soft.
  * An active exception covering the item downgrades a hard breach to soft —
  * visible (a badge/banner), never silent. Cents-rounded throughout so float
- * noise can't flip a verdict.
+ * noise can't flip a verdict (mirrors relationship-validation.ts).
  */
 export function evaluateEdlpCeiling(
   item: PricingItem,
@@ -88,15 +67,16 @@ export function evaluateEdlpCeiling(
 }
 
 // Effective per-unit base price the item currently carries — the pending
-// decision if there is one, else the live price.
+// decision if there is one, else the live price. Mirrors effectivePerUnit in
+// relationship-validation.ts.
 function effectivePerUnit(item: PricingItem): number {
   return item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
 }
 
 /**
  * The ceiling state of an item's CURRENTLY committed price — derived every
- * render, drives the in-drawer banner and the table/cell badge. Untouched,
- * in-range items are always "ok".
+ * render (mirrors committedSoftWarnings), drives the in-drawer banner and the
+ * table/cell badge. Untouched, in-range items are always "ok".
  */
 export function committedEdlpCeilingState(
   item: PricingItem,
@@ -107,7 +87,8 @@ export function committedEdlpCeilingState(
 
 /**
  * Catalog-wide scan of items currently priced over their EDLP maximum (soft
- * or hard, exception or not) — powers the "Over EDLP max" filter facet.
+ * or hard, exception or not) — powers the "Over EDLP max" filter facet, the
+ * same way itemIdsWithSoftViolations powers "Pricing conflicts".
  */
 export function itemIdsOverEdlpCeiling(
   items: PricingItem[],
@@ -143,7 +124,8 @@ export type EdlpChangeEvaluation = {
  * Pre-commit check of a proposed base price (per-unit) for `itemId` against
  * every EDLP member the commit would reprice — itself, or (via family price
  * propagation) any EDLP sibling. A non-EDLP item with no EDLP family members
- * always comes back clean.
+ * always comes back clean. Mirrors evaluateBaseChange's family handling in
+ * relationship-validation.ts.
  */
 export function evaluateEdlpCeilingChange(
   itemId: string,
@@ -174,4 +156,24 @@ export function evaluateEdlpCeilingChange(
     (result.level === "hard" ? hard : soft).push(violation);
   }
   return { hard, soft, changedIds };
+}
+
+/**
+ * Whether any base override in `overridesInBatch` would send an EDLP item
+ * over its hard ceiling with no active exception — the batch-send backstop.
+ * Exceptions can be revoked after a change was committed/batched, so this is
+ * re-checked at send time, not just at commit time.
+ */
+export function batchBlockedByEdlpCeiling(
+  overridesInBatch: Override[],
+  itemsById: Map<string, PricingItem>,
+  exception: EdlpException | undefined
+): boolean {
+  return overridesInBatch.some((o) => {
+    if (o.priceField !== "base") return false;
+    const item = itemsById.get(o.itemId);
+    if (!item) return false;
+    const proposedPerUnit = perUnit(o.newPrice, o.qty);
+    return evaluateEdlpCeiling(item, proposedPerUnit, exception).level === "hard";
+  });
 }

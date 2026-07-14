@@ -1,12 +1,12 @@
 "use client";
 
-import { Fuel, AlertTriangle } from "lucide-react";
+import { Loader2, Fuel, AlertTriangle } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
-import { PricingItem, HqBaseReason, HqPromoReason } from "@/types/pricing";
-import { deriveItemStatus, hqReviewNeeded, baseRecPending, retailRecPending, fuelRecPending } from "@/lib/item-status";
-import { REASON_META, PriceChangeReason } from "@/lib/price-change-reason";
-import { fmt, fmtQtyPrice, fmtDateShort } from "@/lib/format";
+import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
+import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
+import { REASON_META } from "@/lib/price-change-reason";
+import { fmt, fmtQtyPrice, fmtDateTime } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { committedEdlpCeilingState } from "@/lib/edlp-ceiling";
 import { useEdlpException } from "@/store/pricing-store";
@@ -80,16 +80,30 @@ export const SHELF_TAG_META: Record<ShelfTagKind, { label: string; swatch: strin
   clearance: { label: "Clearance", swatch: "bg-rose-300 border-rose-400", text: "text-rose-800", pill: "bg-rose-100 text-rose-800" },
 };
 
+export function fmtShortDate(iso?: string | null): string | null {
+  if (!iso) return null;
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 // The run-window for a promo / fuel saver, phrased for a tooltip. Dates now live
 // on hover over the tag itself (no standalone calendar icon), so this is the
 // tooltip copy rather than a rendered element.
 function dateRange(start?: string | null, end?: string | null): string | null {
   if (!start && !end) return null;
   return start && end
-    ? `${fmtDateShort(start)} – ${fmtDateShort(end)}`
+    ? `${fmtShortDate(start)} – ${fmtShortDate(end)}`
     : end
-    ? `ends ${fmtDateShort(end)}`
-    : `from ${fmtDateShort(start)}`;
+    ? `ends ${fmtShortDate(end)}`
+    : `from ${fmtShortDate(start)}`;
+}
+
+// The scheduled send time for the item, if it sits in a scheduled batch — surfaced
+// in a tooltip on the "Scheduled" status pill. Override ids are `${itemId}:${field}`.
+function scheduledSendAt(item: PricingItem, batches: Batch[]): string | null {
+  const batch = batches.find(
+    (b) => b.status === "scheduled" && b.overrideIds.some((id) => id.split(":")[0] === item.id)
+  );
+  return batch?.scheduledAt ?? null;
 }
 
 // The shelf-tag chip: a colored tag swatch + label. The lens a director scans on
@@ -113,12 +127,8 @@ export function ShelfTagCell({ item }: { item: PricingItem }) {
 // "this came from HQ, look here". A subtle pulse (.hq-pulse) draws the eye without
 // shouting. The change reason rides along in the tooltip — secondary info, on
 // demand, never its own table furniture.
-export function HqBadge({ reasons }: { reasons?: PriceChangeReason[] }) {
-  // An item's HQ recommendation can span several sections (Base, Retail, Fuel
-  // Saver) at once, each with its own reason — list them all rather than
-  // picking one and hiding the rest.
-  const labels = (reasons ?? []).map((r) => REASON_META[r].label);
-  const why = labels.length > 0 ? `${labels.join(", ")} — HQ recommends a price change.` : "HQ recommends a price change.";
+export function HqBadge({ reason }: { reason?: HqChangeReason }) {
+  const why = reason ? `${REASON_META[reason].label} — HQ recommends a price change.` : "HQ recommends a price change.";
   return (
     <Tooltip content={`${why} Review and decide.`}>
       <span
@@ -136,8 +146,8 @@ export function HqBadge({ reasons }: { reasons?: PriceChangeReason[] }) {
 // is the director's committed decision or HQ's proposal, the tag looks the same;
 // the HQ name badge + "Needs review" status carry the "this is a proposal" signal.
 const TAG_CHIP: Record<"white" | "yellow", string> = {
-  white: "whitespace-nowrap rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
-  yellow: "whitespace-nowrap rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
+  white: "rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
+  yellow: "rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
 };
 
 // One "original → after" line. No change ⇒ just the current price (muted). New
@@ -186,7 +196,7 @@ function baseMovePct(item: PricingItem): number {
   const target =
     item.newBasePrice != null
       ? perUnit(item.newBasePrice, item.newBaseQty)
-      : baseRecPending(item)
+      : item.hqReviewPending
         ? item.recommendedBasePrice
         : null;
   if (target == null || !(item.currentBasePrice > 0)) return 0;
@@ -210,12 +220,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
       </span>
     ) : null;
 
-  // baseRecPending already filters out a rec whose target equals the current
-  // base (retail-only recommendations seed these) — NOT a base move, so no
-  // "$3.19 → $3.19" strikethrough. It also stops advertising a rec the
-  // director declined or already decided (per-section, not per-item).
-  const recBase = baseRecPending(item) ? item.recommendedBasePrice : null;
-  const baseTarget = item.newBasePrice != null ? item.newBasePrice : recBase;
+  const baseTarget = item.newBasePrice != null ? item.newBasePrice : item.hqReviewPending ? item.recommendedBasePrice : null;
   // Only a decided base can be a pack-size deal (HQ recs are always single-unit).
   const baseQty = item.newBasePrice != null ? item.newBaseQty ?? 1 : 1;
   const baseLine = (
@@ -241,7 +246,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
 
   const retailCurrent = item.currentRetailPrice ?? item.currentBasePrice;
   const decidedRetail = item.newRetailPrice ?? null;
-  const recRetail = retailRecPending(item) ? item.recommendedRetailPrice ?? null : null;
+  const recRetail = item.hqReviewPending ? item.recommendedRetailPrice ?? null : null;
   const retailTarget = decidedRetail ?? recRetail;
   const qty = decidedRetail != null ? item.newRetailQty ?? 1 : 1;
   const retailDisplay = retailTarget != null ? (qty > 1 ? fmtQtyPrice(qty, retailTarget) : fmt(retailTarget)) : null;
@@ -257,11 +262,9 @@ export function PriceCell({ item }: { item: PricingItem }) {
   );
 
   return (
-    <span className="flex flex-col gap-1">
-      <span className="flex flex-col gap-0.5">
-        {baseLine}
-        {edlpIndicator}
-      </span>
+    <span className="flex flex-col gap-0.5">
+      {baseLine}
+      {edlpIndicator}
       {promoRange ? (
         <Tooltip content={`Promo ${promoRange}`}>
           <span className="inline-flex w-fit cursor-default">{retailLine}</span>
@@ -287,18 +290,14 @@ function FuelChip({ amount }: { amount: number }) {
 export function FuelSaverCell({ item }: { item: PricingItem }) {
   const current = item.currentFuelSaver ?? null;
   const decided = item.fuelSaver ?? null;
-  // fuelRecPending (not hqReviewPending) — the rec chip is only advertised
-  // while THIS section is still actionable, matching the drawer's fuel
-  // accept-first block, so the table never promises a decision the drawer no
-  // longer offers (a pending base rec alone doesn't re-advertise fuel).
-  const recommended = fuelRecPending(item) ? item.recommendedFuelSaver ?? null : null;
+  const recommended = item.hqReviewPending ? item.recommendedFuelSaver ?? null : null;
 
   const target =
     decided != null && decided !== current ? decided
     : recommended != null && recommended !== current ? recommended
     : null;
 
-  if (current == null && target == null) return null;
+  if (current == null && target == null) return <span className="text-sm text-gray-300">—</span>;
 
   // The fuel-saver run-window lives on hover over the chip itself (no calendar icon).
   const fuelRange = dateRange(item.fuelSaverStartDate, item.fuelSaverEndDate);
@@ -315,7 +314,9 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
   if (target == null) {
     return current != null && current > 0 ? (
       <span className="flex items-center gap-1.5">{withDates(<FuelChip amount={current} />)}</span>
-    ) : null;
+    ) : (
+      <span className="text-sm text-gray-300">—</span>
+    );
   }
 
   return (
@@ -331,11 +332,15 @@ export function FuelSaverCell({ item }: { item: PricingItem }) {
   );
 }
 
-export function StatusCell({ item }: { item: PricingItem }) {
-  const status = deriveItemStatus(item);
+// Why a send to SAP can read "Failed" — shown on hover so the state isn't alarming.
+const FAILED_HELP =
+  "The last send to SAP didn't go through. It retries automatically; the price stays at its previous value until it succeeds.";
+
+export function StatusCell({ item, batches }: { item: PricingItem; batches: Batch[] }) {
+  const status = deriveItemStatus(item, batches);
   const isReview = status.label === "Needs review";
 
-  return (
+  const badge = (
     <Badge tone={status.tone} size="sm">
       <span className="inline-flex items-center gap-1">
         {isReview && (
@@ -344,31 +349,44 @@ export function StatusCell({ item }: { item: PricingItem }) {
             className="review-dot inline-block size-1.5 shrink-0 rounded-full bg-current"
           />
         )}
+        {status.loading && (
+          <Loader2 aria-hidden className="size-3 animate-spin motion-reduce:animate-none" />
+        )}
         {status.label}
       </span>
     </Badge>
   );
+
+  // Failed → explain what it means and that it self-heals.
+  if (status.label === "Failed") {
+    return <Tooltip content={FAILED_HELP}>{wrapTip(badge)}</Tooltip>;
+  }
+
+  // Scheduled → surface when it sends, drawn from its scheduled batch.
+  if (status.label === "Scheduled") {
+    const at = scheduledSendAt(item, batches);
+    if (at) return <Tooltip content={`Sends ${fmtDateTime(at)}`}>{wrapTip(badge)}</Tooltip>;
+  }
+
+  return badge;
 }
 
-// No select column — decisions happen in the drawer, applied directly.
-export function buildStoreColumns(visibleCols: Set<string>): DataColumn<PricingItem>[] {
+// Tooltip triggers want a single focusable/hoverable child — wrap the badge so the
+// cursor reads as informational.
+function wrapTip(node: React.ReactNode) {
+  return <span className="inline-flex cursor-default">{node}</span>;
+}
+
+// No select column — decisions happen in the drawer and are forced into a batch.
+export function buildStoreColumns(
+  batches: Batch[],
+  visibleCols: Set<string>
+): DataColumn<PricingItem>[] {
   const optional = STORE_OPTIONAL_COLUMNS.filter((c) => visibleCols.has(c.id)).map((c) => OPTIONAL_DEFS[c.id]);
 
   return [
     idCol,
-    itemCol((r) =>
-      hqReviewNeeded(r) ? (
-        // Only sections still pending — a decided section's reason no longer
-        // advertises an open decision (mirrors the drawer header's badge).
-        <HqBadge
-          reasons={[
-            baseRecPending(r) ? r.hqBaseReason : null,
-            retailRecPending(r) ? r.hqRetailReason : null,
-            fuelRecPending(r) ? r.hqFuelReason : null,
-          ].filter((x): x is HqBaseReason | HqPromoReason => x != null)}
-        />
-      ) : null
-    ),
+    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge reason={r.hqChangeReason} /> : null)),
     textCol("category", "Category", (r) => r.category, 140),
     {
       id: "price",
@@ -399,8 +417,8 @@ export function buildStoreColumns(visibleCols: Set<string>): DataColumn<PricingI
       width: 150,
       header: "Status",
       sortable: true,
-      sortAccessor: (r) => deriveItemStatus(r).label,
-      cell: (r) => <StatusCell item={r} />,
+      sortAccessor: (r) => deriveItemStatus(r, batches).label,
+      cell: (r) => <StatusCell item={r} batches={batches} />,
     },
   ];
 }

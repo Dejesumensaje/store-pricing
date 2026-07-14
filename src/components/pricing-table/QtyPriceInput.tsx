@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { AlertCircle } from "lucide-react";
+import { Check, AlertCircle } from "lucide-react";
 import { PriceCellState, BORDER } from "./PriceInputCell";
 import { fmtQtyPrice, fmtUnitPrice } from "@/lib/format";
 
@@ -64,7 +64,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
     <div className="flex flex-col gap-0.5">
       {multi ? (
         <div
-          className={`flex items-center w-[170px] max-md:w-full border rounded-md transition-colors duration-500 motion-reduce:transition-none focus-within:ring-2 focus-within:ring-blue-500 ${fieldTone}`}
+          className={`flex items-center w-[170px] border rounded-md transition-colors duration-500 motion-reduce:transition-none focus-within:ring-2 focus-within:ring-blue-500 ${fieldTone}`}
           onBlur={(e) => {
             // Commit only when focus leaves the whole control, so tabbing from
             // qty to price never commits a half-edited deal.
@@ -102,7 +102,7 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
           />
         </div>
       ) : (
-        <div className="relative w-[120px] max-md:w-full">
+        <div className="relative w-[120px]">
           <span aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
           <input
             type="text"
@@ -122,7 +122,11 @@ export function QtyPriceInput({ qty, price, recommendedPrice, state, multi, onCo
         </div>
       )}
 
-      {state === "alert" ? (
+      {state === "sent" ? (
+        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
+          <Check className="size-3" aria-hidden="true" /> Sent{isDeal ? ` · ${fmtUnitPrice(liveQty, livePrice)}` : ""}
+        </span>
+      ) : state === "alert" ? (
         <Button variant="tertiary" size="sm" iconLeft={AlertCircle} onClick={onViewAlerts}>
           View alerts
         </Button>

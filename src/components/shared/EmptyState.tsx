@@ -12,8 +12,8 @@ type Props = {
   className?: string;
 };
 
-// One empty-state recipe shared by every surface that can come up empty (items
-// table, review worklist) so they stay visually consistent.
+// One empty-state recipe shared across the items table, the batch tray, and the
+// batch detail drawer so they stay visually consistent.
 export function EmptyState({ icon: Icon, title, hint, action, bordered = true, className }: Props) {
   return (
     <div

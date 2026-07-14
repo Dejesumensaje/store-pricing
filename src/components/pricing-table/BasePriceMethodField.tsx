@@ -4,7 +4,6 @@ import { useState } from "react";
 import { QtyPriceInput } from "./QtyPriceInput";
 import { derivePriceState } from "./PriceInputCell";
 import { OverrideStatus } from "@/types/pricing";
-import { round2 } from "@/lib/pricing-math";
 
 // The two shapes a plain (non-EDLP) base price can take: one shelf price, or a
 // pack-size deal ("3 for $6.00"). Mirrors the retail chooser's pick-the-kind-
@@ -48,6 +47,7 @@ export function BasePriceMethodField({
   // Switching methods must preserve the PER-UNIT price, not the deal total
   // (same rule as the retail chooser): $4.50 entering Multi-unit seeds
   // "2 for $9.00"; leaving collapses the deal total back to the per-unit price.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
   const selectMethod = (m: Method) => {
     if (m === method) return;
     const dealQty = qty ?? 1;
@@ -63,22 +63,15 @@ export function BasePriceMethodField({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* One shelf price or a pack deal? — one path at a time.
-          Two buttons fit in one row even on narrow screens; overflow-hidden
-          clips the active-tab highlight to the container's border-radius
-          (matches BaseReductionField so both white-tag pickers feel the same). */}
-      <div
-        role="group"
-        aria-label="Pricing method"
-        className="flex w-fit overflow-hidden rounded-lg border border-gray-300"
-      >
+      {/* One shelf price or a pack deal? — one path at a time. */}
+      <div className="flex w-fit overflow-hidden rounded-lg border border-gray-300">
         {METHODS.map((m) => (
           <button
             key={m.id}
             type="button"
             onClick={() => selectMethod(m.id)}
             aria-pressed={method === m.id}
-            className={`whitespace-nowrap border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
+            className={`border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
               method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"
             }`}
           >

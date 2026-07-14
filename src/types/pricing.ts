@@ -11,46 +11,29 @@ export type ItemRole = "Traffic driver" | "Margin driver" | "Destination" | "Con
 export type CompetitorPrice = {
   name: string;
   price: number;
-  /**
-   * The competitor's active TPR/promo shelf price for this item, when one is
-   * currently running. Absent = no TPR currently running at that competitor
-   * (they're selling at their base `price`).
-   */
-  retailPrice?: number;
   /** Distance to the competitor store, in miles. */
   distanceMi?: number;
-  /** Street address of the competitor store, e.g. "123 Main St, Madison WI". */
-  address?: string;
 };
 export type NationalVsStore = "National" | "Store";
+/** Why HQ proposed a price change. A director's own price is a "local ad hoc"
+ *  decision — that value is derived, never stored (see price-change-reason.ts). */
+export type HqChangeReason = "cost_change" | "competitor_move" | "category_review";
 /**
- * Change Reason is per pricing-section, not per item — Base, Retail, and Fuel
- * Saver each carry their own reason, from their own catalog (see
- * price-change-reason.ts). HQ's reason is set alongside its recommendation for
- * that section; a director's store-originated reason is picked in the drawer.
+ * A store-level trigger that motivates a director-initiated change with NO HQ
+ * recommendation — the item's cost moved, or a competitor moved. Powers the
+ * "Cost changes" / "Competitor moves" view lenses. (Category reviews are always
+ * HQ-driven, so they never appear here.)
  */
-/** HQ's reason for a Base price recommendation. */
-export type HqBaseReason = "cost_change" | "competitor_change" | "hq_pricing_review" | "other";
-/** HQ's reason for a Retail or Fuel Saver recommendation — one shared catalog. */
-export type HqPromoReason = "discontinued" | "allowance" | "displays" | "wow_buy";
-/** A director's reason for a store-originated Base price change — no default; required before Done. */
-export type StoreBaseReason = "cost_change" | "competitor_change" | "other";
-/** A director's reason for a store-originated Retail or Fuel Saver change — one shared catalog, no default. */
-export type StorePromoReason =
-  | "manager_special"
-  | "soon_to_expiry"
-  | "obsolete_inventory"
-  | "discontinued_mc060220"
-  | "allowance"
-  | "buys"
-  | "displays"
-  | "excess_stock"
-  | "local_deal"
-  | "wow_buy"
-  | "four_by_four";
+export type StoreChangeReason = "cost_change" | "competitor_move";
+/**
+ * The reason a director attaches to a store-originated change. Auto-populated
+ * from the lens the item was opened from, then editable (see price-change-reason.ts).
+ */
+export type StoreOriginReason = "store_cost" | "store_competitor" | "local_ad_hoc";
 export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
-export type OverrideStatus = "pending" | "confirmed";
+export type OverrideStatus = "pending" | "in_batch" | "submitted" | "confirmed";
+export type BatchStatus = "scheduled" | "submitted" | "confirmed";
 
 export type PricingItem = {
   id: string;
@@ -84,14 +67,6 @@ export type PricingItem = {
   edlpMaxAllowedPrice?: number;
   /** Total price for `newBaseQty` units (pack-size deal). qty 1 (or null) = single-unit price. */
   newBaseQty?: number | null;
-  /**
-   * The date the store's Base price change takes effect — required once a
-   * price is set. Today or any future date; Base prices are open-ended, so
-   * there is no end date to collect here — the backend sends 12/31/9999 as
-   * SAP's validity end automatically, and NOW() in place of a "today" pick.
-   * Both are backend-only details with no UI representation.
-   */
-  baseEffectiveDate?: string | null;
   // Temp allowance fields (only for temporary_allowance category)
   currentRetailPrice?: number;
   /** Net cost during the allowance period (vendor-funded discount applied). */
@@ -115,6 +90,8 @@ export type PricingItem = {
   itemStatus?: "new" | "discontinued";
   // Context that motivates a store-level price override (shown in the drawer)
   competitors?: CompetitorPrice[];
+  /** Ids of items frequently bought/priced together (cross-sell context). */
+  relatedItemIds?: string[];
   /**
    * Family key. Items sharing a family are priced as one — editing any
    * member updates the whole family.
@@ -134,19 +111,8 @@ export type PricingItem = {
   baseOverrideStatus?: OverrideStatus;
   retailOverrideStatus?: OverrideStatus;
   hasAlert?: boolean;
-  /**
-   * The director declined THIS section's HQ recommendation ("Keep current" /
-   * "No promotion" / "No fuel saver"). Scoped per section — declining the fuel
-   * saver must not decide a pending base or retail rec on the same item. A
-   * section is decided when it has a new price/amount OR its declined flag;
-   * the item leaves the review queue when every rec-bearing section is decided
-   * (see item-status.ts). A declined section's later price change is a fresh
-   * store-originated decision — its HQ reason no longer applies (the hq*Reason
-   * field itself is kept immutable for provenance traces).
-   */
-  baseReviewed?: boolean;
-  retailReviewed?: boolean;
-  fuelReviewed?: boolean;
+  /** Accepted as-is (no changes) — removes the item from the review queue. */
+  reviewed?: boolean;
   /**
    * HQ has a recommendation for this item awaiting the director's decision. The
    * proposal is NOT live in SAP — `recommendedBasePrice` holds HQ's proposed
@@ -156,32 +122,27 @@ export type PricingItem = {
    * The queue clears the item once it's decided.
    */
   hqReviewPending?: boolean;
-  /** The reason HQ attached to its Base price recommendation (set alongside recommendedBasePrice). */
-  hqBaseReason?: HqBaseReason;
-  /** The reason HQ attached to its Retail price recommendation (set alongside recommendedRetailPrice). */
-  hqRetailReason?: HqPromoReason;
-  /** The reason HQ attached to its Fuel Saver recommendation (set alongside recommendedFuelSaver). */
-  hqFuelReason?: HqPromoReason;
+  /** The reason HQ attached to its recommendation (set alongside hqReviewPending). */
+  hqChangeReason?: HqChangeReason;
   /**
-   * The director's chosen reason for a Base price change, editable in the
-   * drawer. No default — starts unselected (placeholder) until the director
-   * actively picks one; the drawer blocks Done while a decided price has no
-   * reason. Store-originated changes pick from the Store Base catalog; an
-   * HQ-originated section (accepted rec or custom price on a pending rec)
-   * starts from the HQ reason and may be re-picked from the HQ Base catalog —
-   * when set, the chosen reason wins over hq*Reason (see changeReasonFor).
+   * Store-level triggers awaiting the director's reaction, with NO HQ
+   * recommendation (cost moved and/or a competitor moved). Drives the item's
+   * membership in the "Cost changes" / "Competitor moves" view lenses. An item
+   * can carry both.
    */
-  chosenBaseReason?: StoreBaseReason | HqBaseReason;
+  storeSignals?: StoreChangeReason[];
   /**
-   * The director's chosen reason for a Retail price change — same rules as
-   * chosenBaseReason, with the Store Promo / HQ Promo catalogs.
+   * The director's chosen reason for a store-originated change. Auto-populated
+   * from the opening lens (see `setChangeReason`), then editable in the drawer.
+   * Unlike HQ reasons this IS stored, because a store change has no recommendation
+   * to derive the reason from.
    */
-  chosenRetailReason?: StorePromoReason | HqPromoReason;
+  chosenChangeReason?: StoreOriginReason;
   /**
-   * The director's chosen reason for a Fuel Saver change — same rules as
-   * chosenRetailReason (the promo catalogs are shared).
+   * Demo-only: the last send to SAP failed. Renders a "Failed" status badge.
+   * Visual state only — no real retry/timed-revert is wired.
    */
-  chosenFuelReason?: StorePromoReason | HqPromoReason;
+  sendFailed?: boolean;
   category_type: PricingCategory;
   /**
    * The pricing strategy currently live in SAP. `category_type` is the strategy
@@ -196,15 +157,6 @@ export type PricingItem = {
    * edit is cleared. Cleared the moment the user picks a type manually.
    */
   autoTypedFrom?: PricingCategory | null;
-  /**
-   * Set when a plain (non-TA) item is converted to `temporary_allowance` via
-   * `updatePriceType`. Stores the original `category_type` so that
-   * `removeFromLooseTray` can restore it when a committed retail price is
-   * reverted — including across drawer close/reopen, where component-local
-   * `preConversionType` state is reset. Cleared once the revert completes or
-   * the type is set back to non-TA.
-   */
-  retailAutoTypedFrom?: PricingCategory | null;
 };
 
 export type PriceField = "base" | "retail";
@@ -223,7 +175,61 @@ export type Override = {
   qty?: number;
   sequence?: string;
   status: OverrideStatus;
+  batchId?: string;
   /** Last time this edit was touched — drives recent-first ordering in All items. */
   updatedAt?: number;
 };
 
+export type Batch = {
+  id: string;
+  name: string;
+  status: BatchStatus;
+  overrideIds: string[];
+  createdAt: string;
+  /**
+   * Multi-store fan-out. A director who runs several stores can apply one batch
+   * to many of them at once. The batch is authored in `originStoreId` and
+   * replicated into each target store's slice; the copies share a `groupId` so
+   * scheduling/sending acts on the whole group. Absent on legacy/single-store
+   * batches (treated as origin-only).
+   */
+  originStoreId?: string;
+  targetStoreIds?: string[];
+  groupId?: string;
+  /**
+   * Future send date/time (ISO, `YYYY-MM-DDTHH:mm:00`). Required in practice —
+   * every batch is created already scheduled (date + time); SAP sends then.
+   */
+  scheduledAt?: string;
+  /** Set when the batch is sent to SAP. */
+  submittedAt?: string;
+  /** SAP reference returned on confirmation (post-submit acknowledgment). */
+  sapReference?: string;
+  confirmedAt?: string;
+};
+
+export type SummaryMetrics = {
+  salesCurrent: number;
+  salesNew: number;
+  salesImpactPct: number;
+  unitsCurrent: number;
+  unitsNew: number;
+  unitsImpactPct: number;
+  marginCurrent: number;
+  marginNew: number;
+  marginImpactPct: number;
+  transactionsCurrent: number;
+  transactionsNew: number;
+  transactionsImpactPct: number;
+  ciVsCompCurrent: number;
+  ciVsCompNew: number;
+};
+
+export type CategorySummary = {
+  type: PricingCategory;
+  label: string;
+  description: string;
+  newPricesFromHQ: number;
+  priceOverrides: number;
+  alerts: number;
+};
