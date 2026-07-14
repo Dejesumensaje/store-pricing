@@ -88,7 +88,10 @@ function ReasonSelect({
   return (
     <div data-reason-missing={missing || undefined}>
       <Select
-        label="Change reason"
+        // The DS Select's floating label is a plain string (no Field-style
+        // required node), so the asterisk rides in the text — same required
+        // signal the date fields carry, since Done blocks on both alike.
+        label="Change reason *"
         size="sm"
         options={options}
         value={value}
