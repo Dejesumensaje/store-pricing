@@ -1,87 +1,106 @@
-import { PricingItem, HqChangeReason, StoreOriginReason } from "@/types/pricing";
-import { perUnit } from "./pricing-math";
+import {
+  PricingItem,
+  HqBaseReason,
+  HqPromoReason,
+  StoreBaseReason,
+  StorePromoReason,
+} from "@/types/pricing";
 
 /**
- * Every reason a price change can carry: HQ's three, plus the store-originated
- * ones (cost- / competitor-based) and the "local ad hoc" fallback. HQ reasons
- * are derived from the recommendation; store-origin reasons are stored on the
- * item (a store change has no recommendation to derive from).
+ * Every reason any pricing section can carry, across all four catalogs (HQ
+ * Base, HQ Retail/Fuel, Store Base, Store Retail/Fuel). Several values are
+ * shared verbatim between an HQ catalog and its store counterpart (e.g.
+ * "allowance") — same concept, same label, regardless of who picked it; the
+ * section + the HQ pill / provenance channel elsewhere in the UI carry origin.
  */
-export type PriceChangeReason = HqChangeReason | StoreOriginReason;
+export type PriceChangeReason = HqBaseReason | HqPromoReason | StoreBaseReason | StorePromoReason;
 
-export const HQ_REASONS: HqChangeReason[] = ["cost_change", "competitor_move", "category_review"];
+// HQ's Base catalog, in menu order (also doubles as the base-change-reason
+// facet source on the dashboard, since only HQ base recs populate that facet).
+export const HQ_BASE_REASONS: HqBaseReason[] = ["cost_change", "competitor_change", "hq_pricing_review", "other"];
+// HQ's Retail catalog, shared verbatim by Fuel Saver.
+export const HQ_PROMO_REASONS: HqPromoReason[] = ["discontinued", "allowance", "displays", "wow_buy"];
 
-// `summary` is the plural noun phrase for count breakdowns ("5 cost changes").
-export const REASON_META: Record<PriceChangeReason, { label: string; summary: string }> = {
-  cost_change: { label: "Cost changes", summary: "cost changes" },
-  competitor_move: { label: "Competitor changed price", summary: "competitor moves" },
-  category_review: { label: "Category review", summary: "category reviews" },
-  local_ad_hoc: { label: "Local ad hoc", summary: "local ad hoc" },
-  store_cost: { label: "Cost-based change", summary: "cost-based changes" },
-  store_competitor: { label: "Competitor-based change", summary: "competitor-based changes" },
+export const REASON_META: Record<PriceChangeReason, { label: string }> = {
+  cost_change: { label: "Cost change" },
+  competitor_change: { label: "Competitor change" },
+  hq_pricing_review: { label: "HQ pricing review" },
+  other: { label: "Other" },
+  discontinued: { label: "Discontinued" },
+  allowance: { label: "Allowance" },
+  displays: { label: "Displays" },
+  wow_buy: { label: "WOW Buy / E-Buy" },
+  manager_special: { label: "Manager special" },
+  soon_to_expiry: { label: "Soon to expiry" },
+  obsolete_inventory: { label: "Obsolete inventory" },
+  discontinued_mc060220: { label: "Discontinued (MC-060-220)" },
+  buys: { label: "Buys" },
+  excess_stock: { label: "Excess stock" },
+  local_deal: { label: "Local deal (one-time)" },
+  four_by_four: { label: "4x4 program" },
 };
 
-// The reasons a director can pick for a store-originated change, in menu order.
-export const STORE_REASON_OPTIONS: { value: StoreOriginReason; label: string }[] = [
-  { value: "store_cost", label: REASON_META.store_cost.label },
-  { value: "store_competitor", label: REASON_META.store_competitor.label },
-  { value: "local_ad_hoc", label: REASON_META.local_ad_hoc.label },
+// The HQ catalogs as Select options — shown when the director re-picks the
+// reason of an HQ-originated section (accepted rec or custom price on a
+// pending rec): the change's origin is still HQ, so its catalog applies.
+export const HQ_BASE_REASON_OPTIONS = HQ_BASE_REASONS.map((r) => ({ value: r, label: REASON_META[r].label }));
+export const HQ_PROMO_REASON_OPTIONS = HQ_PROMO_REASONS.map((r) => ({ value: r, label: REASON_META[r].label }));
+
+// Store Base: 3 reasons, no default — the Select opens unselected with a
+// placeholder until the director picks one (Done blocks while missing).
+export const STORE_BASE_REASON_OPTIONS: { value: StoreBaseReason; label: string }[] = [
+  { value: "cost_change", label: REASON_META.cost_change.label },
+  { value: "competitor_change", label: REASON_META.competitor_change.label },
+  { value: "other", label: REASON_META.other.label },
 ];
 
-const approxEq = (a: number, b: number) => Math.abs(a - b) < 0.005;
-
-/** Whether the director has actually set a price on the item (base or retail). */
-const hasChange = (item: PricingItem) => item.newBasePrice != null || item.newRetailPrice != null;
+// Store Retail / Fuel Saver: 11 shared reasons, no default — the Select opens
+// unselected with a placeholder until the director picks one. Grouped
+// (product sign-off 2026-07-14) so the flat list scans by intent: deal-driven
+// reasons first (the common case for promos/fuel), inventory-driven second.
+// Within each group the original catalog order is kept.
+const DEALS = "Deals & programs";
+const INVENTORY = "Inventory";
+export const STORE_PROMO_REASON_OPTIONS: { value: StorePromoReason; label: string; category: string }[] = [
+  { value: "manager_special", label: REASON_META.manager_special.label, category: DEALS },
+  { value: "allowance", label: REASON_META.allowance.label, category: DEALS },
+  { value: "buys", label: REASON_META.buys.label, category: DEALS },
+  { value: "displays", label: REASON_META.displays.label, category: DEALS },
+  { value: "local_deal", label: REASON_META.local_deal.label, category: DEALS },
+  { value: "wow_buy", label: REASON_META.wow_buy.label, category: DEALS },
+  { value: "four_by_four", label: REASON_META.four_by_four.label, category: DEALS },
+  { value: "soon_to_expiry", label: REASON_META.soon_to_expiry.label, category: INVENTORY },
+  { value: "obsolete_inventory", label: REASON_META.obsolete_inventory.label, category: INVENTORY },
+  { value: "discontinued_mc060220", label: REASON_META.discontinued_mc060220.label, category: INVENTORY },
+  { value: "excess_stock", label: REASON_META.excess_stock.label, category: INVENTORY },
+];
 
 /**
- * The default store-origin reason for an item, biased by the lens it was opened
- * from: the Cost lens → cost-based, the Competitor lens → competitor-based. With
- * no lens context, fall back to the item's own signal (cost wins if it carries both).
+ * The reason behind ONE pricing section's decision — Base, Retail, or Fuel
+ * Saver. Sections are independent: an item can carry a Base reason and a
+ * Retail reason at once, from different catalogs, and they need not agree.
+ *
+ * Resolution: the director's explicit pick (`chosen*Reason`) wins; otherwise
+ * an HQ-originated section (accepted rec or custom price on a pending rec)
+ * inherits the HQ reason — the recommendation is still the section's origin,
+ * only the final price differs. A DECLINED section (`*Reviewed`) severs that
+ * origin: a later price change there is a fresh store-originated decision, so
+ * the HQ reason no longer applies (the hq*Reason field itself stays put for
+ * provenance traces like HqRef).
+ *
+ * No section has a default — an unresolved reason returns null, and the
+ * drawer blocks Done while a decided price has one.
  */
-export function defaultStoreReason(
-  item: PricingItem,
-  originView?: "all" | "hq" | "cost" | "competitor"
-): StoreOriginReason {
-  if (originView === "cost") return "store_cost";
-  if (originView === "competitor") return "store_competitor";
-  const signals = item.storeSignals ?? [];
-  if (signals.includes("competitor_move") && !signals.includes("cost_change")) return "store_competitor";
-  return "store_cost";
-}
-
-/**
- * The reason behind an item's price decision.
- *
- * HQ items: derived, never stored — a decided price that matches HQ's proposal
- * keeps HQ's reason; any deviation is a local ad hoc call.
- *
- * Store-originated items (an item carrying `storeSignals` with no HQ rec): the
- * director's stored `chosenChangeReason` if set, otherwise the signal-based
- * default. Only once a price is actually set — an untouched item has no reason.
- *
- * Plain local edits (no HQ rec, no store signal) return null, as before.
- */
-export function changeReasonFor(item: PricingItem): PriceChangeReason | null {
-  const hq = item.hqChangeReason;
-  if (hq) {
-    if (item.newBasePrice != null) {
-      const accepted =
-        (item.newBaseQty ?? 1) <= 1 &&
-        approxEq(perUnit(item.newBasePrice, item.newBaseQty), item.recommendedBasePrice);
-      if (!accepted) return "local_ad_hoc";
-    }
-    if (item.newRetailPrice != null) {
-      const accepted =
-        (item.newRetailQty ?? 1) <= 1 &&
-        item.recommendedRetailPrice != null &&
-        approxEq(item.newRetailPrice, item.recommendedRetailPrice);
-      if (!accepted) return "local_ad_hoc";
-    }
-    return hq;
+export function changeReasonFor(item: PricingItem, section: "base" | "retail" | "fuel"): PriceChangeReason | null {
+  if (section === "base") {
+    if (item.newBasePrice == null) return null;
+    return item.chosenBaseReason ?? (item.baseReviewed ? null : item.hqBaseReason) ?? null;
   }
-  // Store-originated: a reason applies only once the director has made a change.
-  if (!hasChange(item)) return null;
-  if (item.chosenChangeReason) return item.chosenChangeReason;
-  if (item.storeSignals?.length) return defaultStoreReason(item);
-  return null;
+  if (section === "retail") {
+    if (item.newRetailPrice == null) return null;
+    return item.chosenRetailReason ?? (item.retailReviewed ? null : item.hqRetailReason) ?? null;
+  }
+  // fuel
+  if (item.fuelSaver == null || item.fuelSaver <= 0) return null;
+  return item.chosenFuelReason ?? (item.fuelReviewed ? null : item.hqFuelReason) ?? null;
 }

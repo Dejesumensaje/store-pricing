@@ -1,4 +1,4 @@
-import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqChangeReason, StoreChangeReason } from "@/types/pricing";
+import { PricingItem, Override, Batch, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason, StoreChangeReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 import { PRODUCT_RELATIONSHIPS } from "@/lib/product-relationships";
 
@@ -534,26 +534,51 @@ const HQ_REVIEW_IDS = new Set([
 
 // Every HQ recommendation carries the reason behind it — the director triages
 // the queue by these (competitor moves are time-sensitive, cost changes are
-// margin upkeep, category reviews can batch for later).
-const HQ_CHANGE_REASONS: Record<string, HqChangeReason> = {
+// margin upkeep, HQ pricing reviews can batch for later). Reason is per
+// SECTION, not per item: a plain base-price rec carries a Base reason, while a
+// temporary allowance's rec is a RETAIL move and carries a Retail reason —
+// even though its base price is untouched.
+const HQ_BASE_REASON_SEEDS: Record<string, HqBaseReason> = {
   "RBCS5-7": "cost_change",
   "RBCS5-8": "cost_change",
   "HQ-101": "cost_change",
   "HQ-102": "cost_change",
   "HQ-105": "cost_change",
-  "EDLP-1": "competitor_move",
-  "HQ-103": "competitor_move",
-  "HQ-106": "competitor_move",
-  "HQ-108": "competitor_move",
-  "ND-4": "category_review",
-  "RBCS5-9": "category_review",
-  "HQ-104": "category_review",
-  "HQ-107": "category_review",
+  "EDLP-1": "competitor_change",
+  "HQ-103": "competitor_change",
+  "HQ-106": "competitor_change",
+  "HQ-108": "competitor_change",
+  "ND-4": "hq_pricing_review",
+  "HQ-104": "cost_change", // also carries a retail rec below — differing reasons, same row
+};
+
+// TA/promo recommendations — vendor-funded allowances get "allowance", the
+// rest mix across the shared HQ retail/fuel catalog for variety.
+const HQ_RETAIL_REASON_SEEDS: Record<string, HqPromoReason> = {
+  "RBCS5-9": "displays",
+  "HQ-104": "allowance", // vendor-funded TA
+  "HQ-107": "wow_buy",
+};
+
+// A couple of the already-flagged items ALSO carry an HQ fuel-saver
+// recommendation, independent of their base/retail one — proof that a single
+// item can surface more than one section's HQ reason at once (see HQ-108:
+// a "Competitor change" base reason alongside a "Discontinued" fuel reason).
+const HQ_FUEL_REASON_SEEDS: Record<string, { amount: number; reason: HqPromoReason }> = {
+  "HQ-102": { amount: 0.10, reason: "wow_buy" },
+  "HQ-108": { amount: 0.10, reason: "discontinued" },
 };
 
 function applyHqReview(item: PricingItem): PricingItem {
   if (!HQ_REVIEW_IDS.has(item.id)) return item;
-  return { ...item, hqReviewPending: true, hqChangeReason: HQ_CHANGE_REASONS[item.id] };
+  const fuel = HQ_FUEL_REASON_SEEDS[item.id];
+  return {
+    ...item,
+    hqReviewPending: true,
+    hqBaseReason: HQ_BASE_REASON_SEEDS[item.id],
+    hqRetailReason: HQ_RETAIL_REASON_SEEDS[item.id],
+    ...(fuel ? { recommendedFuelSaver: fuel.amount, hqFuelReason: fuel.reason } : {}),
+  };
 }
 
 // Store-originated changes: items the store must react to with NO HQ
@@ -709,8 +734,18 @@ function cleanForStore(item: PricingItem, factor: number): PricingItem {
     retailOverrideStatus: undefined,
     hasOverride: false,
     sendFailed: false,
-    reviewed: false,
+    baseReviewed: false,
+    retailReviewed: false,
+    fuelReviewed: false,
     hqReviewPending: false,
+    // No decided base price → no effective date describing it.
+    baseEffectiveDate: null,
+    // A clean copy carries no HQ reasons either — buildSecondaryStore restores
+    // them (from this same original item) for whichever subset it re-flips
+    // hqReviewPending back on for.
+    hqBaseReason: undefined,
+    hqRetailReason: undefined,
+    hqFuelReason: undefined,
     autoTypedFrom: null,
     // Undo any demo strategy conversion (e.g. Base → EDLP on the primary store).
     category_type: item.sapStrategy ?? item.category_type,
@@ -726,7 +761,19 @@ function buildSecondaryStore(index: number): StoreSlice {
   const hqSet = new Set(HQ_REVIEW_POOL.slice(0, keep));
   const items = mockItems.map((it) => {
     const clean = cleanForStore(it, factor);
-    return hqSet.has(it.id) ? { ...clean, hqReviewPending: true } : clean;
+    // Restore this item's per-section HQ reasons (cleared above) alongside its
+    // re-flipped hqReviewPending — so a secondary store's "Needs review" queue
+    // carries real reasons too, not just a bare flag. Sourced from `it` (the
+    // original, un-cleaned item), not `clean`.
+    return hqSet.has(it.id)
+      ? {
+          ...clean,
+          hqReviewPending: true,
+          hqBaseReason: it.hqBaseReason,
+          hqRetailReason: it.hqRetailReason,
+          hqFuelReason: it.hqFuelReason,
+        }
+      : clean;
   });
   return { items, overrides: [], batches: [] };
 }

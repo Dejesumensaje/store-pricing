@@ -6,7 +6,10 @@ type Props = {
   onChange: (value: string | null) => void;
   /** Earliest selectable date as YYYY-MM-DD. */
   min?: string;
+  /** Red invalid styling (e.g. required-but-empty). */
+  error?: boolean;
   "aria-label": string;
+  "aria-describedby"?: string;
   className?: string;
 };
 
@@ -15,14 +18,17 @@ type Props = {
  * whose clicks get swallowed by the Modal/Drawer focus-trap, so it can't be used
  * inside overlays — this works everywhere.
  */
-export function DateField({ value, onChange, min, className, ...rest }: Props) {
+export function DateField({ value, onChange, min, error, className, ...rest }: Props) {
   return (
     <input
       type="date"
       value={value ?? ""}
       min={min}
+      aria-invalid={error || undefined}
       onChange={(e) => onChange(e.target.value || null)}
-      className={`rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand ${className ?? ""}`}
+      className={`rounded-md border bg-white px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-brand ${
+        error ? "border-red-300 ring-1 ring-red-200" : "border-gray-300"
+      } ${className ?? ""}`}
       {...rest}
     />
   );
