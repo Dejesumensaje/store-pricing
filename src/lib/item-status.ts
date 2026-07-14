@@ -25,11 +25,34 @@ const STATUS: Record<string, ItemStatus> = {
   confirmed: { label: "Live", tone: "success" },
 };
 
-// An HQ recommendation the store hasn't decided on yet — neither kept ("Keep
-// current") nor accepted/overridden. Shared by the page (HQ tab filter + count),
-// the price cell, and the drawer's decision actions.
+// One helper per pricing section: TRUE while that section carries an HQ
+// recommendation the director hasn't decided — neither accepted/overridden (a
+// new price/amount exists) nor declined (the section's reviewed flag). Sections
+// are independent: declining the fuel saver leaves a pending base rec pending.
+export const baseRecPending = (i: PricingItem) =>
+  !!i.hqReviewPending &&
+  Math.abs(i.recommendedBasePrice - i.currentBasePrice) > 0.005 &&
+  i.newBasePrice == null &&
+  !i.baseReviewed;
+
+export const retailRecPending = (i: PricingItem) =>
+  !!i.hqReviewPending &&
+  i.category_type === "temporary_allowance" &&
+  i.recommendedRetailPrice != null &&
+  i.newRetailPrice == null &&
+  !i.retailReviewed;
+
+export const fuelRecPending = (i: PricingItem) =>
+  !!i.hqReviewPending &&
+  (i.recommendedFuelSaver ?? 0) > 0 &&
+  (i.fuelSaver == null || i.fuelSaver <= 0) &&
+  !i.fuelReviewed;
+
+// An HQ recommendation the store hasn't fully decided on yet — any rec-bearing
+// section still pending. Shared by the page (HQ tab filter + count), the price
+// cell, and the drawer's decision actions.
 export const hqReviewNeeded = (i: PricingItem) =>
-  !!i.hqReviewPending && !i.reviewed && !i.hasOverride;
+  baseRecPending(i) || retailRecPending(i) || fuelRecPending(i);
 
 // A temp allowance whose effective date hasn't arrived yet is "Scheduled" even
 // after it's sent — the new price only goes live on the start date.

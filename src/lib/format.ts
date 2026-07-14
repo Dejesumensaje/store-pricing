@@ -24,6 +24,11 @@ export function fmtDateRange(start?: string | null, end?: string | null): string
   return end ? `ends ${fmtDateShort(end)}` : `from ${fmtDateShort(start!)}`;
 }
 
+/** Base Price's single Effective Date as "Effective May 23" (null if unset). */
+export function fmtEffectiveDate(date?: string | null): string | null {
+  return date ? `Effective ${fmtDateShort(date)}` : null;
+}
+
 /** Full ISO datetime ("2026-06-10T09:00:00Z") → "Jun 10". */
 export function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });

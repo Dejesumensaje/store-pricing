@@ -15,8 +15,9 @@ export const fuelSaverSelectValue = (n: number | null | undefined) => (n ?? 0).t
 // An item still "needs a decision" until the relevant price(s) are committed.
 // Mirrors the hasDecision predicate used by buildImpactColumn (columns/shared).
 export function needsDecision(item: PricingItem, variant: "base" | "temp"): boolean {
-  // Accepting an item as-is resolves it without a price override.
-  if (item.reviewed) return false;
+  // Accepting a section as-is (declining its HQ rec) resolves it without a
+  // price override — variant picks which section's declined flag applies.
+  if (variant === "temp" ? item.retailReviewed : item.baseReviewed) return false;
   if (variant === "temp") return item.newBasePrice == null && item.newRetailPrice == null;
   return item.newBasePrice == null;
 }

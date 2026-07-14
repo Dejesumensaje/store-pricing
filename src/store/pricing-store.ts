@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory, StoreOriginReason } from "@/types/pricing";
+import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
@@ -31,17 +31,22 @@ type PricingStore = {
   // view it (see SettingsDrawer); there is no grant/edit action here.
   edlpExceptions: Record<string, EdlpException>;
   updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
+  updateBaseEffectiveDate: (itemId: string, date: string | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
   updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
   updatePriceType: (itemId: string, type: PricingCategory) => void;
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
-  // Accept an item as-is (no price change) — clears it from the HQ queue.
-  acceptNoChange: (itemId: string) => void;
-  // Set the director's chosen reason for a store-originated change (cost/competitor).
-  setChangeReason: (itemId: string, reason: StoreOriginReason) => void;
-  // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
-  setReviewed: (itemId: string, value: boolean) => void;
+  // Decline ONE section's HQ recommendation ("Keep current" / "No promotion" /
+  // "No fuel saver") — or undo that decline (value: false). Scoped per section:
+  // the other sections' pending recs are untouched.
+  setSectionReviewed: (itemId: string, section: "base" | "retail" | "fuel", value: boolean) => void;
+  // Set the director's chosen reason for a change, one setter per pricing
+  // section — each section's reason is independent (see price-change-reason.ts).
+  // The chosen reason wins over the section's HQ reason when both exist.
+  setBaseChangeReason: (itemId: string, reason: StoreBaseReason | HqBaseReason) => void;
+  setRetailChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
+  setFuelChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
   removeFromLooseTray: (overrideId: string) => void;
   removeFromBatch: (overrideId: string) => void;
   addToBatch: (batchId: string, overrideIds: string[]) => void;
@@ -225,13 +230,28 @@ export const usePricingStore = create<PricingStore>((set) => ({
         batches = r.batches;
         statusById[id] = r.status;
       }
+      // A Base price change MUST carry an effective date — default to today
+      // the moment a price is set (mirrors Retail/Fuel Saver's promo-window
+      // defaulting below), so the field is never blank in practice.
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const today = iso(new Date());
       return {
         items: state.items.map((item) => {
           if (!groupIds.includes(item.id)) return item;
           let next: PricingItem = { ...item, newBasePrice: newPrice, newBaseQty: normQty, baseOverrideStatus: statusById[item.id] };
-          // Deciding on an HQ rec (accept or override) reviews it for good — it
-          // must not return to the queue when the override later goes submitted.
-          if (newPrice != null && item.hqReviewPending) next.reviewed = true;
+          // Reverting to the current price drops the director's store-chosen
+          // reason too — it described a decision that no longer exists.
+          if (newPrice == null) {
+            next.chosenBaseReason = undefined;
+            // ...and the effective date, which described the timing of a
+            // change that no longer exists.
+            next.baseEffectiveDate = null;
+          } else {
+            next.baseEffectiveDate = item.baseEffectiveDate ?? today;
+          }
+          // No reviewed-flag write here: a set price IS the base section's
+          // decision (see item-status's baseRecPending) — and clearing it
+          // returns the rec to the queue, since the decision was undone.
           if (newPrice != null && item.category_type === "no_change") {
             // Editing a "no change" item IS a base price change — promote it,
             // remembering the original type so we can revert if the edit is cleared.
@@ -267,10 +287,11 @@ export const usePricingStore = create<PricingStore>((set) => ({
                 newRetailQty: normQty,
                 newRetailPrice: price,
                 retailOverrideStatus: status,
-                // Deciding on an HQ rec reviews it for good (see updateBasePrice).
-                reviewed: price != null && item.hqReviewPending ? true : item.reviewed,
                 allowanceStartDate: price != null ? item.allowanceStartDate ?? iso(today) : item.allowanceStartDate,
                 allowanceEndDate: price != null ? item.allowanceEndDate ?? iso(weekOut) : item.allowanceEndDate,
+                // Reverting to the current price drops the director's
+                // store-chosen reason too (see updateBasePrice).
+                chosenRetailReason: price != null ? item.chosenRetailReason : undefined,
               })
             : item
         ),
@@ -286,7 +307,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
         // Clearing the fuel saver clears its dates too; setting one defaults the
         // window to a one-week run if none is set yet.
         if (value == null || value <= 0) {
-          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null };
+          // Removing the fuel saver drops the director's store-chosen reason
+          // too — it described a decision that no longer exists.
+          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null, chosenFuelReason: undefined };
         }
         const today = new Date();
         const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -324,6 +347,14 @@ export const usePricingStore = create<PricingStore>((set) => ({
             ...item,
             category_type: type,
             autoTypedFrom: null,
+            // Record the original type so removeFromLooseTray can restore it when
+            // a committed retail price is reverted — even across drawer close/reopen
+            // where component-local preConversionType state is reset. Only record
+            // when the item is NOT already a TA (i.e. this is a fresh conversion).
+            retailAutoTypedFrom:
+              item.category_type !== "temporary_allowance"
+                ? item.category_type
+                : (item.retailAutoTypedFrom ?? null),
             currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
             allowanceCost: item.allowanceCost ?? Math.round(item.cost * 0.8 * 100) / 100,
             recommendedRetailPrice: item.recommendedRetailPrice ?? Math.round(item.currentBasePrice * 0.85 * 100) / 100,
@@ -331,7 +362,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
             allowanceEndDate: item.allowanceEndDate ?? iso(weekOut),
           };
         }
-        return { ...item, category_type: type, autoTypedFrom: null };
+        // Setting any type other than TA (including reverting to the original
+        // type via cancelRetailEditing / handleClose) clears the saved origin.
+        return { ...item, category_type: type, autoTypedFrom: null, retailAutoTypedFrom: null };
       }),
     })),
 
@@ -342,31 +375,59 @@ export const usePricingStore = create<PricingStore>((set) => ({
       ),
     })),
 
-  acceptNoChange: (itemId) =>
+  updateBaseEffectiveDate: (itemId, date) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: true } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, baseEffectiveDate: date } : item)),
     })),
 
-  setReviewed: (itemId, value) =>
+  // Declining keeps hq*Reason itself intact — HQ's input is permanent and
+  // still feeds provenance traces (HqRef). The flag is what severs it: a
+  // declined section's later price change is a fresh store-originated
+  // decision (own catalog, own reason) — changeReasonFor checks the flag.
+  setSectionReviewed: (itemId, section, value) =>
+    set((state) => {
+      const flag = section === "base" ? "baseReviewed" : section === "retail" ? "retailReviewed" : "fuelReviewed";
+      return {
+        items: state.items.map((item) => (item.id === itemId ? { ...item, [flag]: value } : item)),
+      };
+    }),
+
+  setBaseChangeReason: (itemId, reason) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: value } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenBaseReason: reason } : item)),
     })),
 
-  setChangeReason: (itemId, reason) =>
+  setRetailChangeReason: (itemId, reason) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenChangeReason: reason } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenRetailReason: reason } : item)),
     })),
 
-  // Discarding a pending change also clears the edit from the table cell.
+  setFuelChangeReason: (itemId, reason) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenFuelReason: reason } : item)),
+    })),
+
+  // Discarding a pending change also clears the edit from the table cell — and
+  // the section's store-chosen reason, which described a decision that no
+  // longer exists.
   removeFromLooseTray: (overrideId) =>
     set((state) => {
       const ov = state.overrides.find((o) => o.id === overrideId);
       const clear = (item: PricingItem) => {
         if (!ov || item.id !== ov.itemId) return item;
-        const next =
-          ov.priceField === "base"
-            ? { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined }
-            : { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined };
+        let next: PricingItem;
+        if (ov.priceField === "base") {
+          next = { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined, chosenBaseReason: undefined, baseEffectiveDate: null };
+        } else {
+          next = { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined, chosenRetailReason: undefined };
+          // If the item was auto-converted to TA when the promo was created (and
+          // retailAutoTypedFrom records the original type), revert category_type
+          // back to what it was before the promotion — including when the drawer
+          // was closed and reopened (component-local preConversionType is gone).
+          if (item.retailAutoTypedFrom != null) {
+            next = { ...next, category_type: item.retailAutoTypedFrom, retailAutoTypedFrom: null };
+          }
+        }
         return withOverrideFlags(next);
       };
       return {

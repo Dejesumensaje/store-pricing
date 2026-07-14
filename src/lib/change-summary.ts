@@ -161,7 +161,7 @@ export function deriveDecision(item: PricingItem): DecisionState {
       const matches = recommended != null && Math.abs(decided - recommended) < 0.005;
       return matches ? "accepted" : "overridden";
     }
-    return item.reviewed ? "kept_current" : "pending";
+    return (isTemp ? item.retailReviewed : item.baseReviewed) ? "kept_current" : "pending";
   }
   // No HQ recommendation — a director-initiated change, or nothing.
   return hasDecision ? "changed" : "none";

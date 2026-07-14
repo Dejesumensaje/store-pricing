@@ -32,10 +32,10 @@ import { NewBatchModal } from "@/components/pending/NewBatchModal";
 import { usePricingStore, selectPendingOverrides, useEdlpException } from "@/store/pricing-store";
 import { buildFanoutSources, planFanout } from "@/lib/store-fanout";
 import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
-import { PricingItem, Batch, HqChangeReason } from "@/types/pricing";
+import { PricingItem, Batch } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
-import { hqReviewNeeded } from "@/lib/item-status";
-import { HQ_REASONS, REASON_META } from "@/lib/price-change-reason";
+import { hqReviewNeeded, baseRecPending, retailRecPending, fuelRecPending } from "@/lib/item-status";
+import { REASON_META, PriceChangeReason, HQ_BASE_REASONS, HQ_PROMO_REASONS } from "@/lib/price-change-reason";
 import { itemIdsWithSoftViolations } from "@/lib/relationship-validation";
 import { itemIdsOverEdlpCeiling, batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
 import { fmtDateTime } from "@/lib/format";
@@ -139,17 +139,32 @@ export default function StorePricingPage() {
     [hqCount, costCount, compCount]
   );
 
+  // The still-pending HQ reason labels on one item — an item can carry up to
+  // three at once (Base, Retail, Fuel Saver each independent), from two
+  // different catalogs. A decided/declined section stops contributing its
+  // reason (mirrors the table's HqBadge and the drawer header's badge).
+  const pendingReasonLabels = useCallback((i: PricingItem): string[] => {
+    const labels: string[] = [];
+    if (baseRecPending(i) && i.hqBaseReason) labels.push(REASON_META[i.hqBaseReason].label);
+    if (retailRecPending(i) && i.hqRetailReason) labels.push(REASON_META[i.hqRetailReason].label);
+    if (fuelRecPending(i) && i.hqFuelReason) labels.push(REASON_META[i.hqFuelReason].label);
+    return labels;
+  }, []);
+
   // Pending HQ recommendations broken down by change reason. Deliberately quiet:
   // it renders as a plain-text summary in the review banner (secondary info),
   // with per-reason filtering tucked into the Filters drawer as a facet.
   const hqReasonSummary = useMemo(() => {
-    const counts: Partial<Record<HqChangeReason, number>> = {};
+    const counts: Partial<Record<PriceChangeReason, number>> = {};
     for (const i of items) {
-      if (!hqReviewNeeded(i) || !i.hqChangeReason) continue;
-      counts[i.hqChangeReason] = (counts[i.hqChangeReason] ?? 0) + 1;
+      if (baseRecPending(i) && i.hqBaseReason) counts[i.hqBaseReason] = (counts[i.hqBaseReason] ?? 0) + 1;
+      if (retailRecPending(i) && i.hqRetailReason) counts[i.hqRetailReason] = (counts[i.hqRetailReason] ?? 0) + 1;
+      if (fuelRecPending(i) && i.hqFuelReason) counts[i.hqFuelReason] = (counts[i.hqFuelReason] ?? 0) + 1;
     }
-    return HQ_REASONS.filter((r) => (counts[r] ?? 0) > 0)
-      .map((r) => `${counts[r]} ${REASON_META[r].summary}`)
+    const order: PriceChangeReason[] = [...HQ_BASE_REASONS, ...HQ_PROMO_REASONS];
+    return order
+      .filter((r) => (counts[r] ?? 0) > 0)
+      .map((r) => `${counts[r]} ${REASON_META[r].label}${counts[r] === 1 ? "" : "s"}`)
       .join(" · ");
   }, [items]);
 
@@ -260,7 +275,7 @@ export default function StorePricingPage() {
       // HQ's change reason — deliberately a facet (not table furniture): filter
       // the review queue by reason without the reason crowding the rows.
       { key: "hqReason", label: "HQ reason", options: uniqueSorted(
-        items.filter(hqReviewNeeded).map((i) => i.hqChangeReason && REASON_META[i.hqChangeReason].label).filter((l): l is string => l != null)
+        items.filter(hqReviewNeeded).flatMap(pendingReasonLabels)
       ) },
       { key: "brand", label: "Brand", options: uniqueSorted(items.map((i) => i.brand)) },
       { key: "category", label: "Category", options: uniqueSorted(items.map((i) => i.category)) },
@@ -272,7 +287,7 @@ export default function StorePricingPage() {
       ...maybeFacet(conflictIds.size > 0, { key: "conflicts", label: "Pricing conflicts", options: ["Has a guardrail warning"] }),
       ...maybeFacet(edlpCeilingIds.size > 0, { key: "edlpCeiling", label: "Over EDLP max", options: ["Over the SAP maximum"] }),
     ],
-    [items, conflictIds, edlpCeilingIds]
+    [items, conflictIds, edlpCeilingIds, pendingReasonLabels]
   );
 
   const activeFilterCount = useMemo(
@@ -291,7 +306,9 @@ export default function StorePricingPage() {
           continue;
         }
         if (key === "hqReason") {
-          if (!i.hqChangeReason || !opts.includes(REASON_META[i.hqChangeReason].label)) return false;
+          // Multi-valued like changeType: an item matches if any of its
+          // still-pending sections' reasons is selected.
+          if (!pendingReasonLabels(i).some((l) => opts.includes(l))) return false;
           continue;
         }
         // Boolean facets: the generic string-equality branch below would
@@ -315,7 +332,7 @@ export default function StorePricingPage() {
       }
       return true;
     },
-    [filters, conflictIds, edlpCeilingIds]
+    [filters, conflictIds, edlpCeilingIds, pendingReasonLabels]
   );
 
   // When each item was last edited — so recently-decided items rise to the top of
@@ -767,7 +784,6 @@ export default function StorePricingPage() {
       <ItemEditDrawer
         itemId={drawerItemId}
         flow="all"
-        originView={activeView}
         openBatches={openBatches}
         onAddToBatch={addOverridesToBatch}
         onNewBatch={openNewBatch}

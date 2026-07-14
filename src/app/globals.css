@@ -255,3 +255,13 @@ label:has(> input:not(:disabled)) {
     display: flex;
   }
 }
+
+/* Required asterisk on the drawer's Change reason Selects. The DS Select's
+ * label prop is a plain string (no Field-style required node), so the red
+ * asterisk — matching the Field pattern's text-red-500 — is appended here to
+ * the floating-label span instead. Scoped to .reason-select so no other
+ * Select grows one. */
+.reason-select span.absolute.z-10::after {
+  content: " *";
+  color: rgb(239 68 68); /* red-500, same as Field's required asterisk */
+}
