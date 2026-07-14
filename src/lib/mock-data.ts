@@ -41,14 +41,22 @@ function enrichItemContext(item: PricingItem): PricingItem {
     {
       name: "Walmart",
       price: round2(base * 0.96),
+      source: "assembly",
       ...(walmartHasTpr ? { retailPrice: round2(base * 0.88) } : {}),
       distanceMi: 2.1,
       address: "123 Main St, Madison WI",
     },
-    { name: "Target", price: round2(base * 1.04), distanceMi: 3.4, address: "2500 University Ave, Madison WI" },
+    {
+      name: "Target",
+      price: round2(base * 1.04),
+      source: "assembly",
+      distanceMi: 3.4,
+      address: "2500 University Ave, Madison WI",
+    },
     {
       name: "Aldi",
       price: round2(base * 0.89),
+      source: "assembly",
       ...(aldiHasTpr ? { retailPrice: round2(base * 0.82) } : {}),
       distanceMi: 5.2,
       address: "345 Main St, Madison WI",

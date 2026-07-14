@@ -1,9 +1,9 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
+import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason, CompetitorPrice } from "@/types/pricing";
 import { StoreSlice } from "@/lib/mock-data";
-import { loadStoreData } from "@/lib/api";
+import { loadStoreData, commitDecision } from "@/lib/api";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
 import { EdlpException } from "@/lib/edlp-ceiling";
@@ -28,6 +28,10 @@ type PricingStore = {
   updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
   updatePriceType: (itemId: string, type: PricingCategory) => void;
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
+  // Atomic replace of an item's competitor list — the Competitor prices modal
+  // edits a local draft and calls this once on Save (manual price corrections,
+  // added/removed user rows all land in one commit).
+  updateCompetitors: (itemId: string, competitors: CompetitorPrice[]) => void;
   // Decline ONE section's HQ recommendation ("Keep current" / "No promotion" /
   // "No fuel saver") — or undo that decline (value: false). Scoped per section:
   // the other sections' pending recs are untouched.
@@ -305,6 +309,13 @@ export const usePricingStore = create<PricingStore>((set) => ({
         item.id === itemId ? { ...item, allowanceStartDate: start, allowanceEndDate: end } : item
       ),
     })),
+
+  updateCompetitors: (itemId, competitors) => {
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, competitors } : item)),
+    }));
+    commitDecision(itemId, { competitors });
+  },
 
   updateBaseEffectiveDate: (itemId, date) =>
     set((state) => ({

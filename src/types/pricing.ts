@@ -10,11 +10,17 @@ export type ItemRole = "Traffic driver" | "Margin driver" | "Destination" | "Con
 /** A competitor's shelf price for the same (or equivalent) item. */
 export type CompetitorPrice = {
   name: string;
+  /** The assembly-sourced price (or the price the user entered, for a "user" row). */
   price: number;
+  /** A director's manual correction to `price`. Effective price = `manualPrice ?? price` (see effectivePrice). */
+  manualPrice?: number;
+  /** "assembly" = came from data assembly (Walmart/Target/Aldi seed); "user" = added by the director in the Competitor prices modal. */
+  source: "assembly" | "user";
   /**
    * The competitor's active TPR/promo shelf price for this item, when one is
    * currently running. Absent = no TPR currently running at that competitor
-   * (they're selling at their base `price`).
+   * (they're selling at their base `price`). Kept in the model but not
+   * currently rendered (base-only, for now).
    */
   retailPrice?: number;
   /** Distance to the competitor store, in miles. */

@@ -219,3 +219,11 @@ label:has(> input:not(:disabled)) {
   content: " *";
   color: rgb(239 68 68); /* red-500, same as Field's required asterisk */
 }
+
+/* Same idiom for the DS Input's floating label (Add competitor form: Name,
+ * Address, Price are all required) — Input's label is likewise a plain
+ * string prop, so the asterisk is appended to its rendered <label> here. */
+.required-input label::after {
+  content: " *";
+  color: rgb(239 68 68); /* red-500, same as Field's required asterisk */
+}

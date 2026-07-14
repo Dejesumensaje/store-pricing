@@ -12,8 +12,8 @@ import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
 import { HqBadge } from "../store/buildStoreColumns";
 import { ShelfTagPreview } from "./ShelfTagPreview";
-import { CollapsibleSection } from "./CollapsibleSection";
 import { ProductRelationships } from "./ProductRelationships";
+import { CompetitorPrices } from "./CompetitorPrices";
 import { RetailPriceWarningModal } from "./RetailPriceWarningModal";
 import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
@@ -27,7 +27,6 @@ import {
   HQ_BASE_REASON_OPTIONS,
   HQ_PROMO_REASON_OPTIONS,
 } from "@/lib/price-change-reason";
-import { orderCompetitors } from "@/lib/competitors";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
@@ -1263,115 +1262,7 @@ export function ItemEditDrawer({
 
           <ProductRelationships item={item} itemsById={itemsById} />
 
-          {item.competitors && item.competitors.length > 0 && (() => {
-            // Compare per-unit — a pack-size base competes on its unit price.
-            const ourBase = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
-            // Our active TPR, if any — decided override first, else the live
-            // allowance price. A plain base item has no active TPR even
-            // though currentRetailPrice is seeded (it defaults to base).
-            const ourTpr = item.newRetailPrice != null
-              ? perUnit(item.newRetailPrice, item.newRetailQty)
-              : item.category_type === "temporary_allowance"
-                ? item.currentRetailPrice ?? null
-                : null;
-            const orderedCompetitors = orderCompetitors(item.competitors);
-            const showTprColumn = ourTpr != null || orderedCompetitors.some((c) => c.retailPrice != null);
-            const diffLabel = (diff: number, theirPrice: number) => {
-              if (diff === 0) return "matches";
-              const pct = ((diff / theirPrice) * 100).toFixed(1);
-              return diff > 0 ? `+${pct}% higher` : `${pct}% lower`;
-            };
-            const diffClass = (diff: number) =>
-              diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500";
-            return (
-              <CollapsibleSection title="Competitor prices" count={item.competitors.length}>
-                <div className="-mx-4 -my-3">
-                  {showTprColumn ? (
-                    <>
-                      <div className="flex items-start justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
-                        <span className="text-xs font-medium text-gray-500">Our price</span>
-                        <div className="flex gap-3">
-                          <div className="w-24 text-right">
-                            <div className="text-[11px] text-gray-500">Base</div>
-                            <div className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourBase)}</div>
-                          </div>
-                          <div className="w-24 text-right">
-                            <div className="text-[11px] text-gray-500">Retail</div>
-                            <div className="text-sm font-semibold tabular-nums text-gray-900">
-                              {ourTpr != null ? fmt(ourTpr) : "—"}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      {orderedCompetitors.map((c) => {
-                        const baseDiff = ourBase - c.price;
-                        const hasCompetitorTpr = c.retailPrice != null;
-                        const tprDiff = hasCompetitorTpr && ourTpr != null ? ourTpr - c.retailPrice! : null;
-                        const meta = [
-                          c.distanceMi != null ? `${c.distanceMi} mi` : null,
-                          c.address ?? null,
-                        ].filter(Boolean).join(" · ");
-                        return (
-                          <div key={c.name} className="flex items-start justify-between gap-3 px-4 py-1.5 border-b border-gray-100 last:border-0">
-                            <div className="min-w-0">
-                              <span className="text-sm text-gray-700">{c.name}</span>
-                              {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
-                            </div>
-                            <div className="flex gap-3 tabular-nums">
-                              <div className="w-24 text-right">
-                                <div className="text-sm text-gray-700">{fmt(c.price)}</div>
-                                <div className={`text-xs font-medium ${diffClass(baseDiff)}`}>{diffLabel(baseDiff, c.price)}</div>
-                              </div>
-                              <div className="w-24 text-right">
-                                {hasCompetitorTpr ? (
-                                  <>
-                                    <div className="text-sm text-gray-700">{fmt(c.retailPrice!)}</div>
-                                    {tprDiff != null && (
-                                      <div className={`text-xs font-medium ${diffClass(tprDiff)}`}>{diffLabel(tprDiff, c.retailPrice!)}</div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="text-sm text-gray-400">—</div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
-                        <span className="text-xs font-medium text-gray-500">Our price</span>
-                        <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(ourBase)}</span>
-                      </div>
-                      {orderedCompetitors.map((c) => {
-                        const diff = ourBase - c.price;
-                        const meta = [
-                          c.distanceMi != null ? `${c.distanceMi} mi` : null,
-                          c.address ?? null,
-                        ].filter(Boolean).join(" · ");
-                        return (
-                          <div key={c.name} className="flex items-start justify-between gap-3 px-4 py-1.5 border-b border-gray-100 last:border-0">
-                            <div className="min-w-0">
-                              <span className="text-sm text-gray-700">{c.name}</span>
-                              {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
-                            </div>
-                            <div className="flex items-center gap-2 tabular-nums">
-                              <span className="text-sm text-gray-700">{fmt(c.price)}</span>
-                              <span className={`w-24 text-right text-xs font-medium ${diffClass(diff)}`}>
-                                {diffLabel(diff, c.price)}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </>
-                  )}
-                </div>
-              </CollapsibleSection>
-            );
-          })()}
+          <CompetitorPrices item={item} />
 
         </div>
       )}

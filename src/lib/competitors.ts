@@ -37,3 +37,29 @@ export function orderCompetitors(
     return byDistance(a, b);
   });
 }
+
+/** The price to compare against: a director's manual correction, or the assembly/user price if uncorrected. */
+export function effectivePrice(c: CompetitorPrice): number {
+  return c.manualPrice ?? c.price;
+}
+
+/**
+ * Competitor index: their effective price as a ratio of our base price (e.g.
+ * 0.94 = they're 6% cheaper, 1.06 = they're 6% pricier). `null` when our base
+ * price isn't set yet (nothing to divide against).
+ */
+export function competitorIndex(c: CompetitorPrice, ourBase: number): number | null {
+  return ourBase > 0 ? effectivePrice(c) / ourBase : null;
+}
+
+/** Human-readable diff label for our price vs. a competitor's, e.g. "+4.2% higher" / "matches". */
+export function priceDiffLabel(diff: number, theirPrice: number): string {
+  if (diff === 0) return "matches";
+  const pct = ((diff / theirPrice) * 100).toFixed(1);
+  return diff > 0 ? `+${pct}% higher` : `${pct}% lower`;
+}
+
+/** Color class for a diff: red when we're higher, green when lower, neutral when matching. */
+export function priceDiffClass(diff: number): string {
+  return diff > 0 ? "text-red-600" : diff < 0 ? "text-emerald-600" : "text-gray-500";
+}
