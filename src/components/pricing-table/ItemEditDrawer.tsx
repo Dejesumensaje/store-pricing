@@ -86,12 +86,13 @@ function ReasonSelect({
   onChange: (v: string) => void;
 }) {
   return (
-    <div data-reason-missing={missing || undefined}>
+    // .reason-select: globals.css appends a red required asterisk to the DS
+    // Select's floating label — the label prop is a plain string, so the
+    // asterisk can't be a styled node here. Same required signal (and same
+    // red) as the date fields' Field asterisk, since Done blocks on both alike.
+    <div className="reason-select" data-reason-missing={missing || undefined}>
       <Select
-        // The DS Select's floating label is a plain string (no Field-style
-        // required node), so the asterisk rides in the text — same required
-        // signal the date fields carry, since Done blocks on both alike.
-        label="Change reason *"
+        label="Change reason"
         size="sm"
         options={options}
         value={value}

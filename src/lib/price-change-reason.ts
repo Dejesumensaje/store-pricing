@@ -55,19 +55,24 @@ export const STORE_BASE_REASON_OPTIONS: { value: StoreBaseReason; label: string 
 ];
 
 // Store Retail / Fuel Saver: 11 shared reasons, no default — the Select opens
-// unselected with a placeholder until the director picks one.
-export const STORE_PROMO_REASON_OPTIONS: { value: StorePromoReason; label: string }[] = [
-  { value: "manager_special", label: REASON_META.manager_special.label },
-  { value: "soon_to_expiry", label: REASON_META.soon_to_expiry.label },
-  { value: "obsolete_inventory", label: REASON_META.obsolete_inventory.label },
-  { value: "discontinued_mc060220", label: REASON_META.discontinued_mc060220.label },
-  { value: "allowance", label: REASON_META.allowance.label },
-  { value: "buys", label: REASON_META.buys.label },
-  { value: "displays", label: REASON_META.displays.label },
-  { value: "excess_stock", label: REASON_META.excess_stock.label },
-  { value: "local_deal", label: REASON_META.local_deal.label },
-  { value: "wow_buy", label: REASON_META.wow_buy.label },
-  { value: "four_by_four", label: REASON_META.four_by_four.label },
+// unselected with a placeholder until the director picks one. Grouped
+// (product sign-off 2026-07-14) so the flat list scans by intent: deal-driven
+// reasons first (the common case for promos/fuel), inventory-driven second.
+// Within each group the original catalog order is kept.
+const DEALS = "Deals & programs";
+const INVENTORY = "Inventory";
+export const STORE_PROMO_REASON_OPTIONS: { value: StorePromoReason; label: string; category: string }[] = [
+  { value: "manager_special", label: REASON_META.manager_special.label, category: DEALS },
+  { value: "allowance", label: REASON_META.allowance.label, category: DEALS },
+  { value: "buys", label: REASON_META.buys.label, category: DEALS },
+  { value: "displays", label: REASON_META.displays.label, category: DEALS },
+  { value: "local_deal", label: REASON_META.local_deal.label, category: DEALS },
+  { value: "wow_buy", label: REASON_META.wow_buy.label, category: DEALS },
+  { value: "four_by_four", label: REASON_META.four_by_four.label, category: DEALS },
+  { value: "soon_to_expiry", label: REASON_META.soon_to_expiry.label, category: INVENTORY },
+  { value: "obsolete_inventory", label: REASON_META.obsolete_inventory.label, category: INVENTORY },
+  { value: "discontinued_mc060220", label: REASON_META.discontinued_mc060220.label, category: INVENTORY },
+  { value: "excess_stock", label: REASON_META.excess_stock.label, category: INVENTORY },
 ];
 
 /**
