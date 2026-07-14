@@ -6,7 +6,7 @@ import { Drawer, Button, Badge, Select, Tooltip, useToast } from "@dejesumensaje
 import { DateRangeField } from "../shared/DateRangeField";
 import { DateField } from "../shared/DateField";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
-import { PricingCategory, PricingItem, StoreBaseReason, StorePromoReason } from "@/types/pricing";
+import { PricingCategory, PricingItem, StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { RetailReductionField } from "./RetailReductionField";
 import { BaseReductionField } from "./BaseReductionField";
 import { BasePriceMethodField } from "./BasePriceMethodField";
@@ -23,14 +23,15 @@ import {
   PriceChangeReason,
   changeReasonFor,
   STORE_BASE_REASON_OPTIONS,
-  STORE_BASE_REASON_DEFAULT,
   STORE_PROMO_REASON_OPTIONS,
+  HQ_BASE_REASON_OPTIONS,
+  HQ_PROMO_REASON_OPTIONS,
 } from "@/lib/price-change-reason";
 import { orderCompetitors } from "@/lib/competitors";
 import { hqRecRationale } from "@/lib/hq-rec";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
-import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
+import { deriveItemStatus, hqReviewNeeded, baseRecPending, retailRecPending, fuelRecPending } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateRange, fmtEffectiveDate } from "@/lib/format";
 import { perUnit, round2, promoDurationDays } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/edlp-ceiling";
@@ -62,6 +63,40 @@ function Field({
         {action}
       </div>
       {children}
+    </div>
+  );
+}
+
+// One reason selector for all three sections' edit forms. The catalog is
+// contextual to the section AND its origin — an HQ-originated section
+// (accepted rec or custom price on a pending rec) re-picks from its HQ
+// catalog; a store-originated one from its store catalog. Always editable:
+// accepting a rec seeds the reason, it doesn't lock it. No default — the
+// Select opens unselected and Done blocks while a decided price has no reason
+// (`missing` renders that blocked state after a failed Done).
+function ReasonSelect({
+  options,
+  value,
+  missing,
+  onChange,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  missing: boolean;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div data-reason-missing={missing || undefined}>
+      <Select
+        label="Change reason"
+        size="sm"
+        options={options}
+        value={value}
+        placeholder="Select a reason"
+        error={missing}
+        errorMessage={missing ? "Select a reason for this change." : undefined}
+        onChange={(v) => onChange(v as string)}
+      />
     </div>
   );
 }
@@ -131,8 +166,7 @@ export function ItemEditDrawer({
   const updateFuelSaverDates = usePricingStore((s) => s.updateFuelSaverDates);
   const updatePriceType = usePricingStore((s) => s.updatePriceType);
   const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
-  const acceptNoChange = usePricingStore((s) => s.acceptNoChange);
-  const setReviewed = usePricingStore((s) => s.setReviewed);
+  const setSectionReviewed = usePricingStore((s) => s.setSectionReviewed);
   const setBaseChangeReason = usePricingStore((s) => s.setBaseChangeReason);
   const setRetailChangeReason = usePricingStore((s) => s.setRetailChangeReason);
   const setFuelChangeReason = usePricingStore((s) => s.setFuelChangeReason);
@@ -196,6 +230,11 @@ export function ItemEditDrawer({
   const [retailValidationError, setRetailValidationError] = useState<string | null>(null);
   // Inline error for hard base validation failures (zero/negative).
   const [baseValidationError, setBaseValidationError] = useState<string | null>(null);
+  // Flipped on when Done is blocked by a decided price with no change reason —
+  // renders the offending reason Selects in their error state. Quiet until
+  // then: an open form mid-edit shouldn't shout "missing" before the director
+  // has had a chance to pick.
+  const [showReasonErrors, setShowReasonErrors] = useState(false);
   const retailRejectedRef = useRef(false);
   const baseRejectedRef = useRef(false);
   // A proposed retail price that exceeded the 50% soft-warning threshold — parked
@@ -226,6 +265,7 @@ export function ItemEditDrawer({
     setConfirmRevert(null);
     setRetailValidationError(null);
     setBaseValidationError(null);
+    setShowReasonErrors(false);
     retailRejectedRef.current = false;
     baseRejectedRef.current = false;
     setPendingRetailProposal(null);
@@ -441,23 +481,31 @@ export function ItemEditDrawer({
   };
 
   const status = item ? deriveItemStatus(item) : null;
-  // An HQ rec still awaiting the store's decision.
-  const showAccept = item != null && hqReviewNeeded(item);
 
   // This item has a not-yet-committed (Edited) change.
   const hasPendingOverride =
     item != null && (item.baseOverrideStatus === "pending" || item.retailOverrideStatus === "pending");
 
-  // Reject the recommendation — keep the current SAP price. Reversible.
+  // A decided section may not finish without a reason — no default, no silent
+  // save. Computed here so Done and each section's Select agree on the state.
+  const baseReasonMissing = item != null && item.newBasePrice != null && changeReasonFor(item, "base") == null;
+  const retailReasonMissing = item != null && item.newRetailPrice != null && changeReasonFor(item, "retail") == null;
+  const fuelReasonMissing =
+    item != null && item.fuelSaver != null && item.fuelSaver > 0 && changeReasonFor(item, "fuel") == null;
+
+  // Reject the Base recommendation — keep the current SAP price. Reversible,
+  // and scoped to the Base section: a pending retail/fuel rec stays pending.
   const keepCurrent = () => {
     if (!item) return;
     const id = item.id;
-    acceptNoChange(id);
+    setSectionReviewed(id, "base", true);
     toast.success("Kept current price", {
       description: "Recommendation rejected — the current price is unchanged.",
-      action: { label: "Undo", onClick: () => setReviewed(id, false) },
+      action: { label: "Undo", onClick: () => setSectionReviewed(id, "base", false) },
     });
-    advance();
+    // Close only when this was the item's last open decision — with a retail
+    // or fuel rec still pending, the drawer stays so those keep their turn.
+    if (!hqReviewNeeded({ ...item, baseReviewed: true })) advance();
   };
 
   // Finishing: commit and close. A pending price commit that was just rejected
@@ -491,6 +539,24 @@ export function ItemEditDrawer({
           ?.scrollIntoView({ behavior: "smooth", block: "center" });
         return;
       }
+      // Same hard-stop tier for the change reason: a decided price may not be
+      // saved without one (no default fills it in silently).
+      if (baseReasonMissing || retailReasonMissing || fuelReasonMissing) {
+        setShowReasonErrors(true);
+        // A decided (collapsed) section doesn't render its reason field —
+        // reopen the offending form so the Select is on screen to fix.
+        if (baseReasonMissing) setEditingBase(true);
+        if (retailReasonMissing) setChangingRetail(true);
+        if (fuelReasonMissing) setEditingFuelSaver(true);
+        toast.error("Select a change reason to finish.");
+        // The reopened form isn't in the DOM yet this flush — scroll next frame.
+        requestAnimationFrame(() => {
+          document
+            .querySelector('[data-reason-missing="true"]')
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+        return;
+      }
     }
     handleClose();
   };
@@ -504,7 +570,7 @@ export function ItemEditDrawer({
     // proposal when one is pending (or a new item's suggested opening price),
     // otherwise the CURRENT price — never a stray recommendation the director
     // isn't acting on (which read as a confusing "$4.49" on a $4.29 item).
-    const basePlaceholder = isNewItem || hqReviewNeeded(item) ? item.recommendedBasePrice : item.currentBasePrice;
+    const basePlaceholder = isNewItem || baseRecPending(item) ? item.recommendedBasePrice : item.currentBasePrice;
     return (
       <div className="flex flex-col gap-4">
         {/* One abandon control per edit form (Cancel, bottom-right) — same rule
@@ -547,19 +613,6 @@ export function ItemEditDrawer({
             </span>
           )}
         </Field>
-        {item.hqBaseReason ? (
-          <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqBaseReason].label}</span></p>
-        ) : (
-          // Part of setting the price, not a post-hoc afterthought — the director
-          // picks why alongside what, before the price is even committed.
-          <Select
-            label="Change reason"
-            size="sm"
-            options={STORE_BASE_REASON_OPTIONS}
-            value={item.chosenBaseReason ?? STORE_BASE_REASON_DEFAULT}
-            onChange={(v) => setBaseChangeReason(item.id, v as StoreBaseReason)}
-          />
-        )}
         {(() => {
           // Base is open-ended — one Effective Date, no end. SAP's validity
           // end (12/31/9999) and NOW()-on-today are backend-only concerns
@@ -580,6 +633,21 @@ export function ItemEditDrawer({
                 </span>
               )}
             </Field>
+          );
+        })()}
+        {(() => {
+          // Reason sits below the timing (V1 feedback): what → when → why.
+          // HQ-originated (accepted rec or custom price on a pending rec)
+          // seeds from HQ's reason and re-picks from the HQ catalog; a
+          // declined-then-repriced section is store-originated again.
+          const hqOrigin = item.hqBaseReason != null && !item.baseReviewed;
+          return (
+            <ReasonSelect
+              options={hqOrigin ? HQ_BASE_REASON_OPTIONS : STORE_BASE_REASON_OPTIONS}
+              value={item.chosenBaseReason ?? (hqOrigin ? item.hqBaseReason! : "")}
+              missing={showReasonErrors && baseReasonMissing}
+              onChange={(v) => setBaseChangeReason(item.id, v as StoreBaseReason | HqBaseReason)}
+            />
           );
         })()}
         {familyItems.length > 0 && (
@@ -658,10 +726,14 @@ export function ItemEditDrawer({
                 {hqReviewNeeded(item) && (
                   // Same reasons-in-tooltip as the table's badge — the drawer
                   // header shouldn't say less than the row that opened it.
+                  // Only sections still pending: a decided section's reason no
+                  // longer advertises an open decision.
                   <HqBadge
-                    reasons={[item.hqBaseReason, item.hqRetailReason, item.hqFuelReason].filter(
-                      (r): r is NonNullable<typeof r> => r != null
-                    )}
+                    reasons={[
+                      baseRecPending(item) ? item.hqBaseReason : null,
+                      retailRecPending(item) ? item.hqRetailReason : null,
+                      fuelRecPending(item) ? item.hqFuelReason : null,
+                    ].filter((r): r is NonNullable<typeof r> => r != null)}
                   />
                 )}
                 <Badge tone="neutral" size="sm">{item.itemRole}</Badge>
@@ -684,9 +756,9 @@ export function ItemEditDrawer({
           {(() => {
             const rec = item.recommendedBasePrice;
             const decided = item.newBasePrice != null;
-            const baseHasRec = showAccept && item.recommendedBasePrice != null && Math.abs(rec - item.currentBasePrice) > 0.005;
+            const baseHasRec = baseRecPending(item);
             const effectiveBase = decided ? perUnit(item.newBasePrice!, item.newBaseQty) : item.currentBasePrice;
-            const baseRecRef = !showAccept && rec != null && Math.abs(rec - item.currentBasePrice) > 0.005 && Math.abs(effectiveBase - rec) > 0.005;
+            const baseRecRef = !baseHasRec && rec != null && Math.abs(rec - item.currentBasePrice) > 0.005 && Math.abs(effectiveBase - rec) > 0.005;
             return (
               <section className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold text-gray-700">
@@ -809,10 +881,10 @@ export function ItemEditDrawer({
             const curRetail = item.currentRetailPrice ?? item.currentBasePrice;
             const retailDecided = item.newRetailPrice != null;
             // Accept-first only for a TA whose HQ promo rec is still undecided.
-            const retailHasRec = isTemp && showAccept && item.recommendedRetailPrice != null;
+            const retailHasRec = retailRecPending(item);
             const acceptFirst = retailHasRec && !changingRetail && !retailDecided;
             const effectiveRetail = retailDecided ? perUnit(item.newRetailPrice!, item.newRetailQty ?? 1) : curRetail;
-            const retailRecRef = isTemp && !showAccept && item.recommendedRetailPrice != null && Math.abs(effectiveRetail - item.recommendedRetailPrice) > 0.005;
+            const retailRecRef = isTemp && !retailHasRec && item.recommendedRetailPrice != null && Math.abs(effectiveRetail - item.recommendedRetailPrice) > 0.005;
             // A plain item gets converted to a TA the moment a promo is set.
             // Remember the original type so handleClose can revert it if the
             // director closes without committing a price.
@@ -851,10 +923,10 @@ export function ItemEditDrawer({
                             Set a different price
                           </Button>
                           <Button variant="secondary" size="sm" onClick={() => {
-                            setReviewed(item.id, true);
+                            setSectionReviewed(item.id, "retail", true);
                             toast.success("No promotion", {
                               description: "HQ recommendation declined — no yellow ticket.",
-                              action: { label: "Undo", onClick: () => setReviewed(item.id, false) },
+                              action: { label: "Undo", onClick: () => setSectionReviewed(item.id, "retail", false) },
                             });
                           }}>
                             No promotion
@@ -946,23 +1018,6 @@ export function ItemEditDrawer({
                           )}
                         </Field>
 
-                        {item.hqRetailReason ? (
-                          <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqRetailReason].label}</span></p>
-                        ) : (
-                          // Part of setting the price, not a post-hoc afterthought —
-                          // the director picks why alongside what, before the price
-                          // is even committed. Retail has no default — starts
-                          // unselected until the director actively picks one.
-                          <Select
-                            label="Change reason"
-                            size="sm"
-                            options={STORE_PROMO_REASON_OPTIONS}
-                            value={item.chosenRetailReason ?? ""}
-                            placeholder="Select a reason"
-                            onChange={(v) => setRetailChangeReason(item.id, v as StorePromoReason)}
-                          />
-                        )}
-
                         {(() => {
                           // A promo must carry a date range — flag it required and
                           // show the error state until both ends are picked.
@@ -993,6 +1048,20 @@ export function ItemEditDrawer({
                             </Field>
                           );
                         })()}
+                        {(() => {
+                          // Reason below the timing (V1 feedback) — same
+                          // what → when → why order as the base form, and
+                          // editable even when HQ's reason seeded it.
+                          const hqOrigin = item.hqRetailReason != null && !item.retailReviewed;
+                          return (
+                            <ReasonSelect
+                              options={hqOrigin ? HQ_PROMO_REASON_OPTIONS : STORE_PROMO_REASON_OPTIONS}
+                              value={item.chosenRetailReason ?? (hqOrigin ? item.hqRetailReason! : "")}
+                              missing={showReasonErrors && retailReasonMissing}
+                              onChange={(v) => setRetailChangeReason(item.id, v as StorePromoReason | HqPromoReason)}
+                            />
+                          );
+                        })()}
                         <div className="flex justify-end">
                           <Button variant="tertiary" size="sm" onClick={cancelRetailEditing}>
                             Cancel
@@ -1016,13 +1085,10 @@ export function ItemEditDrawer({
                 // Accept-first for an undecided HQ fuel-saver rec — same why →
                 // what → decide unit as base/retail, so a fuel reason advertised
                 // in the table/badge is always actionable here.
-                const fuelRec =
-                  showAccept && item.recommendedFuelSaver != null && item.recommendedFuelSaver > 0
-                    ? item.recommendedFuelSaver
-                    : null;
+                const fuelRec = fuelRecPending(item) ? item.recommendedFuelSaver! : null;
                 const fuelRecAmt = item.recommendedFuelSaver != null && item.recommendedFuelSaver > 0 ? item.recommendedFuelSaver : null;
                 const effectiveFuel = fuelDecided ? (item.fuelSaver ?? 0) : (fuelHadPrior ? (item.currentFuelSaver ?? 0) : 0);
-                const fuelRecRef = !showAccept && fuelRecAmt != null && Math.abs(effectiveFuel - fuelRecAmt) > 0.005;
+                const fuelRecRef = !fuelRecPending(item) && fuelRecAmt != null && Math.abs(effectiveFuel - fuelRecAmt) > 0.005;
                 if (!editingFuelSaver && !fuelDecided && fuelRec != null) {
                   return (
                     <div className="flex flex-col gap-3">
@@ -1044,10 +1110,10 @@ export function ItemEditDrawer({
                           Set a different amount
                         </Button>
                         <Button variant="secondary" size="sm" onClick={() => {
-                          setReviewed(item.id, true);
+                          setSectionReviewed(item.id, "fuel", true);
                           toast.success("No fuel saver", {
                             description: "HQ recommendation declined.",
-                            action: { label: "Undo", onClick: () => setReviewed(item.id, false) },
+                            action: { label: "Undo", onClick: () => setSectionReviewed(item.id, "fuel", false) },
                           });
                         }}>
                           No fuel saver
@@ -1139,18 +1205,6 @@ export function ItemEditDrawer({
                         </p>
                       )}
                     </div>
-                    {item.hqFuelReason ? (
-                      <p className="text-xs text-gray-400">reason · <span className="font-medium text-gray-600">{REASON_META[item.hqFuelReason].label}</span></p>
-                    ) : (
-                      <Select
-                        label="Change reason"
-                        size="sm"
-                        options={STORE_PROMO_REASON_OPTIONS}
-                        value={item.chosenFuelReason ?? ""}
-                        placeholder="Select a reason"
-                        onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason)}
-                      />
-                    )}
                     {fuelDecided && (() => {
                       // Same required-period model as Retail's promo period —
                       // a fuel saver must carry a start + end window too.
@@ -1176,6 +1230,20 @@ export function ItemEditDrawer({
                           )}
                           {isLongPromo && <LongPromoNotice days={fuelDays!} />}
                         </Field>
+                      );
+                    })()}
+                    {(() => {
+                      // Reason below the timing (V1 feedback) — same
+                      // what → when → why order as the base and retail forms,
+                      // and editable even when HQ's reason seeded it.
+                      const hqOrigin = item.hqFuelReason != null && !item.fuelReviewed;
+                      return (
+                        <ReasonSelect
+                          options={hqOrigin ? HQ_PROMO_REASON_OPTIONS : STORE_PROMO_REASON_OPTIONS}
+                          value={item.chosenFuelReason ?? (hqOrigin ? item.hqFuelReason! : "")}
+                          missing={showReasonErrors && fuelReasonMissing}
+                          onChange={(v) => setFuelChangeReason(item.id, v as StorePromoReason | HqPromoReason)}
+                        />
                       );
                     })()}
                     <div className="flex justify-end">

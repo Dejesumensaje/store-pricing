@@ -4,7 +4,7 @@ import { Fuel, AlertTriangle } from "lucide-react";
 import { DataColumn } from "../pricing-table/DataTable";
 import { itemCol, idCol } from "../pricing-table/columns/shared";
 import { PricingItem, HqBaseReason, HqPromoReason } from "@/types/pricing";
-import { deriveItemStatus, hqReviewNeeded } from "@/lib/item-status";
+import { deriveItemStatus, hqReviewNeeded, baseRecPending, retailRecPending, fuelRecPending } from "@/lib/item-status";
 import { REASON_META, PriceChangeReason } from "@/lib/price-change-reason";
 import { fmt, fmtQtyPrice, fmtDateShort } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
@@ -186,7 +186,7 @@ function baseMovePct(item: PricingItem): number {
   const target =
     item.newBasePrice != null
       ? perUnit(item.newBasePrice, item.newBaseQty)
-      : item.hqReviewPending
+      : baseRecPending(item)
         ? item.recommendedBasePrice
         : null;
   if (target == null || !(item.currentBasePrice > 0)) return 0;
@@ -210,14 +210,11 @@ export function PriceCell({ item }: { item: PricingItem }) {
       </span>
     ) : null;
 
-  // A rec whose target equals the current base (retail-only recommendations
-  // seed these) is NOT a base move — render the plain current price rather
-  // than a "$3.19 → $3.19" strikethrough. Same 0.005 tolerance the drawer's
-  // accept-first block uses.
-  const recBase =
-    item.hqReviewPending && Math.abs(item.recommendedBasePrice - item.currentBasePrice) > 0.005
-      ? item.recommendedBasePrice
-      : null;
+  // baseRecPending already filters out a rec whose target equals the current
+  // base (retail-only recommendations seed these) — NOT a base move, so no
+  // "$3.19 → $3.19" strikethrough. It also stops advertising a rec the
+  // director declined or already decided (per-section, not per-item).
+  const recBase = baseRecPending(item) ? item.recommendedBasePrice : null;
   const baseTarget = item.newBasePrice != null ? item.newBasePrice : recBase;
   // Only a decided base can be a pack-size deal (HQ recs are always single-unit).
   const baseQty = item.newBasePrice != null ? item.newBaseQty ?? 1 : 1;
@@ -244,7 +241,7 @@ export function PriceCell({ item }: { item: PricingItem }) {
 
   const retailCurrent = item.currentRetailPrice ?? item.currentBasePrice;
   const decidedRetail = item.newRetailPrice ?? null;
-  const recRetail = item.hqReviewPending ? item.recommendedRetailPrice ?? null : null;
+  const recRetail = retailRecPending(item) ? item.recommendedRetailPrice ?? null : null;
   const retailTarget = decidedRetail ?? recRetail;
   const qty = decidedRetail != null ? item.newRetailQty ?? 1 : 1;
   const retailDisplay = retailTarget != null ? (qty > 1 ? fmtQtyPrice(qty, retailTarget) : fmt(retailTarget)) : null;
@@ -290,11 +287,11 @@ function FuelChip({ amount }: { amount: number }) {
 export function FuelSaverCell({ item }: { item: PricingItem }) {
   const current = item.currentFuelSaver ?? null;
   const decided = item.fuelSaver ?? null;
-  // hqReviewNeeded (not hqReviewPending) — the rec chip is only advertised
-  // while the item is still actionable in the review queue, matching the
-  // drawer's fuel accept-first block, so the table never promises a decision
-  // the drawer no longer offers.
-  const recommended = hqReviewNeeded(item) ? item.recommendedFuelSaver ?? null : null;
+  // fuelRecPending (not hqReviewPending) — the rec chip is only advertised
+  // while THIS section is still actionable, matching the drawer's fuel
+  // accept-first block, so the table never promises a decision the drawer no
+  // longer offers (a pending base rec alone doesn't re-advertise fuel).
+  const recommended = fuelRecPending(item) ? item.recommendedFuelSaver ?? null : null;
 
   const target =
     decided != null && decided !== current ? decided
@@ -359,7 +356,19 @@ export function buildStoreColumns(visibleCols: Set<string>): DataColumn<PricingI
 
   return [
     idCol,
-    itemCol((r) => (hqReviewNeeded(r) ? <HqBadge reasons={[r.hqBaseReason, r.hqRetailReason, r.hqFuelReason].filter((x): x is HqBaseReason | HqPromoReason => x != null)} /> : null)),
+    itemCol((r) =>
+      hqReviewNeeded(r) ? (
+        // Only sections still pending — a decided section's reason no longer
+        // advertises an open decision (mirrors the drawer header's badge).
+        <HqBadge
+          reasons={[
+            baseRecPending(r) ? r.hqBaseReason : null,
+            retailRecPending(r) ? r.hqRetailReason : null,
+            fuelRecPending(r) ? r.hqFuelReason : null,
+          ].filter((x): x is HqBaseReason | HqPromoReason => x != null)}
+        />
+      ) : null
+    ),
     textCol("category", "Category", (r) => r.category, 140),
     {
       id: "price",

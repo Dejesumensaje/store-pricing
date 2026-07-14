@@ -20,8 +20,8 @@ export function loadStoreData(): Record<string, StoreSlice> {
 //
 // Backend: PATCH /api/items/:itemId — body is the changed fields.
 // Each Zustand action (updateBasePrice, updateRetailPrice, updateFuelSaver,
-// acceptNoChange, setBaseChangeReason, setRetailChangeReason,
-// setFuelChangeReason, setReviewed) should call this after updating local
+// setSectionReviewed, setBaseChangeReason, setRetailChangeReason,
+// setFuelChangeReason) should call this after updating local
 // state so the decision is persisted even if the page is reloaded.
 export async function commitDecision(
   _itemId: string,

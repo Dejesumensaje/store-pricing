@@ -33,7 +33,7 @@ export type NationalVsStore = "National" | "Store";
 export type HqBaseReason = "cost_change" | "competitor_change" | "hq_pricing_review" | "other";
 /** HQ's reason for a Retail or Fuel Saver recommendation — one shared catalog. */
 export type HqPromoReason = "discontinued" | "allowance" | "displays" | "wow_buy";
-/** A director's reason for a store-originated Base price change — defaults to "other". */
+/** A director's reason for a store-originated Base price change — no default; required before Done. */
 export type StoreBaseReason = "cost_change" | "competitor_change" | "other";
 /** A director's reason for a store-originated Retail or Fuel Saver change — one shared catalog, no default. */
 export type StorePromoReason =
@@ -134,8 +134,19 @@ export type PricingItem = {
   baseOverrideStatus?: OverrideStatus;
   retailOverrideStatus?: OverrideStatus;
   hasAlert?: boolean;
-  /** Accepted as-is (no changes) — removes the item from the review queue. */
-  reviewed?: boolean;
+  /**
+   * The director declined THIS section's HQ recommendation ("Keep current" /
+   * "No promotion" / "No fuel saver"). Scoped per section — declining the fuel
+   * saver must not decide a pending base or retail rec on the same item. A
+   * section is decided when it has a new price/amount OR its declined flag;
+   * the item leaves the review queue when every rec-bearing section is decided
+   * (see item-status.ts). A declined section's later price change is a fresh
+   * store-originated decision — its HQ reason no longer applies (the hq*Reason
+   * field itself is kept immutable for provenance traces).
+   */
+  baseReviewed?: boolean;
+  retailReviewed?: boolean;
+  fuelReviewed?: boolean;
   /**
    * HQ has a recommendation for this item awaiting the director's decision. The
    * proposal is NOT live in SAP — `recommendedBasePrice` holds HQ's proposed
@@ -152,23 +163,25 @@ export type PricingItem = {
   /** The reason HQ attached to its Fuel Saver recommendation (set alongside recommendedFuelSaver). */
   hqFuelReason?: HqPromoReason;
   /**
-   * The director's chosen reason for a store-originated Base price change,
-   * editable in the drawer. Defaults to "other" once a price is set — Base has
-   * no unselected placeholder state.
+   * The director's chosen reason for a Base price change, editable in the
+   * drawer. No default — starts unselected (placeholder) until the director
+   * actively picks one; the drawer blocks Done while a decided price has no
+   * reason. Store-originated changes pick from the Store Base catalog; an
+   * HQ-originated section (accepted rec or custom price on a pending rec)
+   * starts from the HQ reason and may be re-picked from the HQ Base catalog —
+   * when set, the chosen reason wins over hq*Reason (see changeReasonFor).
    */
-  chosenBaseReason?: StoreBaseReason;
+  chosenBaseReason?: StoreBaseReason | HqBaseReason;
   /**
-   * The director's chosen reason for a store-originated Retail price change,
-   * editable in the drawer. No default — starts unselected (placeholder) until
-   * the director picks one.
+   * The director's chosen reason for a Retail price change — same rules as
+   * chosenBaseReason, with the Store Promo / HQ Promo catalogs.
    */
-  chosenRetailReason?: StorePromoReason;
+  chosenRetailReason?: StorePromoReason | HqPromoReason;
   /**
-   * The director's chosen reason for a store-originated Fuel Saver change,
-   * editable in the drawer. No default — starts unselected (placeholder) until
-   * the director picks one.
+   * The director's chosen reason for a Fuel Saver change — same rules as
+   * chosenRetailReason (the promo catalogs are shared).
    */
-  chosenFuelReason?: StorePromoReason;
+  chosenFuelReason?: StorePromoReason | HqPromoReason;
   category_type: PricingCategory;
   /**
    * The pricing strategy currently live in SAP. `category_type` is the strategy

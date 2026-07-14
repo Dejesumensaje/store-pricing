@@ -194,8 +194,8 @@ const baseMockItems: PricingItem[] = [
     newBasePrice: 5.99,
     hasOverride: true,
     baseOverrideStatus: "pending",
-    // Deliberately no chosenBaseReason — demonstrates the Store Base "Other"
-    // default (no blocking validation on this catalog).
+    // Deliberately no chosenBaseReason — an in-flight edit still missing its
+    // required reason; the drawer blocks Done here until one is picked.
     hasAlert: true,
     impactConfidence: "Low",
     impactSalesValue: -0.6,
@@ -715,7 +715,9 @@ function cleanForStore(item: PricingItem, factor: number): PricingItem {
     newRetailQty: null,
     retailOverrideStatus: undefined,
     hasOverride: false,
-    reviewed: false,
+    baseReviewed: false,
+    retailReviewed: false,
+    fuelReviewed: false,
     hqReviewPending: false,
     autoTypedFrom: null,
     // Undo any demo strategy conversion (e.g. Base → EDLP on the primary store).

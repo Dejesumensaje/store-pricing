@@ -25,7 +25,7 @@ import { TOTAL_ITEM_COUNT } from "@/lib/mock-data";
 import { PricingItem, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { pricingStrategyFullLabel, itemChangeGroups, CHANGE_FILTER_OPTIONS } from "@/lib/change-summary";
 import { hqReviewNeeded } from "@/lib/item-status";
-import { HQ_BASE_REASONS, HQ_PROMO_REASONS, REASON_META, countedReasonSummary, PriceChangeReason } from "@/lib/price-change-reason";
+import { REASON_META } from "@/lib/price-change-reason";
 import { itemIdsOverEdlpCeiling } from "@/lib/edlp-ceiling";
 
 const uniqueSorted = (values: string[]) => [...new Set(values)].sort();
@@ -78,29 +78,6 @@ export default function StorePricingPage() {
     ],
     [hqCount]
   );
-
-  // Pending HQ recommendations broken down by change reason. Deliberately quiet:
-  // it renders as a plain-text summary in the review banner (secondary info),
-  // with per-reason filtering tucked into the Filters drawer as a facet. Each
-  // section (Base / Retail / Fuel Saver) carries its own reason, so one item
-  // can contribute to two counts at once (e.g. a "Cost change" base move and
-  // an "Allowance" retail promo on the same SKU).
-  const hqReasonSummary = useMemo(() => {
-    const counts: Partial<Record<PriceChangeReason, number>> = {};
-    for (const i of items) {
-      if (!hqReviewNeeded(i)) continue;
-      for (const r of [i.hqBaseReason, i.hqRetailReason, i.hqFuelReason]) {
-        if (!r) continue;
-        counts[r] = (counts[r] ?? 0) + 1;
-      }
-    }
-    // Catalog order keeps permanent base moves clustered ahead of promo-driven
-    // work; singular/plural per count so "1 allowance" never reads "1 allowances".
-    return [...HQ_BASE_REASONS, ...HQ_PROMO_REASONS]
-      .filter((r) => (counts[r] ?? 0) > 0)
-      .map((r) => countedReasonSummary(r, counts[r]!))
-      .join(" · ");
-  }, [items]);
 
   // Toast once when the last HQ recommendation is reviewed (hqCount drops to 0
   // while the director is in the review flow). The ref is initialised to hqCount
@@ -210,12 +187,12 @@ export default function StorePricingPage() {
   const reviewActive = storeView === "hq" && hqCount > 0;
   // The effective lens: HQ falls back to "all" once its queue empties.
   const activeView = storeView === "hq" && hqCount === 0 ? "all" : storeView;
-  // Per-view heading + one quiet context line. The toggle handles navigation and
-  // counts; this line carries only what the toggle can't — the HQ reason breakdown,
-  // or a short "what is this view" descriptor for the store-originated lenses.
+  // Per-view heading. The toggle handles navigation and counts; per-reason
+  // filtering lives in the Filters drawer (the old reason breakdown line was
+  // dropped per V1 feedback — noise at the top of the page).
   const viewInfo = {
-    all: { title: "All items", blurb: "" },
-    hq: { title: "HQ recommendations", blurb: hqReasonSummary },
+    all: { title: "All items" },
+    hq: { title: "HQ recommendations" },
   }[activeView];
 
   const rows = useMemo(() => {
@@ -280,13 +257,6 @@ export default function StorePricingPage() {
                       : TOTAL_ITEM_COUNT.toLocaleString()}
                   </span>
                 )}
-                {/* Desktop: the context line rides inline next to the title to
-                    save a row. Mobile keeps it on its own line (below the picker). */}
-                {viewInfo.blurb && (
-                  <span className="hidden text-sm font-normal text-gray-500 md:inline">
-                    · {viewInfo.blurb}
-                  </span>
-                )}
               </h2>
               <ItemsToolbar
                 search={search}
@@ -322,12 +292,6 @@ export default function StorePricingPage() {
                 </div>
               </>
             )}
-            {/* Mobile only — desktop shows this inline next to the title above.
-                Same quiet muted register as the desktop inline version. */}
-            {viewInfo.blurb && (
-              <p className="mt-2 text-sm text-gray-500 md:hidden">{viewInfo.blurb}</p>
-            )}
-
             <div className="mt-4 flex-1 min-h-0 flex flex-col">
               {activeFilterCount > 0 && (
                 <FilterChips facets={facets} value={filters} onChange={setFilters} />

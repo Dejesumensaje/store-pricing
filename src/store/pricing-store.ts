@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason } from "@/types/pricing";
+import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { StoreSlice } from "@/lib/mock-data";
 import { loadStoreData } from "@/lib/api";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
@@ -28,16 +28,16 @@ type PricingStore = {
   updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
   updatePriceType: (itemId: string, type: PricingCategory) => void;
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
-  // Accept an item as-is (no price change) — clears it from the HQ queue.
-  acceptNoChange: (itemId: string) => void;
-  // Set the director's chosen reason for a store-originated change, one setter
-  // per pricing section — each section's reason is independent (see
-  // price-change-reason.ts).
-  setBaseChangeReason: (itemId: string, reason: StoreBaseReason) => void;
-  setRetailChangeReason: (itemId: string, reason: StorePromoReason) => void;
-  setFuelChangeReason: (itemId: string, reason: StorePromoReason) => void;
-  // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
-  setReviewed: (itemId: string, value: boolean) => void;
+  // Decline ONE section's HQ recommendation ("Keep current" / "No promotion" /
+  // "No fuel saver") — or undo that decline (value: false). Scoped per section:
+  // the other sections' pending recs are untouched.
+  setSectionReviewed: (itemId: string, section: "base" | "retail" | "fuel", value: boolean) => void;
+  // Set the director's chosen reason for a change, one setter per pricing
+  // section — each section's reason is independent (see price-change-reason.ts).
+  // The chosen reason wins over the section's HQ reason when both exist.
+  setBaseChangeReason: (itemId: string, reason: StoreBaseReason | HqBaseReason) => void;
+  setRetailChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
+  setFuelChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
   removeFromLooseTray: (overrideId: string) => void;
 };
 
@@ -182,9 +182,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
           } else {
             next.baseEffectiveDate = item.baseEffectiveDate ?? today;
           }
-          // Deciding on an HQ rec (accept or override) reviews it for good — it
-          // must not return to the queue when the override later goes confirmed.
-          if (newPrice != null && item.hqReviewPending) next.reviewed = true;
+          // No reviewed-flag write here: a set price IS the base section's
+          // decision (see item-status's baseRecPending) — and clearing it
+          // returns the rec to the queue, since the decision was undone.
           if (newPrice != null && item.category_type === "no_change") {
             // Editing a "no change" item IS a base price change — promote it,
             // remembering the original type so we can revert if the edit is cleared.
@@ -219,8 +219,6 @@ export const usePricingStore = create<PricingStore>((set) => ({
                 newRetailQty: normQty,
                 newRetailPrice: price,
                 retailOverrideStatus: status,
-                // Deciding on an HQ rec reviews it for good (see updateBasePrice).
-                reviewed: price != null && item.hqReviewPending ? true : item.reviewed,
                 allowanceStartDate: price != null ? item.allowanceStartDate ?? iso(today) : item.allowanceStartDate,
                 allowanceEndDate: price != null ? item.allowanceEndDate ?? iso(weekOut) : item.allowanceEndDate,
                 // Reverting to the current price drops the director's
@@ -313,21 +311,17 @@ export const usePricingStore = create<PricingStore>((set) => ({
       items: state.items.map((item) => (item.id === itemId ? { ...item, baseEffectiveDate: date } : item)),
     })),
 
-  acceptNoChange: (itemId) =>
-    set((state) => ({
-      // Keeping the current (Base) price rejects HQ's recommendation for
-      // good — its reason goes with it, so no reason remains for the
-      // section. If the director later sets a price here, it's a fresh
-      // store-originated decision (own catalog, own reason).
-      items: state.items.map((item) =>
-        item.id === itemId ? { ...item, reviewed: true, hqBaseReason: undefined } : item
-      ),
-    })),
-
-  setReviewed: (itemId, value) =>
-    set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: value } : item)),
-    })),
+  // Declining keeps hq*Reason itself intact — HQ's input is permanent and
+  // still feeds provenance traces (HqRef). The flag is what severs it: a
+  // declined section's later price change is a fresh store-originated
+  // decision (own catalog, own reason) — changeReasonFor checks the flag.
+  setSectionReviewed: (itemId, section, value) =>
+    set((state) => {
+      const flag = section === "base" ? "baseReviewed" : section === "retail" ? "retailReviewed" : "fuelReviewed";
+      return {
+        items: state.items.map((item) => (item.id === itemId ? { ...item, [flag]: value } : item)),
+      };
+    }),
 
   setBaseChangeReason: (itemId, reason) =>
     set((state) => ({
