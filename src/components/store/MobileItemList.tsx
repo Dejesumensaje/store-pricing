@@ -2,20 +2,19 @@
 
 import Image from "next/image";
 import { Image as ImageIcon } from "lucide-react";
-import { PricingItem, Batch } from "@/types/pricing";
+import { PricingItem } from "@/types/pricing";
 import { PriceCell, FuelSaverCell, StatusCell } from "./buildStoreColumns";
 import { hqReviewNeeded } from "@/lib/item-status";
 
 type Props = {
   rows: PricingItem[];
-  batches: Batch[];
   onRowClick: (r: PricingItem) => void;
 };
 
 // Phone-only card rendering of the items list — the fixed-width DataTable
 // horizontal-scrolls badly on a ~375px screen. Read-only (decisions happen in the
 // drawer); reuses the same price + fuel + status cells.
-export function MobileItemList({ rows, batches, onRowClick }: Props) {
+export function MobileItemList({ rows, onRowClick }: Props) {
   return (
     <ul className="flex flex-col gap-2">
       {rows.map((item) => {
@@ -72,7 +71,7 @@ export function MobileItemList({ rows, batches, onRowClick }: Props) {
                   </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <StatusCell item={item} batches={batches} />
+                  <StatusCell item={item} />
                 </div>
               </div>
             </div>

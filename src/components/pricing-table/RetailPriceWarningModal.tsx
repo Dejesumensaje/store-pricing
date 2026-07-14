@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import { Modal, Button } from "@dejesumensaje/converge-ds-experimental";
+import { useGuardedActions } from "@/components/shared/useGuardedActions";
 import { AlertTriangle } from "lucide-react";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 
@@ -24,14 +24,7 @@ export function RetailPriceWarningModal({
   onUseSuggested,
   onProceed,
 }: Props) {
-  const openedAt = useRef(0);
-  useEffect(() => {
-    if (open) openedAt.current = Date.now();
-  }, [open]);
-  const guarded = (fn: () => void) => () => {
-    if (Date.now() - openedAt.current < 350) return;
-    fn();
-  };
+  const guarded = useGuardedActions(open);
 
   return (
     <Modal

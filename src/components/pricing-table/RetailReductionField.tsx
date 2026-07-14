@@ -6,6 +6,7 @@ import { QtyPriceInput } from "./QtyPriceInput";
 import { derivePriceState } from "./PriceInputCell";
 import { OverrideStatus } from "@/types/pricing";
 import { fmt } from "@/lib/format";
+import { round2 } from "@/lib/pricing-math";
 
 // The four ways a director can set an allowance retail price. The mental model
 // (per Neil/HQ) is to pick the *kind* of discount first, then enter the number —
@@ -20,12 +21,9 @@ const METHODS: { id: Method; label: string }[] = [
 ];
 
 // Infer the starting method from a committed deal: a multi-unit quantity opens
-// "Multi-unit"; any other committed price opens "Exact price"; an untouched
-// field defaults to "% off" (the most common allowance promo).
-function initialMethod(qty: number | null, price: number | null): Method {
-  if (qty != null && qty > 1) return "multi";
-  if (price != null) return "exact";
-  return "exact";
+// "Multi-unit"; everything else opens "Exact price".
+function initialMethod(qty: number | null): Method {
+  return qty != null && qty > 1 ? "multi" : "exact";
 }
 
 // Progressive retail-price control for a temporary allowance. The % / $ off
@@ -48,7 +46,7 @@ export function RetailReductionField({
   status?: OverrideStatus;
   onCommit: (qty: number, price: number | null) => void;
 }) {
-  const [method, setMethod] = useState<Method>(() => initialMethod(qty, price));
+  const [method, setMethod] = useState<Method>(() => initialMethod(qty));
 
   // The committed per-unit price (a deal divides its total across the quantity).
   const unit = price != null ? price / Math.max(1, qty ?? 1) : null;
@@ -58,7 +56,6 @@ export function RetailReductionField({
   // discount survives the jump into (and out of) multi-unit. Example: $5 → 10% =
   // $4.50/unit; entering Multi-unit seeds "2 for $9.00" (4.50 × 2), not "2 for
   // $4.50". Leaving multi-unit collapses the deal total back to the per-unit price.
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   const selectMethod = (m: Method) => {
     if (m === method) return;
     const dealQty = qty ?? 1;
@@ -74,21 +71,35 @@ export function RetailReductionField({
 
   return (
     <div className="flex flex-col gap-3">
-      {/* How do you want to discount? — one path at a time. */}
-      <div className="flex w-fit overflow-hidden rounded-lg border border-gray-300">
-        {METHODS.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => selectMethod(m.id)}
-            aria-pressed={method === m.id}
-            className={`border-l border-gray-300 px-3 py-1.5 text-sm font-medium first:border-l-0 ${
-              method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
+      {/* How do you want to discount? — one path at a time.
+          On mobile: 2×2 grid so all four labels are visible and the active tab
+          is never clipped. On desktop: single-row flex (original layout). */}
+      <div
+        role="group"
+        aria-label="Pricing method"
+        className="grid grid-cols-2 overflow-hidden rounded-lg border border-gray-300 md:flex md:w-fit"
+      >
+        {METHODS.map((m, i) => {
+          const isRightCol = i % 2 === 1;
+          const isBottomRow = i >= 2;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => selectMethod(m.id)}
+              aria-pressed={method === m.id}
+              className={`whitespace-nowrap px-3 py-1.5 text-sm font-medium${
+                isRightCol ? " border-l border-gray-300" : ""
+              }${isBottomRow ? " border-t border-gray-300" : ""}${
+                i > 0 ? " md:border-l md:border-gray-300" : " md:border-l-0"
+              } md:border-t-0 ${
+                method === m.id ? "bg-brand text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {m.label}
+            </button>
+          );
+        })}
       </div>
 
       {(method === "pct" || method === "amount") && (

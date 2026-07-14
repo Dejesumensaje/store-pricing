@@ -36,23 +36,6 @@ async function openDrawer(page: Page, itemName: string) {
   await page.waitForTimeout(400);
 }
 
-/** Click the base price Change / Set price button to reveal the input. */
-async function activateBaseInput(page: Page) {
-  // Look for Change or "Set base price" / "Set price" buttons in the drawer
-  const btn = page.getByRole("button", { name: /change|set.*price|set price/i }).first();
-  if (await btn.isVisible().catch(() => false)) await btn.click();
-  await page.waitForTimeout(200);
-}
-
-/** Type into the first visible price input inside the drawer and blur. */
-async function typeBasePrice(page: Page, price: string) {
-  // Base price inputs are either a plain number input or dollar-prefixed
-  const input = page.locator("input[aria-label*='price' i], input[aria-label*='base' i], input[inputmode='decimal'], input[inputmode='numeric']").first();
-  await input.waitFor({ state: "visible", timeout: 4000 });
-  await input.clear();
-  await input.fill(price);
-}
-
 /** Set the retail exact-price input. */
 async function typeRetailPrice(page: Page, price: string) {
   // The retail section has an "Exact price" tab and then a price input
@@ -193,154 +176,6 @@ test.describe("Price Validation UX Audit", () => {
     await page.screenshot({ path: SS("06b-retail-soft-after-use-suggested") });
   });
 
-  // ── BASE PRICE SOFT WARNING (narrow gap) ───────────────────────────────────
-
-  test("07 — base price soft warning: narrow gap dialog opens", async ({ page }) => {
-    await goHome(page);
-    // Lay's 13oz — setting $4.10 narrows gap vs Lay's 18oz ($4.29) below 5%
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await page.screenshot({ path: SS("07a-lays13-drawer-open") });
-
-    await activateBaseInput(page);
-    await page.screenshot({ path: SS("07b-lays13-base-input-visible") });
-
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: SS("07c-lays13-soft-warning-dialog") });
-
-    // Log all visible dialog buttons
-    const buttons = await page.locator("[role='dialog'] button, [role='alertdialog'] button").all();
-    for (const btn of buttons) {
-      const text = await btn.textContent();
-      console.log("Base soft dialog button:", text?.trim());
-    }
-  });
-
-  test("08 — base price soft warning: suggested price shown and accurate", async ({ page }) => {
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-
-    // The suggested price should be $4.08 (floor(4.29/1.05*100)/100)
-    const useBtn = page.getByRole("button", { name: /^use \$/i });
-    const btnText = await useBtn.textContent().catch(() => "not found");
-    console.log("Suggested price button text:", btnText);
-    await page.screenshot({ path: SS("08-lays13-suggested-price-button") });
-  });
-
-  test("09 — base price soft warning: Done bypass protection", async ({ page }) => {
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-
-    // Type a narrow-gap price, immediately click Done (no Tab first)
-    const input = page.locator("input[inputmode='decimal'], input[inputmode='numeric']").first();
-    await input.fill("4.10");
-    await page.getByRole("button", { name: /^done$/i }).click();
-    await page.waitForTimeout(500);
-    // Dialog should have appeared and drawer should still be open
-    await page.screenshot({ path: SS("09-base-soft-done-bypass") });
-  });
-
-  test("10 — base price soft: Use suggested price commits correctly", async ({ page }) => {
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-
-    const useBtn = page.getByRole("button", { name: /^use \$/i });
-    if (await useBtn.isVisible().catch(() => false)) {
-      await useBtn.click();
-      await page.waitForTimeout(400);
-    }
-    // Drawer should show the committed suggested price
-    await page.screenshot({ path: SS("10-base-soft-after-use-suggested") });
-  });
-
-  test("11 — base price soft: Save anyway commits the original price", async ({ page }) => {
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-
-    const saveBtn = page.getByRole("button", { name: /save anyway/i });
-    if (await saveBtn.isVisible().catch(() => false)) {
-      await saveBtn.click();
-      await page.waitForTimeout(400);
-    }
-    // Should see committed price + amber banner (soft violation persists)
-    await page.screenshot({ path: SS("11-base-soft-save-anyway") });
-  });
-
-  // ── BASE PRICE HARD BLOCK ──────────────────────────────────────────────────
-
-  test("12 — base price hard block: order inversion modal", async ({ page }) => {
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-
-    // $4.29 = same price as Lay's 18oz → hard inversion
-    await typeBasePrice(page, "4.29");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: SS("12a-hard-block-modal") });
-
-    // Confirm only 2 options (no 3rd path for hard blocks)
-    const buttons = await page.locator("[role='dialog'] button, [role='alertdialog'] button").all();
-    for (const btn of buttons) {
-      const text = await btn.textContent();
-      console.log("Hard block dialog button:", text?.trim());
-    }
-    await page.screenshot({ path: SS("12b-hard-block-buttons") });
-  });
-
-  // ── CONTRAST: soft vs hard visual differentiation ─────────────────────────
-
-  test("13 — compare: soft (amber) vs hard (red) modal colors", async ({ page }) => {
-    // Soft
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: SS("13a-modal-soft-amber") });
-
-    await page.getByRole("button", { name: /^cancel$/i }).click();
-    await page.waitForTimeout(300);
-
-    // Hard
-    await typeBasePrice(page, "4.29");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: SS("13b-modal-hard-red") });
-  });
-
-  // ── POST-COMMIT AMBER BANNER ───────────────────────────────────────────────
-
-  test("14 — amber banner after Save anyway", async ({ page }) => {
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-
-    const saveBtn = page.getByRole("button", { name: /save anyway/i });
-    if (await saveBtn.isVisible().catch(() => false)) await saveBtn.click();
-    await page.waitForTimeout(400);
-    // Scroll to show the full drawer body including the amber banner
-    await page.screenshot({ path: SS("14-amber-banner-after-save-anyway"), fullPage: false });
-  });
-
   // ── MOBILE ─────────────────────────────────────────────────────────────────
 
   test("15 — mobile: retail hard stop error layout", async ({ page, browserName }) => {
@@ -354,17 +189,6 @@ test.describe("Price Validation UX Audit", () => {
     await page.keyboard.press("Tab");
     await page.waitForTimeout(300);
     await page.screenshot({ path: SS("15-mobile-retail-zero-error") });
-  });
-
-  test("16 — mobile: soft warning dialog legibility", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await goHome(page);
-    await openDrawer(page, "Lay's Classic Potato Chips 13oz");
-    await activateBaseInput(page);
-    await typeBasePrice(page, "4.10");
-    await page.keyboard.press("Tab");
-    await page.waitForTimeout(600);
-    await page.screenshot({ path: SS("16-mobile-soft-warning-dialog") });
   });
 
 });

@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { Check, AlertCircle, AlertTriangle } from "lucide-react";
+import { AlertCircle, AlertTriangle } from "lucide-react";
 
-export type PriceCellState = "untouched" | "edited" | "sent" | "alert" | "over_edlp";
+export type PriceCellState = "untouched" | "edited" | "alert" | "over_edlp";
 
 type Props = {
   /** Recommended value shown as placeholder when untouched. */
@@ -23,7 +23,6 @@ type Props = {
 export const BORDER: Record<PriceCellState, string> = {
   untouched: "border-gray-300 bg-white text-gray-500",
   edited: "border-gray-900 bg-white text-gray-900",
-  sent: "border-emerald-500 bg-white text-gray-900",
   alert: "border-orange-400 bg-white text-gray-900",
   over_edlp: "border-amber-400 bg-white text-gray-900",
 };
@@ -63,7 +62,7 @@ export function PriceInputCell({ recommended, value, state, onCommit, onViewAler
 
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="relative w-[120px]">
+      <div className="relative w-[120px] max-md:w-full">
         <span aria-hidden="true" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">$</span>
         <input
           ref={inputRef}
@@ -86,11 +85,6 @@ export function PriceInputCell({ recommended, value, state, onCommit, onViewAler
           }`}
         />
       </div>
-      {state === "sent" && (
-        <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium pl-1">
-          <Check className="size-3" aria-hidden="true" /> Sent to SAP
-        </span>
-      )}
       {state === "alert" && (
         <Button variant="tertiary" size="sm" iconLeft={AlertCircle} onClick={onViewAlerts}>
           View alerts
@@ -118,7 +112,6 @@ export function derivePriceState(input: {
    *  is already committed. */
   overEdlpMax?: boolean;
 }): PriceCellState {
-  if (input.status === "submitted") return "sent";
   if (input.overEdlpMax) return "over_edlp";
   if (input.hasAlert) return "alert";
   if (input.value != null) return "edited";

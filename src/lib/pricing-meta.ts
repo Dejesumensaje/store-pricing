@@ -1,33 +1,16 @@
-import { PricingCategory, PricingItem } from "@/types/pricing";
+import { PricingCategory } from "@/types/pricing";
 import { fmt } from "@/lib/format";
 
 // Fuel saver amounts a store can add. Values are normalized 2-decimal strings so
 // the <Select> matches reliably — String(0.5) ("0.5") never equals "0.50", which
 // is why the dropdown used to drop the dollar label. Bind the Select with
 // `fuelSaverSelectValue(item.fuelSaver)` so the stored number round-trips.
-export const FUEL_SAVER_AMOUNTS = [0.1, 0.25, 0.5, 1.0];
+const FUEL_SAVER_AMOUNTS = [0.1, 0.25, 0.5, 1.0];
 export const FUEL_SAVER_OPTIONS: { label: string; value: string }[] = [
   { label: "None", value: "0.00" },
   ...FUEL_SAVER_AMOUNTS.map((v) => ({ label: fmt(v), value: v.toFixed(2) })),
 ];
 export const fuelSaverSelectValue = (n: number | null | undefined) => (n ?? 0).toFixed(2);
-
-// An item still "needs a decision" until the relevant price(s) are committed.
-// Mirrors the hasDecision predicate used by buildImpactColumn (columns/shared).
-export function needsDecision(item: PricingItem, variant: "base" | "temp"): boolean {
-  // Accepting an item as-is resolves it without a price override.
-  if (item.reviewed) return false;
-  if (variant === "temp") return item.newBasePrice == null && item.newRetailPrice == null;
-  return item.newBasePrice == null;
-}
-
-export const CATEGORY_LABELS: Record<string, string> = {
-  base: "Base",
-  temporary_allowance: "Temp. allowance",
-  everyday_low_price: "EDLP",
-  no_change: "No change",
-  new_discontinued: "New/Disc.",
-};
 
 type BadgeTone = "neutral" | "success" | "negative" | "warning" | "in-progress";
 

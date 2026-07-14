@@ -1,79 +1,63 @@
 "use client";
 
 import { create } from "zustand";
-import { PricingItem, Override, Batch, OverrideStatus, PriceField, PricingCategory, StoreOriginReason } from "@/types/pricing";
-import { buildInitialStoreData, StoreSlice } from "@/lib/mock-data";
+import { PricingItem, Override, OverrideStatus, PriceField, PricingCategory, StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
+import { StoreSlice } from "@/lib/mock-data";
+import { loadStoreData } from "@/lib/api";
 import { STORES, DEFAULT_STORE_ID, storeById, Store } from "@/lib/store-config";
 import { hqReviewNeeded } from "@/lib/item-status";
-import { applyFanoutToSlice, buildFanoutSources, revertFanoutInSlice } from "@/lib/store-fanout";
-import { EdlpException, batchBlockedByEdlpCeiling } from "@/lib/edlp-ceiling";
-import { buildItemsById } from "@/lib/batch-utils";
+import { EdlpException } from "@/lib/edlp-ceiling";
 
 type PricingStore = {
-  // The store currently in view. Its items/overrides/batches are the top-level
+  // The store currently in view. Its items/overrides are the top-level
   // fields below (the "working set"); every other store sits in `stash`.
   activeStoreId: string;
   stash: Record<string, StoreSlice>;
   setActiveStore: (id: string) => void;
   items: PricingItem[];
   overrides: Override[];
-  batches: Batch[];
-  // Per-store override of the HQ competitor price order (lowercased names,
-  // ranked). Lives outside the stash working-set mechanism — it's keyed by
-  // storeId directly, so it survives store switching untouched. Absence of a
-  // key means the store still uses HQ_DEFAULT_ORDER.
-  competitorOrder: Record<string, string[]>;
-  setCompetitorOrder: (storeId: string, order: string[]) => void;
-  resetCompetitorOrder: (storeId: string) => void;
   // Per-store EDLP ceiling exception, granted by AVP – Pricing. Lives outside
-  // the stash working-set mechanism, same as competitorOrder — it's keyed by
-  // storeId directly, so it survives store switching. Store users can only
-  // view it (see SettingsDrawer); there is no grant/edit action here.
+  // the stash working-set mechanism — it's keyed by storeId directly, so it
+  // survives store switching. Store users can only view it; there is no
+  // grant/edit action here.
   edlpExceptions: Record<string, EdlpException>;
   updateBasePrice: (itemId: string, newPrice: number | null, qty?: number) => void;
+  updateBaseEffectiveDate: (itemId: string, date: string | null) => void;
   updateRetailPrice: (itemId: string, qty: number, price: number | null) => void;
   updateFuelSaver: (itemId: string, value: number | null) => void;
   updateFuelSaverDates: (itemId: string, start: string | null, end: string | null) => void;
   updatePriceType: (itemId: string, type: PricingCategory) => void;
   updateAllowanceDates: (itemId: string, start: string | null, end: string | null) => void;
-  // Accept an item as-is (no price change) — clears it from the HQ queue.
-  acceptNoChange: (itemId: string) => void;
-  // Set the director's chosen reason for a store-originated change (cost/competitor).
-  setChangeReason: (itemId: string, reason: StoreOriginReason) => void;
-  // Set/unset an item's reviewed flag (powers the "Keep HQ price" undo).
-  setReviewed: (itemId: string, value: boolean) => void;
+  // Decline ONE section's HQ recommendation ("Keep current" / "No promotion" /
+  // "No fuel saver") — or undo that decline (value: false). Scoped per section:
+  // the other sections' pending recs are untouched.
+  setSectionReviewed: (itemId: string, section: "base" | "retail" | "fuel", value: boolean) => void;
+  // Set the director's chosen reason for a change, one setter per pricing
+  // section — each section's reason is independent (see price-change-reason.ts).
+  // The chosen reason wins over the section's HQ reason when both exist.
+  setBaseChangeReason: (itemId: string, reason: StoreBaseReason | HqBaseReason) => void;
+  setRetailChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
+  setFuelChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
   removeFromLooseTray: (overrideId: string) => void;
-  removeFromBatch: (overrideId: string) => void;
-  addToBatch: (batchId: string, overrideIds: string[]) => void;
-  moveOverrideToBatch: (overrideId: string, targetBatchId: string) => void;
-  // Every batch is born scheduled — date + time is required, no draft state.
-  // `targetStoreIds` fans the batch out to several of the director's stores at
-  // once (defaults to just the active store).
-  createBatch: (name: string, overrideIds: string[], scheduledAt: string, targetStoreIds?: string[]) => void;
-  scheduleBatch: (batchId: string, scheduledAt: string) => void;
-  submitBatch: (batchId: string) => void;
-  // Change which stores a (scheduled) batch applies to: adds replicate the price
-  // into new stores, removals revert those stores' copies. Origin is always kept.
-  setBatchTargetStores: (batchId: string, targetStoreIds: string[]) => void;
-  confirmBatch: (batchId: string) => void;
 };
 
-const isActive = (s?: OverrideStatus) => s === "pending" || s === "in_batch";
+const SIX_DAYS_MS = 6 * 86400000;
+
+const isActive = (s?: OverrideStatus) => s === "pending";
 
 function withOverrideFlags(item: PricingItem): PricingItem {
   return { ...item, hasOverride: isActive(item.baseOverrideStatus) || isActive(item.retailOverrideStatus) };
 }
 
 // Upsert/remove the override for one price field of an item. Override ids are
-// deterministic (`${itemId}:${field}`), so re-edits update in place — including
-// overrides already grouped in a draft batch (the batch sees the new price).
+// deterministic (`${itemId}:${field}`), so re-edits update in place.
 function upsertOverride(
-  state: { overrides: Override[]; batches: Batch[] },
+  state: { overrides: Override[] },
   item: PricingItem,
   field: PriceField,
   newPrice: number | null,
   qty?: number
-): { overrides: Override[]; batches: Batch[]; status: OverrideStatus | undefined } {
+): { overrides: Override[]; status: OverrideStatus | undefined } {
   const id = `${item.id}:${field}`;
   const existing = state.overrides.find((o) => o.id === id);
 
@@ -84,9 +68,6 @@ function upsertOverride(
   if (newPrice == null) {
     return {
       overrides: state.overrides.filter((o) => o.id !== id),
-      batches: state.batches.map((b) =>
-        b.overrideIds.includes(id) ? { ...b, overrideIds: b.overrideIds.filter((oid) => oid !== id) } : b
-      ),
       status: undefined,
     };
   }
@@ -98,12 +79,11 @@ function upsertOverride(
       overrides: state.overrides.map((o) =>
         o.id === id ? { ...o, newPrice, qty: normalizedQty, updatedAt: Date.now() } : o
       ),
-      batches: state.batches,
       status: existing.status,
     };
   }
 
-  // No override yet, or the previous one was already submitted → fresh pending.
+  // No override yet, or the previous one was already confirmed → fresh pending.
   const fresh: Override = {
     id,
     itemId: item.id,
@@ -118,34 +98,13 @@ function upsertOverride(
   };
   return {
     overrides: [...state.overrides.filter((o) => o.id !== id), fresh],
-    batches: state.batches,
     status: "pending",
   };
 }
 
-// Reflect override statuses back onto the items so cells can render
-// "sent"/highlight states without per-cell lookups.
-function applyStatusToItems(
-  items: PricingItem[],
-  affected: Override[],
-  status: OverrideStatus
-): PricingItem[] {
-  return items.map((item) => {
-    let next = item;
-    for (const ov of affected) {
-      if (ov.itemId !== item.id) continue;
-      next =
-        ov.priceField === "base"
-          ? { ...next, baseOverrideStatus: status }
-          : { ...next, retailOverrideStatus: status };
-    }
-    return next === item ? item : withOverrideFlags(next);
-  });
-}
-
 // Boot every store's data; the active store becomes the working set, the rest
 // go to the stash. Switching stores swaps a slice in and out (see setActiveStore).
-const initialData = buildInitialStoreData();
+const initialData = loadStoreData();
 const initialStash: Record<string, StoreSlice> = {};
 for (const s of STORES) if (s.id !== DEFAULT_STORE_ID) initialStash[s.id] = initialData[s.id];
 const initialActive = initialData[DEFAULT_STORE_ID];
@@ -155,8 +114,6 @@ export const usePricingStore = create<PricingStore>((set) => ({
   stash: initialStash,
   items: initialActive.items,
   overrides: initialActive.overrides,
-  batches: initialActive.batches,
-  competitorOrder: {},
   // Seed one per-item exception on the primary demo store, covering EDLP-3 —
   // enough to demo the "hard breach downgraded to soft, still visible" path
   // without inventing a grant flow (there isn't one; only AVP – Pricing grants).
@@ -170,38 +127,21 @@ export const usePricingStore = create<PricingStore>((set) => ({
   },
 
   // Switch the store in view. The current working set is stashed under its id and
-  // the target store's slice is loaded — so unsent work in each store is preserved.
+  // the target store's slice is loaded — so unconfirmed work in each store is preserved.
   setActiveStore: (id) =>
     set((state) => {
       if (id === state.activeStoreId) return {};
       const target = state.stash[id];
       if (!target) return {};
       const nextStash = { ...state.stash };
-      nextStash[state.activeStoreId] = { items: state.items, overrides: state.overrides, batches: state.batches };
+      nextStash[state.activeStoreId] = { items: state.items, overrides: state.overrides };
       delete nextStash[id];
       return {
         activeStoreId: id,
         stash: nextStash,
         items: target.items,
         overrides: target.overrides,
-        batches: target.batches,
       };
-    }),
-
-  // A store director's override of HQ's Walmart-then-Aldi ordering, for this
-  // store only. `order` is the ranked prefix of lowercased competitor names the
-  // director actually arranged — competitors not in it stay unranked, so
-  // orderCompetitors keeps distance-sorting them.
-  setCompetitorOrder: (storeId, order) =>
-    set((state) => ({ competitorOrder: { ...state.competitorOrder, [storeId]: order } })),
-
-  // Back to the HQ default — just drop the key rather than storing it explicitly.
-  resetCompetitorOrder: (storeId) =>
-    set((state) => {
-      if (!(storeId in state.competitorOrder)) return {};
-      const next = { ...state.competitorOrder };
-      delete next[storeId];
-      return { competitorOrder: next };
     }),
 
   updateBasePrice: (itemId, newPrice, qty) =>
@@ -215,23 +155,36 @@ export const usePricingStore = create<PricingStore>((set) => ({
         ? state.items.filter((i) => i.familyId === source.familyId).map((i) => i.id)
         : [itemId];
       let overrides = state.overrides;
-      let batches = state.batches;
       const statusById: Record<string, OverrideStatus | undefined> = {};
       for (const id of groupIds) {
         const it = state.items.find((i) => i.id === id);
         if (!it) continue;
-        const r = upsertOverride({ overrides, batches }, it, "base", newPrice, normQty ?? undefined);
+        const r = upsertOverride({ overrides }, it, "base", newPrice, normQty ?? undefined);
         overrides = r.overrides;
-        batches = r.batches;
         statusById[id] = r.status;
       }
+      // A Base price change MUST carry an effective date — default to today
+      // the moment a price is set (mirrors Retail/Fuel Saver's promo-window
+      // defaulting below), so the field is never blank in practice.
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const today = iso(new Date());
       return {
         items: state.items.map((item) => {
           if (!groupIds.includes(item.id)) return item;
           let next: PricingItem = { ...item, newBasePrice: newPrice, newBaseQty: normQty, baseOverrideStatus: statusById[item.id] };
-          // Deciding on an HQ rec (accept or override) reviews it for good — it
-          // must not return to the queue when the override later goes submitted.
-          if (newPrice != null && item.hqReviewPending) next.reviewed = true;
+          // Reverting to the current price drops the director's store-chosen
+          // reason too — it described a decision that no longer exists.
+          if (newPrice == null) {
+            next.chosenBaseReason = undefined;
+            // ...and the effective date, which described the timing of a
+            // change that no longer exists.
+            next.baseEffectiveDate = null;
+          } else {
+            next.baseEffectiveDate = item.baseEffectiveDate ?? today;
+          }
+          // No reviewed-flag write here: a set price IS the base section's
+          // decision (see item-status's baseRecPending) — and clearing it
+          // returns the rec to the queue, since the decision was undone.
           if (newPrice != null && item.category_type === "no_change") {
             // Editing a "no change" item IS a base price change — promote it,
             // remembering the original type so we can revert if the edit is cleared.
@@ -244,7 +197,6 @@ export const usePricingStore = create<PricingStore>((set) => ({
           return withOverrideFlags(next);
         }),
         overrides,
-        batches,
       };
     }),
 
@@ -253,12 +205,12 @@ export const usePricingStore = create<PricingStore>((set) => ({
       const source = state.items.find((i) => i.id === itemId);
       if (!source) return {};
       const normQty = price == null ? null : Math.max(1, Math.floor(qty) || 1);
-      const { overrides, batches, status } = upsertOverride(state, source, "retail", price, normQty ?? undefined);
+      const { overrides, status } = upsertOverride(state, source, "retail", price, normQty ?? undefined);
       // A promo MUST have a start + end window — default to a one-week run if the
       // item doesn't already carry one.
       const today = new Date();
       const iso = (d: Date) => d.toISOString().slice(0, 10);
-      const weekOut = new Date(today.getTime() + 6 * 86400000);
+      const weekOut = new Date(today.getTime() + SIX_DAYS_MS);
       return {
         items: state.items.map((item) =>
           item.id === itemId
@@ -267,15 +219,15 @@ export const usePricingStore = create<PricingStore>((set) => ({
                 newRetailQty: normQty,
                 newRetailPrice: price,
                 retailOverrideStatus: status,
-                // Deciding on an HQ rec reviews it for good (see updateBasePrice).
-                reviewed: price != null && item.hqReviewPending ? true : item.reviewed,
                 allowanceStartDate: price != null ? item.allowanceStartDate ?? iso(today) : item.allowanceStartDate,
                 allowanceEndDate: price != null ? item.allowanceEndDate ?? iso(weekOut) : item.allowanceEndDate,
+                // Reverting to the current price drops the director's
+                // store-chosen reason too (see updateBasePrice).
+                chosenRetailReason: price != null ? item.chosenRetailReason : undefined,
               })
             : item
         ),
         overrides,
-        batches,
       };
     }),
 
@@ -286,11 +238,13 @@ export const usePricingStore = create<PricingStore>((set) => ({
         // Clearing the fuel saver clears its dates too; setting one defaults the
         // window to a one-week run if none is set yet.
         if (value == null || value <= 0) {
-          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null };
+          // Removing the fuel saver drops the director's store-chosen reason
+          // too — it described a decision that no longer exists.
+          return { ...item, fuelSaver: null, fuelSaverStartDate: null, fuelSaverEndDate: null, chosenFuelReason: undefined };
         }
         const today = new Date();
         const iso = (d: Date) => d.toISOString().slice(0, 10);
-        const weekOut = new Date(today.getTime() + 6 * 86400000);
+        const weekOut = new Date(today.getTime() + SIX_DAYS_MS);
         return {
           ...item,
           fuelSaver: value,
@@ -319,11 +273,19 @@ export const usePricingStore = create<PricingStore>((set) => ({
           // yellow tag has dates the moment a plain item is converted.
           const today = new Date();
           const iso = (d: Date) => d.toISOString().slice(0, 10);
-          const weekOut = new Date(today.getTime() + 6 * 86400000);
+          const weekOut = new Date(today.getTime() + SIX_DAYS_MS);
           return {
             ...item,
             category_type: type,
             autoTypedFrom: null,
+            // Record the original type so removeFromLooseTray can restore it when
+            // a committed retail price is reverted — even across drawer close/reopen
+            // where component-local preConversionType state is reset. Only record
+            // when the item is NOT already a TA (i.e. this is a fresh conversion).
+            retailAutoTypedFrom:
+              item.category_type !== "temporary_allowance"
+                ? item.category_type
+                : (item.retailAutoTypedFrom ?? null),
             currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
             allowanceCost: item.allowanceCost ?? Math.round(item.cost * 0.8 * 100) / 100,
             recommendedRetailPrice: item.recommendedRetailPrice ?? Math.round(item.currentBasePrice * 0.85 * 100) / 100,
@@ -331,7 +293,9 @@ export const usePricingStore = create<PricingStore>((set) => ({
             allowanceEndDate: item.allowanceEndDate ?? iso(weekOut),
           };
         }
-        return { ...item, category_type: type, autoTypedFrom: null };
+        // Setting any type other than TA (including reverting to the original
+        // type via cancelRetailEditing / handleClose) clears the saved origin.
+        return { ...item, category_type: type, autoTypedFrom: null, retailAutoTypedFrom: null };
       }),
     })),
 
@@ -342,336 +306,85 @@ export const usePricingStore = create<PricingStore>((set) => ({
       ),
     })),
 
-  acceptNoChange: (itemId) =>
+  updateBaseEffectiveDate: (itemId, date) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: true } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, baseEffectiveDate: date } : item)),
     })),
 
-  setReviewed: (itemId, value) =>
+  // Declining keeps hq*Reason itself intact — HQ's input is permanent and
+  // still feeds provenance traces (HqRef). The flag is what severs it: a
+  // declined section's later price change is a fresh store-originated
+  // decision (own catalog, own reason) — changeReasonFor checks the flag.
+  setSectionReviewed: (itemId, section, value) =>
+    set((state) => {
+      const flag = section === "base" ? "baseReviewed" : section === "retail" ? "retailReviewed" : "fuelReviewed";
+      return {
+        items: state.items.map((item) => (item.id === itemId ? { ...item, [flag]: value } : item)),
+      };
+    }),
+
+  setBaseChangeReason: (itemId, reason) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, reviewed: value } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenBaseReason: reason } : item)),
     })),
 
-  setChangeReason: (itemId, reason) =>
+  setRetailChangeReason: (itemId, reason) =>
     set((state) => ({
-      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenChangeReason: reason } : item)),
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenRetailReason: reason } : item)),
     })),
 
-  // Discarding a pending change also clears the edit from the table cell.
+  setFuelChangeReason: (itemId, reason) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, chosenFuelReason: reason } : item)),
+    })),
+
+  // Discarding a pending change also clears the edit from the table cell —
+  // and the section's store-chosen reason, which described a decision that
+  // no longer exists.
   removeFromLooseTray: (overrideId) =>
     set((state) => {
       const ov = state.overrides.find((o) => o.id === overrideId);
       const clear = (item: PricingItem) => {
         if (!ov || item.id !== ov.itemId) return item;
-        const next =
-          ov.priceField === "base"
-            ? { ...item, newBasePrice: null, newBaseQty: null, baseOverrideStatus: undefined }
-            : { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined };
+        let next: PricingItem;
+        if (ov.priceField === "base") {
+          next = {
+            ...item,
+            newBasePrice: null,
+            newBaseQty: null,
+            baseOverrideStatus: undefined,
+            chosenBaseReason: undefined,
+            baseEffectiveDate: null,
+          };
+        } else {
+          next = { ...item, newRetailPrice: null, newRetailQty: null, retailOverrideStatus: undefined, chosenRetailReason: undefined };
+          // If the item was auto-converted to TA when the promo was created (and
+          // retailAutoTypedFrom records the original type), revert category_type
+          // back to what it was before the promotion — including when the drawer
+          // was closed and reopened (component-local preConversionType is gone).
+          if (item.retailAutoTypedFrom != null) {
+            next = { ...next, category_type: item.retailAutoTypedFrom, retailAutoTypedFrom: null };
+          }
+        }
         return withOverrideFlags(next);
       };
       return {
         overrides: state.overrides.filter((o) => o.id !== overrideId),
-        batches: state.batches.map((b) => ({
-          ...b,
-          overrideIds: b.overrideIds.filter((id) => id !== overrideId),
-        })),
         items: state.items.map(clear),
       };
     }),
-
-  // Remove from batch → back to pending (stays in the tray)
-  removeFromBatch: (overrideId) =>
-    set((state) => {
-      const affected = state.overrides.filter((o) => o.id === overrideId);
-      return {
-        overrides: state.overrides.map((o) =>
-          o.id === overrideId ? { ...o, status: "pending", batchId: undefined } : o
-        ),
-        batches: state.batches.map((b) => ({
-          ...b,
-          overrideIds: b.overrideIds.filter((id) => id !== overrideId),
-        })),
-        items: applyStatusToItems(state.items, affected, "pending"),
-      };
-    }),
-
-  addToBatch: (batchId, overrideIds) =>
-    set((state) => {
-      const affected = state.overrides.filter((o) => overrideIds.includes(o.id));
-      return {
-        overrides: state.overrides.map((o) =>
-          overrideIds.includes(o.id) ? { ...o, status: "in_batch", batchId } : o
-        ),
-        // An override lives in exactly one batch: add to the target and strip it
-        // from any other batch (so re-assigning an already-batched change moves it).
-        batches: state.batches.map((b) =>
-          b.id === batchId
-            ? { ...b, overrideIds: [...new Set([...b.overrideIds, ...overrideIds])] }
-            : { ...b, overrideIds: b.overrideIds.filter((id) => !overrideIds.includes(id)) }
-        ),
-        items: applyStatusToItems(state.items, affected, "in_batch"),
-      };
-    }),
-
-  // Move an override from its current batch to another draft batch (stays in_batch).
-  moveOverrideToBatch: (overrideId, targetBatchId) =>
-    set((state) => ({
-      overrides: state.overrides.map((o) =>
-        o.id === overrideId ? { ...o, status: "in_batch", batchId: targetBatchId } : o
-      ),
-      batches: state.batches.map((b) => {
-        if (b.id === targetBatchId) {
-          return { ...b, overrideIds: [...new Set([...b.overrideIds, overrideId])] };
-        }
-        if (b.overrideIds.includes(overrideId)) {
-          return { ...b, overrideIds: b.overrideIds.filter((id) => id !== overrideId) };
-        }
-        return b;
-      }),
-    })),
-
-  createBatch: (name, overrideIds, scheduledAt, targetStoreIds) =>
-    set((state) => {
-      const now = Date.now();
-      const createdAt = new Date().toISOString();
-      const baseBatchId = `batch-${now}`;
-      // Target stores always include the active one (where the changes were made).
-      const targets = [...new Set([state.activeStoreId, ...(targetStoreIds ?? [])])];
-      const multiStore = targets.length > 1;
-      const groupId = multiStore ? `grp-${now}` : undefined;
-      const meta = { originStoreId: state.activeStoreId, targetStoreIds: targets, groupId };
-
-      // ── Active store: group the selected overrides into the new batch. ──
-      const activeBatch: Batch = {
-        id: baseBatchId,
-        name,
-        status: "scheduled",
-        overrideIds,
-        createdAt,
-        scheduledAt,
-        ...meta,
-      };
-      const affected = state.overrides.filter((o) => overrideIds.includes(o.id));
-      const activeUpdate = {
-        batches: [
-          // One override belongs to exactly one batch — strip these ids elsewhere.
-          ...state.batches.map((b) => ({ ...b, overrideIds: b.overrideIds.filter((id) => !overrideIds.includes(id)) })),
-          activeBatch,
-        ],
-        overrides: state.overrides.map((o) =>
-          overrideIds.includes(o.id) ? { ...o, status: "in_batch" as const, batchId: baseBatchId } : o
-        ),
-        items: applyStatusToItems(state.items, affected, "in_batch"),
-      };
-
-      if (!multiStore) return activeUpdate;
-
-      // ── Other target stores: replicate the resulting prices into each slice. ──
-      const sources = buildFanoutSources(affected, state.items);
-      const nextStash = { ...state.stash };
-      for (const storeId of targets) {
-        if (storeId === state.activeStoreId) continue;
-        const slice = nextStash[storeId];
-        if (!slice) continue;
-        const replicaBatchId = `${baseBatchId}::${storeId}`;
-        const { slice: nextSlice, createdIds } = applyFanoutToSlice(slice, sources, replicaBatchId, now);
-        const replicaBatch: Batch = {
-          id: replicaBatchId,
-          name,
-          status: "scheduled",
-          overrideIds: createdIds,
-          createdAt,
-          scheduledAt,
-          ...meta,
-        };
-        nextStash[storeId] = { ...nextSlice, batches: [...nextSlice.batches, replicaBatch] };
-      }
-      return { ...activeUpdate, stash: nextStash };
-    }),
-
-  // Schedule a draft batch to send at a future date/time (overrides stay in_batch).
-  // A multi-store batch reschedules its whole group across every target store.
-  scheduleBatch: (batchId, scheduledAt) =>
-    set((state) => {
-      const groupId = state.batches.find((b) => b.id === batchId)?.groupId;
-      const match = (b: Batch) => b.id === batchId || (groupId != null && b.groupId === groupId);
-      const reschedule = (batches: Batch[]) =>
-        batches.map((b) => (match(b) ? { ...b, status: "scheduled" as const, scheduledAt } : b));
-      const update: Partial<PricingStore> = { batches: reschedule(state.batches) };
-      if (groupId != null) {
-        const nextStash = { ...state.stash };
-        for (const [sid, slice] of Object.entries(state.stash)) {
-          if (slice.batches.some(match)) nextStash[sid] = { ...slice, batches: reschedule(slice.batches) };
-        }
-        update.stash = nextStash;
-      }
-      return update;
-    }),
-
-  // Send a batch to SAP. A multi-store batch sends its whole group — each target
-  // store's replica goes to SAP together.
-  submitBatch: (batchId) =>
-    set((state) => {
-      const groupId = state.batches.find((b) => b.id === batchId)?.groupId;
-      const submittedAt = new Date().toISOString();
-      const match = (b: Batch) => b.id === batchId || (groupId != null && b.groupId === groupId);
-
-      // EDLP ceiling backstop: refuse the whole send if ANY targeted store's
-      // slice carries an over-ceiling override with no active exception for
-      // that store. Exceptions can be revoked after a batch was scheduled, so
-      // this is re-checked here, not just at commit time — a no-op is the
-      // safe default (the UI disables the Send button for the same reason).
-      const sliceBlocked = (slice: StoreSlice, storeId: string) => {
-        const ids = new Set(slice.batches.filter(match).map((b) => b.id));
-        const affected = slice.overrides.filter((o) => o.batchId != null && ids.has(o.batchId));
-        if (affected.length === 0) return false;
-        const itemsById = buildItemsById([slice.items]);
-        return batchBlockedByEdlpCeiling(affected, itemsById, state.edlpExceptions[storeId]);
-      };
-      if (sliceBlocked({ items: state.items, overrides: state.overrides, batches: state.batches }, state.activeStoreId)) {
-        return {};
-      }
-      for (const [sid, slice] of Object.entries(state.stash)) {
-        if (slice.batches.some(match) && sliceBlocked(slice, sid)) return {};
-      }
-
-      const submitSlice = (slice: StoreSlice): StoreSlice => {
-        const ids = new Set(slice.batches.filter(match).map((b) => b.id));
-        const affected = slice.overrides.filter((o) => o.batchId != null && ids.has(o.batchId));
-        return {
-          items: applyStatusToItems(slice.items, affected, "submitted"),
-          overrides: slice.overrides.map((o) =>
-            o.batchId != null && ids.has(o.batchId) ? { ...o, status: "submitted" } : o
-          ),
-          batches: slice.batches.map((b) => (match(b) ? { ...b, status: "submitted" as const, submittedAt } : b)),
-        };
-      };
-      const active = submitSlice({ items: state.items, overrides: state.overrides, batches: state.batches });
-      const update: Partial<PricingStore> = { items: active.items, overrides: active.overrides, batches: active.batches };
-      if (groupId != null) {
-        const nextStash = { ...state.stash };
-        for (const [sid, slice] of Object.entries(state.stash)) {
-          if (slice.batches.some(match)) nextStash[sid] = submitSlice(slice);
-        }
-        update.stash = nextStash;
-      }
-      return update;
-    }),
-
-  setBatchTargetStores: (batchId, nextTargetIds) =>
-    set((state) => {
-      // Locate the batch (it may live in the active working set or a stashed store).
-      let viewedStoreId = state.activeStoreId;
-      let viewedSlice: StoreSlice = { items: state.items, overrides: state.overrides, batches: state.batches };
-      if (!state.batches.some((b) => b.id === batchId)) {
-        const hit = Object.entries(state.stash).find(([, sl]) => sl.batches.some((b) => b.id === batchId));
-        if (!hit) return {};
-        [viewedStoreId, viewedSlice] = [hit[0], hit[1]];
-      }
-      const batch = viewedSlice.batches.find((b) => b.id === batchId)!;
-      if (batch.status !== "scheduled") return {}; // stores are locked once sent
-
-      const origin = batch.originStoreId ?? viewedStoreId;
-      const oldTargets = batch.targetStoreIds ?? [origin];
-      const groupId = batch.groupId ?? `grp-${Date.now()}`;
-      const baseBatchId = batchId.includes("::") ? batchId.split("::")[0] : batchId;
-      const now = Date.now();
-      const replicaId = (sid: string) => (sid === origin ? baseBatchId : `${baseBatchId}::${sid}`);
-
-      const targets = [...new Set([origin, ...nextTargetIds])];
-      const toAdd = targets.filter((s) => !oldTargets.includes(s));
-      const toRemove = oldTargets.filter((s) => !targets.includes(s) && s !== origin);
-
-      // Replicate the batch's (absolute) prices into any newly added stores.
-      const sources = buildFanoutSources(
-        viewedSlice.overrides.filter((o) => o.batchId === batchId),
-        viewedSlice.items
-      );
-
-      let activeSlice: StoreSlice = { items: state.items, overrides: state.overrides, batches: state.batches };
-      const nextStash: Record<string, StoreSlice> = { ...state.stash };
-      const getSlice = (sid: string) => (sid === state.activeStoreId ? activeSlice : nextStash[sid]);
-      const setSlice = (sid: string, sl: StoreSlice) => {
-        if (sid === state.activeStoreId) activeSlice = sl;
-        else nextStash[sid] = sl;
-      };
-
-      for (const sid of toAdd) {
-        const sl = getSlice(sid);
-        if (!sl) continue;
-        const rid = replicaId(sid);
-        const { slice, createdIds } = applyFanoutToSlice(sl, sources, rid, now);
-        const replica: Batch = {
-          id: rid,
-          name: batch.name,
-          status: "scheduled",
-          overrideIds: createdIds,
-          createdAt: batch.createdAt,
-          scheduledAt: batch.scheduledAt,
-          originStoreId: origin,
-          targetStoreIds: targets,
-          groupId,
-        };
-        setSlice(sid, { ...slice, batches: [...slice.batches, replica] });
-      }
-      for (const sid of toRemove) {
-        const sl = getSlice(sid);
-        if (!sl) continue;
-        setSlice(sid, revertFanoutInSlice(sl, replicaId(sid)));
-      }
-
-      // Refresh group metadata on every surviving member (badge hides when single).
-      const finalGroupId = targets.length > 1 ? groupId : undefined;
-      const patch = (batches: Batch[]) =>
-        batches.map((b) =>
-          b.id === batchId || (b.groupId != null && b.groupId === groupId)
-            ? { ...b, targetStoreIds: targets, groupId: finalGroupId }
-            : b
-        );
-      activeSlice = { ...activeSlice, batches: patch(activeSlice.batches) };
-      for (const sid of Object.keys(nextStash)) nextStash[sid] = { ...nextStash[sid], batches: patch(nextStash[sid].batches) };
-
-      return { items: activeSlice.items, overrides: activeSlice.overrides, batches: activeSlice.batches, stash: nextStash };
-    }),
-
-  // Post-SAP acknowledgment: a submitted batch is confirmed back by SAP.
-  confirmBatch: (batchId) =>
-    set((state) => {
-      const affected = state.overrides.filter((o) => o.batchId === batchId);
-      const sapReference = `SAP-${batchId.replace(/^batch-/, "").slice(-6).toUpperCase()}`;
-      return {
-        batches: state.batches.map((b) =>
-          b.id === batchId
-            ? { ...b, status: "confirmed", confirmedAt: new Date().toISOString(), sapReference }
-            : b
-        ),
-        overrides: state.overrides.map((o) => (o.batchId === batchId ? { ...o, status: "confirmed" } : o)),
-        items: applyStatusToItems(state.items, affected, "confirmed"),
-      };
-    }),
 }));
-
-// selectPendingOverrides returns a fresh array — use with useShallow() to avoid re-render loops.
-export const selectPendingOverrides = (s: PricingStore) =>
-  s.overrides.filter((o) => o.status === "pending");
-export const selectPendingCount = (s: PricingStore) =>
-  s.overrides.reduce((n, o) => n + (o.status === "pending" ? 1 : 0), 0);
 
 // The store currently in view (stable object from STORES).
 export const useActiveStore = (): Store =>
   usePricingStore((s) => storeById(s.activeStoreId) ?? STORES[0]);
 
-// The active store's competitor-order override, or undefined when it still
-// follows the HQ default (see HQ_DEFAULT_ORDER in lib/competitors).
-export const useCompetitorOrder = (): string[] | undefined =>
-  usePricingStore((s) => s.competitorOrder[s.activeStoreId]);
-
 // The active store's EDLP ceiling exception, if AVP – Pricing has granted one.
 export const useEdlpException = (): EdlpException | undefined =>
   usePricingStore((s) => s.edlpExceptions[s.activeStoreId]);
 
-// Per-store work summary for the switcher: unsent changes (pending or in a
-// scheduled batch) + HQ recommendations still awaiting the director's call.
+// Per-store work summary for the switcher: unconfirmed changes + HQ
+// recommendations still awaiting the director's call.
 export type StoreSummary = { store: Store; unsent: number; hqCount: number };
 export const useStoreSummaries = (): StoreSummary[] => {
   const activeStoreId = usePricingStore((s) => s.activeStoreId);
@@ -684,7 +397,7 @@ export const useStoreSummaries = (): StoreSummary[] => {
     const it = slice?.items ?? [];
     return {
       store,
-      unsent: ov.filter((o) => o.status === "pending" || o.status === "in_batch").length,
+      unsent: ov.filter((o) => o.status === "pending").length,
       hqCount: it.filter(hqReviewNeeded).length,
     };
   });
