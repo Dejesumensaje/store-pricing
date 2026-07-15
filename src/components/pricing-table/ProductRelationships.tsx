@@ -1,8 +1,10 @@
 "use client";
 
 import { Badge } from "@dejesumensaje/converge-ds-experimental";
+import { AlertTriangle } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
 import { RELATIONSHIP_META, RELATIONSHIP_TYPE_ORDER, relationshipsFor } from "@/lib/product-relationships";
+import { Violation } from "@/lib/relationship-validation";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { perUnit, round2 } from "@/lib/pricing-math";
 import { CollapsibleSection } from "./CollapsibleSection";
@@ -10,18 +12,21 @@ import { CollapsibleSection } from "./CollapsibleSection";
 type Props = {
   item: PricingItem;
   itemsById: Map<string, PricingItem>;
+  /** Committed narrow-gap warnings — flags the involved member rows amber. */
+  softViolations?: Violation[];
 };
 
-function MemberRow({ member, label, isCurrent }: { member: PricingItem; label?: string; isCurrent: boolean }) {
+function MemberRow({ member, label, isCurrent, flagged }: { member: PricingItem; label?: string; isCurrent: boolean; flagged?: boolean }) {
+  const newPriceColor = flagged ? "text-amber-700" : "text-gray-900";
   const price =
     member.newBasePrice != null ? (
       <span className="flex items-center gap-1.5 tabular-nums">
         <span className="text-gray-400 line-through">{fmt(member.currentBasePrice)}</span>
         <span aria-hidden="true" className="text-gray-300">→</span>
-        <span className="font-medium text-gray-900">{fmtQtyPrice(member.newBaseQty, member.newBasePrice)}</span>
+        <span className={`font-medium ${newPriceColor}`}>{fmtQtyPrice(member.newBaseQty, member.newBasePrice)}</span>
       </span>
     ) : (
-      <span className="tabular-nums text-gray-500">{fmt(member.currentBasePrice)}</span>
+      <span className={`tabular-nums ${flagged ? "text-amber-700" : "text-gray-500"}`}>{fmt(member.currentBasePrice)}</span>
     );
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-gray-100 last:border-0">
@@ -31,6 +36,7 @@ function MemberRow({ member, label, isCurrent }: { member: PricingItem; label?: 
             <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{label}</span>
           )}
           <p className={`truncate text-sm ${isCurrent ? "font-medium text-gray-900" : "text-gray-700"}`}>{member.name}</p>
+          {flagged && <AlertTriangle className="size-3.5 shrink-0 text-amber-500" aria-label="Narrow price gap" />}
           {isCurrent && <Badge tone="neutral" size="sm">This item</Badge>}
         </div>
         <p className="text-xs text-gray-500">{member.id}</p>
@@ -57,28 +63,30 @@ function SizeParityHeader() {
 }
 
 /** Size-group row: adds Size and Price/UoM (base price ÷ oz) to the standard fields. */
-function SizeParityRow({ member, label, isCurrent }: { member: PricingItem; label?: string; isCurrent: boolean }) {
+function SizeParityRow({ member, label, isCurrent, flagged }: { member: PricingItem; label?: string; isCurrent: boolean; flagged?: boolean }) {
   // newBasePrice is the TOTAL for newBaseQty units — normalize to per-unit before dividing by oz.
   const perUnitBase =
     member.newBasePrice != null ? perUnit(member.newBasePrice, member.newBaseQty) : member.currentBasePrice;
   const size = label ?? member.packSize;
   const ozNumber = parseFloat(size);
   const priceUom = ozNumber > 0 ? fmt(round2(perUnitBase / ozNumber)) : null;
+  const newPriceColor = flagged ? "text-amber-700" : "text-gray-900";
   const price =
     member.newBasePrice != null ? (
       <span className="flex items-center justify-end gap-1.5 tabular-nums">
         <span className="text-gray-400 line-through">{fmt(member.currentBasePrice)}</span>
         <span aria-hidden="true" className="text-gray-300">→</span>
-        <span className="font-medium text-gray-900">{fmtQtyPrice(member.newBaseQty, member.newBasePrice)}</span>
+        <span className={`font-medium ${newPriceColor}`}>{fmtQtyPrice(member.newBaseQty, member.newBasePrice)}</span>
       </span>
     ) : (
-      <span className="tabular-nums text-gray-500">{fmt(member.currentBasePrice)}</span>
+      <span className={`tabular-nums ${flagged ? "text-amber-700" : "text-gray-500"}`}>{fmt(member.currentBasePrice)}</span>
     );
   return (
     <div className={`${SIZE_PARITY_GRID} px-4 py-2 border-b border-gray-100 last:border-0`}>
       <div className="min-w-0">
         <div className="flex items-center gap-1.5">
           <p className={`truncate text-sm ${isCurrent ? "font-medium text-gray-900" : "text-gray-700"}`}>{member.name}</p>
+          {flagged && <AlertTriangle className="size-3.5 shrink-0 text-amber-500" aria-label="Narrow price gap" />}
           {isCurrent && <Badge tone="neutral" size="sm">This item</Badge>}
         </div>
         <p className="text-xs text-gray-500">{member.id}</p>
@@ -90,9 +98,18 @@ function SizeParityRow({ member, label, isCurrent }: { member: PricingItem; labe
   );
 }
 
-export function ProductRelationships({ item, itemsById }: Props) {
+export function ProductRelationships({ item, itemsById, softViolations }: Props) {
   const relationships = relationshipsFor(item.id).sort(
     (a, b) => RELATIONSHIP_TYPE_ORDER.indexOf(a.type) - RELATIONSHIP_TYPE_ORDER.indexOf(b.type)
+  );
+
+  // Composite "{relationshipId}:{memberId}" keys so a warning only flags the
+  // member inside the relationship where the gap is narrow.
+  const flaggedIds = new Set(
+    (softViolations ?? []).flatMap((v) => [
+      `${v.relationship.id}:${v.offenderId}`,
+      `${v.relationship.id}:${v.comparatorId}`,
+    ])
   );
 
   const sections = relationships
@@ -116,9 +133,21 @@ export function ProductRelationships({ item, itemsById }: Props) {
             {rel.type === "size_parity" && <SizeParityHeader />}
             {members.map((m) =>
               rel.type === "size_parity" ? (
-                <SizeParityRow key={m.id} member={m} label={rel.memberLabels?.[m.id]} isCurrent={m.id === item.id} />
+                <SizeParityRow
+                  key={m.id}
+                  member={m}
+                  label={rel.memberLabels?.[m.id]}
+                  isCurrent={m.id === item.id}
+                  flagged={flaggedIds.has(`${rel.id}:${m.id}`)}
+                />
               ) : (
-                <MemberRow key={m.id} member={m} label={rel.memberLabels?.[m.id]} isCurrent={m.id === item.id} />
+                <MemberRow
+                  key={m.id}
+                  member={m}
+                  label={rel.memberLabels?.[m.id]}
+                  isCurrent={m.id === item.id}
+                  flagged={flaggedIds.has(`${rel.id}:${m.id}`)}
+                />
               )
             )}
           </div>

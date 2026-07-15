@@ -9,13 +9,47 @@ export type ProductRelationship = {
   name: string;
   /** Per-member chip label keyed by item id ("7.75oz", "Good", "Private label"). */
   memberLabels?: Record<string, string>;
+  /** Minimum % gap between adjacent ranks; falls back to the type default. */
+  minGapPct?: number;
 };
 
-export const RELATIONSHIP_META: Record<RelationshipType, { label: string }> = {
-  family: { label: "Line pricing" },
-  size_parity: { label: "Size groups" },
-  good_better_best: { label: "Good better best" },
-  brand_pair: { label: "Private Label / National brand" },
+export const RELATIONSHIP_META: Record<
+  RelationshipType,
+  {
+    label: string;
+    /** Default minimum % gap between adjacent ranks (0 = never gap-checked). */
+    defaultMinGapPct: number;
+    /** Appended to hard (order-inversion) violation messages. */
+    hardRule: string;
+    /** Appended to soft (narrow-gap) violation messages; {min} interpolated. */
+    softRule: string;
+  }
+> = {
+  family: {
+    label: "Line pricing",
+    // Equality is enforced by price propagation, never validated as a gap.
+    defaultMinGapPct: 0,
+    hardRule: "Line-priced items share one price.",
+    softRule: "",
+  },
+  size_parity: {
+    label: "Size groups",
+    defaultMinGapPct: 5,
+    hardRule: "A larger size can never price at or below a smaller one.",
+    softRule: "Size steps usually hold ≥{min}% to protect trade-up.",
+  },
+  good_better_best: {
+    label: "Good better best",
+    defaultMinGapPct: 10,
+    hardRule: "A higher tier can never price at or below a lower one — the ladder collapses.",
+    softRule: "Tier steps usually hold ≥{min}% to keep the upgrade credible.",
+  },
+  brand_pair: {
+    label: "Private Label / National brand",
+    defaultMinGapPct: 15,
+    hardRule: "The national brand can never price at or below its private label.",
+    softRule: "The private-label gap usually holds ≥{min}% to protect its value position.",
+  },
 };
 
 /** Display order for rendering per-relationship sections. */
@@ -65,5 +99,10 @@ export const PRODUCT_RELATIONSHIPS: ProductRelationship[] = [
 
 export function relationshipsFor(itemId: string): ProductRelationship[] {
   return PRODUCT_RELATIONSHIPS.filter((r) => r.itemIds.includes(itemId));
+}
+
+/** The minimum % gap this relationship enforces between adjacent ranks. */
+export function minGapFor(rel: ProductRelationship): number {
+  return rel.minGapPct ?? RELATIONSHIP_META[rel.type].defaultMinGapPct;
 }
 

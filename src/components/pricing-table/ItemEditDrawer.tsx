@@ -15,9 +15,12 @@ import { ShelfTagPreview } from "./ShelfTagPreview";
 import { ProductRelationships } from "./ProductRelationships";
 import { CompetitorPrices } from "./CompetitorPrices";
 import { RetailPriceWarningModal } from "./RetailPriceWarningModal";
+import { BlockedPriceChangeModal } from "./BlockedPriceChangeModal";
+import { BasePriceSoftWarningModal } from "./BasePriceSoftWarningModal";
 import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
+import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
 import {
   REASON_META,
   PriceChangeReason,
@@ -32,7 +35,7 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded, baseRecPending, retailRecPending, fuelRecPending } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateRange, fmtEffectiveDate } from "@/lib/format";
-import { perUnit, round2, promoDurationDays } from "@/lib/pricing-math";
+import { perUnit, round2, promoDurationDays, fmtSignedPct } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/edlp-ceiling";
 import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertCircle, AlertTriangle, Info } from "lucide-react";
 
@@ -227,6 +230,23 @@ export function ItemEditDrawer({
     qty?: number;
     evaluation: EdlpChangeEvaluation;
   } | null>(null);
+  // A proposed base price that inverts a relationship's rank order (a ladder
+  // collapse) — parked (NOT committed) while the blocking modal asks the
+  // director to revert or scale the related SKUs.
+  const [blockedProposal, setBlockedProposal] = useState<{
+    total: number;
+    qty?: number;
+    evaluation: BaseChangeEvaluation;
+  } | null>(null);
+  // A proposed base price that lands inside a relationship's minimum gap —
+  // parked while the warning dialog asks the director to cancel, save anyway,
+  // or use the least-intrusive valid price.
+  const [softProposal, setSoftProposal] = useState<{
+    total: number;
+    qty?: number;
+    evaluation: BaseChangeEvaluation;
+    suggestedPrice: number;
+  } | null>(null);
   // Inline error for hard retail validation failures (zero/negative, above base).
   // The refs mirror state so handleDone can read rejections synchronously — state
   // updates from onBlur and the Done onClick run in the same event flush.
@@ -274,6 +294,8 @@ export function ItemEditDrawer({
     setPendingRetailProposal(null);
     setEdlpBlockedProposal(null);
     setEdlpSoftProposal(null);
+    setBlockedProposal(null);
+    setSoftProposal(null);
     // (lastAllowanceRange / lastFuelRange deliberately not reset here: their
     // capture effect re-runs whenever the dates change, so switching items
     // re-captures — and a value-identical leftover restores the same values.)
@@ -326,6 +348,11 @@ export function ItemEditDrawer({
     ? [...itemsById.values()].filter((i) => i.familyId === item.familyId && i.id !== item.id)
     : [];
 
+  // Narrow-gap violations in the item's CURRENTLY committed prices — derived
+  // every render, drives the persistent amber banner in the base section and
+  // the flagged rows in Product relationships. Empty for untouched items.
+  const softWarnings = item ? committedSoftWarnings(item.id, itemsById) : [];
+
   // The EDLP ceiling state of the item's CURRENTLY committed price — derived
   // every render, drives the in-drawer banner and the price field's amber
   // cell state. "ok" for every non-EDLP item.
@@ -333,9 +360,10 @@ export function ItemEditDrawer({
 
   // Commit a base price. Family items share one price, so the store
   // propagates to the whole family — tell the user and offer a one-click Undo.
-  // The EDLP ceiling is a SAP compliance hard stop, checked before the commit
-  // lands. Clearing a price (null) restores the current price — no
-  // validation on that path.
+  // Hard constraint violations (order inversions vs related items) block the
+  // commit: the proposal parks in `blockedProposal` and a modal asks the
+  // director to revert or scale. Clearing a price (null) restores the current
+  // price, which can't break a ladder — no validation on that path.
   const commitBase = (v: number | null, qty?: number) => {
     if (!item) return;
     baseRejectedRef.current = false;
@@ -346,9 +374,51 @@ export function ItemEditDrawer({
         baseRejectedRef.current = true;
         return;
       }
+      // EDLP ceiling is a SAP compliance hard stop — checked before pricing
+      // fundamentals (relationships), since a price that isn't SAP-legal
+      // shouldn't even get to the ladder/gap conversation.
       const edlpEvaluation = evaluateEdlpCeilingChange(item.id, proposedPerUnit, itemsById, edlpException);
       if (edlpEvaluation.hard.length > 0) {
         setEdlpBlockedProposal({ total: v, qty, evaluation: edlpEvaluation });
+        baseRejectedRef.current = true;
+        return;
+      }
+      const evaluation = evaluateBaseChange(item.id, proposedPerUnit, itemsById);
+      if (evaluation.hard.length > 0) {
+        setBlockedProposal({ total: v, qty, evaluation });
+        baseRejectedRef.current = true;
+        return;
+      }
+      if (evaluation.soft.length > 0) {
+        // Compute the least-intrusive price that satisfies every violated gap.
+        // offender < comparator → offender must go lower: floor(comp / (1 + gap%))
+        // offender > comparator → offender must go higher: ceil(comp × (1 + gap%))
+        // Using floor/ceil (not round) ensures the result is strictly inside the
+        // threshold after cent-rounding.
+        const highSuggestions: number[] = [];
+        const lowSuggestions: number[] = [];
+        for (const sv of evaluation.soft) {
+          const g = (sv.minGapPct ?? 0) / 100;
+          if (sv.offenderPrice > sv.comparatorPrice) {
+            highSuggestions.push(Math.ceil(sv.comparatorPrice * (1 + g) * 100) / 100);
+          } else {
+            lowSuggestions.push(Math.floor(sv.comparatorPrice / (1 + g) * 100) / 100);
+          }
+        }
+        let suggestedPrice: number;
+        if (highSuggestions.length > 0 && lowSuggestions.length === 0) {
+          suggestedPrice = Math.max(...highSuggestions);
+        } else if (lowSuggestions.length > 0 && highSuggestions.length === 0) {
+          suggestedPrice = Math.min(...lowSuggestions);
+        } else {
+          // Mixed directions (item is in the middle of a ladder, both ends narrow).
+          // Pick the boundary closer to the proposed per-unit price.
+          const proposed = perUnit(v, qty);
+          const bestHigh = Math.max(...highSuggestions);
+          const bestLow = Math.min(...lowSuggestions);
+          suggestedPrice = Math.abs(proposed - bestHigh) < Math.abs(proposed - bestLow) ? bestHigh : bestLow;
+        }
+        setSoftProposal({ total: v, qty, evaluation, suggestedPrice });
         baseRejectedRef.current = true;
         return;
       }
@@ -367,6 +437,39 @@ export function ItemEditDrawer({
         action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
       });
     }
+  };
+
+  // Resolve a blocked proposal by committing it AND repositioning the affected
+  // SKUs by the same % — the ladder keeps its shape. Calls updateBasePrice
+  // directly (not commitBase): scaled prices are NOT re-validated against
+  // their own other relationships (single pass, accepted prototype limit) and
+  // the family toast is suppressed in favor of one summary toast.
+  const scaleBlocked = () => {
+    if (!item || !blockedProposal) return;
+    const { total, qty, evaluation } = blockedProposal;
+    updateBasePrice(item.id, total, qty);
+    const done = new Set(evaluation.changedIds);
+    let scaled = 0;
+    for (const id of evaluation.scaleTargets) {
+      if (done.has(id)) continue;
+      const target = itemsById.get(id);
+      if (!target) continue;
+      // The % applies to the live price; an existing pending edit on the
+      // target is replaced in place.
+      updateBasePrice(id, round2(target.currentBasePrice * (1 + evaluation.deltaPct)));
+      scaled++;
+      done.add(id);
+      // A scaled family member propagates to its siblings — don't write twice.
+      if (target.familyId) {
+        for (const f of itemsById.values()) if (f.familyId === target.familyId) done.add(f.id);
+      }
+    }
+    toast.success(
+      `Price saved — scaled ${scaled} related SKU${scaled === 1 ? "" : "s"} by ${fmtSignedPct(evaluation.deltaPct)}`
+    );
+    setBlockedProposal(null);
+    baseRejectedRef.current = false;
+    setEditingBase(false);
   };
 
   // Validate and commit a retail price. Hard stops (zero/negative, at or above
@@ -850,6 +953,18 @@ export function ItemEditDrawer({
                     {rec != null && baseRecRef && <HqRef price={rec} reasonKey={item.hqBaseReason} />}
                     </>
                   )}
+                  {softWarnings.length > 0 && (
+                    // Narrow gaps the director consciously saved anyway — kept
+                    // visible until the price (or the neighbor's) moves.
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs">
+                      <AlertTriangle className="size-4 shrink-0 text-amber-600" aria-hidden="true" />
+                      <div className="flex flex-col gap-1 tabular-nums text-amber-900">
+                        {softWarnings.map((w) => (
+                          <span key={`${w.relationship.id}:${w.offenderId}:${w.comparatorId}`}>{w.message}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {edlpCeilingState && edlpCeilingState.level === "hard" && (
                     // A committed price already past the hard stop with no exception —
                     // predates the guardrail; new commits at this level are blocked.
@@ -1260,13 +1375,28 @@ export function ItemEditDrawer({
             </div>
           </section>
 
-          <ProductRelationships item={item} itemsById={itemsById} />
+          <ProductRelationships item={item} itemsById={itemsById} softViolations={softWarnings} />
 
           <CompetitorPrices item={item} />
 
         </div>
       )}
     </Drawer>
+    <BlockedPriceChangeModal
+      open={blockedProposal != null}
+      evaluation={blockedProposal?.evaluation ?? null}
+      itemsById={itemsById}
+      editedItemId={item?.id ?? null}
+      proposedTotal={blockedProposal?.total ?? 0}
+      proposedQty={blockedProposal?.qty}
+      onRevert={() => {
+        // Nothing was committed — collapsing the editor drops the stale draft.
+        setBlockedProposal(null);
+        baseRejectedRef.current = false;
+        setEditingBase(false);
+      }}
+      onScale={scaleBlocked}
+    />
     <RetailPriceWarningModal
       open={pendingRetailProposal != null}
       proposedQty={pendingRetailProposal?.qty ?? 1}
@@ -1284,6 +1414,43 @@ export function ItemEditDrawer({
         updateRetailPrice(item.id, pendingRetailProposal.qty, pendingRetailProposal.price);
         setPendingRetailProposal(null);
         retailRejectedRef.current = false;
+      }}
+    />
+    <BasePriceSoftWarningModal
+      open={softProposal != null}
+      evaluation={softProposal?.evaluation ?? null}
+      proposedPrice={perUnit(softProposal?.total ?? 0, softProposal?.qty)}
+      suggestedPrice={softProposal?.suggestedPrice ?? 0}
+      itemsById={itemsById}
+      editedItemId={item?.id ?? null}
+      proposedTotal={softProposal?.total ?? 0}
+      proposedQty={softProposal?.qty}
+      onCancel={() => { setSoftProposal(null); baseRejectedRef.current = false; setEditingBase(false); }}
+      onUseSuggested={() => {
+        if (!item || !softProposal) return;
+        const prevPrice = item.newBasePrice ?? null;
+        const prevQty = item.newBaseQty ?? undefined;
+        updateBasePrice(item.id, softProposal.suggestedPrice);
+        if (familyItems.length > 0) {
+          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+          });
+        }
+        setSoftProposal(null);
+        baseRejectedRef.current = false;
+      }}
+      onProceed={() => {
+        if (!item || !softProposal) return;
+        const prevPrice = item.newBasePrice ?? null;
+        const prevQty = item.newBaseQty ?? undefined;
+        updateBasePrice(item.id, softProposal.total, softProposal.qty);
+        if (familyItems.length > 0) {
+          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+          });
+        }
+        setSoftProposal(null);
+        baseRejectedRef.current = false;
       }}
     />
     <EdlpCeilingBlockedModal
