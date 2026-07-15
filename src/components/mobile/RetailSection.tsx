@@ -17,6 +17,9 @@ type Props = {
   hasDraft: boolean;
   error: string | null;
   onFocus: () => void;
+  /** Meta chip row (promo window + reason) — present once this section has a
+      change to describe. */
+  meta?: React.ReactNode;
 };
 
 // The primary section — multi-unit promos ("N for $X") get the prominent
@@ -24,13 +27,16 @@ type Props = {
 // card, same internal heading, same stepper) so the two read as one system.
 // No % off / $ off on mobile. The price box is the default keypad target the
 // moment the item opens.
-export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active, hasDraft, error, onFocus }: Props) {
+export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active, hasDraft, error, onFocus, meta }: Props) {
   const total = displayCents / 100;
   return (
-    <section className="flex flex-col gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
-      {/* The section label tints brand when its field owns the keypad — a
-          second, glanceable focus signal beside the caret. */}
-      <h3 className={`text-xs font-semibold uppercase tracking-wide ${active ? "text-brand" : "text-gray-500"}`}>
+    /* Yellow-tag identity — the same shelf-tag color language as the desktop
+       table and the session tray, so the promo lever is recognizable at a
+       glance instead of blending with Base/Fuel. Focus is carried by the
+       price box (border + caret + dimmed amount), not the card color. */
+    <section className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+      <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-900">
+        <span aria-hidden="true" className="size-2.5 rounded-sm border border-amber-400 bg-amber-300" />
         Retail
       </h3>
       <div className="flex items-center gap-3">
@@ -62,6 +68,7 @@ export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active
         </button>
       </div>
       {error && <span className="text-xs font-medium text-red-500">{error}</span>}
+      {meta && <div className="flex flex-wrap gap-2">{meta}</div>}
     </section>
   );
 }

@@ -54,14 +54,14 @@ export function BottomSheet({ open, onClose, title, children }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
-      <button aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <button aria-label="Close" onClick={onClose} className="backdrop-in absolute inset-0 bg-black/40" />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onKeyDown={onKeyDown}
-        className="relative z-10 flex max-h-[75vh] flex-col rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-xl"
+        className="sheet-in relative z-10 flex max-h-[75vh] flex-col rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-xl"
       >
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
           <h2 className="text-sm font-semibold text-gray-900">{title}</h2>

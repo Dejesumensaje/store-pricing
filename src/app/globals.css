@@ -162,6 +162,84 @@ label:has(> input:not(:disabled)) {
   animation: keypad-in 150ms ease-out;
 }
 
+/*
+ * Full-screen info panels (mobile pills → Product details / Competitors /
+ * Relationships / Financials) rising out of the tapped pill — motion conveys
+ * the expansion; 200ms keeps it snappy on the handheld.
+ */
+/*
+ * Container transform for the info panels: the full-screen panel GROWS out of
+ * the pill that was tapped (transform-origin is set inline to the tapped
+ * pill's center), preserving spatial continuity — you see where the screen
+ * came from, so you know where Back returns you.
+ */
+@keyframes panel-grow {
+  from { transform: scale(0.3); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: scale(1); opacity: 1; }
+}
+.panel-grow {
+  animation: panel-grow 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/*
+ * Mobile delight layer — small, fast, one property pair each (opacity +
+ * transform), every class suppressed in the reduced-motion block below.
+ *
+ * sheet-in/backdrop-in: bottom sheets slide up over a fading scrim, so what
+ * appears is visibly connected to the tap (continuity, not teleportation).
+ */
+@keyframes backdrop-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.backdrop-in {
+  animation: backdrop-in 150ms ease-out;
+}
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.sheet-in {
+  animation: sheet-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Screen-to-screen navigation: a quick fade + 8px rise instead of a hard cut. */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.screen-in {
+  animation: screen-in 150ms ease-out;
+}
+
+/* Celebration check (Saved / Sent to SAP): pops with a slight overshoot —
+   the one place a springy curve earns its keep. */
+@keyframes pop-in {
+  0%   { transform: scale(0.4); opacity: 0; }
+  70%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pop-in {
+  animation: pop-in 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Success-summary rows rise in staggered (delay set inline per row);
+   `backwards` keeps them hidden until their turn. */
+.rise-in {
+  animation: screen-in 240ms ease-out backwards;
+}
+
+/* The session counter bumps when a save lands in it — the walk's heartbeat. */
+@keyframes count-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.count-pop {
+  animation: count-pop 300ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .decision-pop,
   .review-dot,
@@ -169,7 +247,14 @@ label:has(> input:not(:disabled)) {
   .hq-pulse,
   .waiting-pulse,
   .caret-blink,
-  .keypad-in {
+  .keypad-in,
+  .panel-grow,
+  .backdrop-in,
+  .sheet-in,
+  .screen-in,
+  .pop-in,
+  .rise-in,
+  .count-pop {
     animation: none !important;
   }
 }

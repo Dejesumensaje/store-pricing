@@ -1,20 +1,31 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Button, useToast } from "@dejesumensaje/converge-ds-experimental";
-import { Check, Package, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { useMobileSessionStore } from "@/store/mobile-session";
 import { buildItemsById, evaluateEdlpCeilingChange } from "@/lib/edlp-ceiling";
-import { fmt } from "@/lib/format";
+import { fmt, fmtDateShort, fmtDateRange } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
+import { isoToday, isoAddDays } from "@/lib/mobile";
+import {
+  REASON_META,
+  STORE_BASE_REASON_OPTIONS,
+  STORE_PROMO_REASON_OPTIONS,
+  type PriceChangeReason,
+} from "@/lib/price-change-reason";
+import type { StoreBaseReason, StorePromoReason } from "@/types/pricing";
 import { RetailSection } from "./RetailSection";
 import { FuelSaverRow } from "./FuelSaverRow";
 import { FuelSaverSheet } from "./FuelSaverSheet";
 import { BaseDisclosure } from "./BaseDisclosure";
-import { DetailsDisclosure } from "./DetailsDisclosure";
+import { ItemInfoPills } from "./ItemInfoPanels";
 import { MobileKeypad } from "./MobileKeypad";
+import { MetaChip, DateIcon, ReasonIcon, ReasonSheet, EffectiveSheet } from "./MetaChips";
+
+const reasonLabel = (r: string) => REASON_META[r as PriceChangeReason]?.label ?? r;
 
 type Props = {
   itemId: string;
@@ -38,6 +49,12 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
   const updatePriceType = usePricingStore((s) => s.updatePriceType);
   const updateFuelSaver = usePricingStore((s) => s.updateFuelSaver);
+  const updateBaseEffectiveDate = usePricingStore((s) => s.updateBaseEffectiveDate);
+  const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
+  const updateFuelSaverDates = usePricingStore((s) => s.updateFuelSaverDates);
+  const commitBaseReason = usePricingStore((s) => s.setBaseChangeReason);
+  const commitRetailReason = usePricingStore((s) => s.setRetailChangeReason);
+  const commitFuelReason = usePricingStore((s) => s.setFuelChangeReason);
   const edlpException = useEdlpException();
   const touchSection = useMobileSessionStore((s) => s.touchSection);
   const setMaintFuelBaseline = useMobileSessionStore((s) => s.setMaintFuelBaseline);
@@ -62,6 +79,34 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
   const [savedFlash, setSavedFlash] = useState(false);
   const [fuelBaselineOnOpen, setFuelBaselineOnOpen] = useState<number | null>(null);
 
+  // Dates & reasons ride as local drafts beside the price drafts — the meta
+  // chips edit these, and commitDrafts writes them through the same store
+  // mutators desktop uses. Prefilled with the item's values or the store
+  // defaults (today / one-week window) so a walk never blocks on them.
+  const [baseDate, setBaseDate] = useState<string>(isoToday);
+  const [retailStart, setRetailStart] = useState<string>(isoToday);
+  const [retailEnd, setRetailEnd] = useState<string | null>(null);
+  const [fuelStart, setFuelStart] = useState<string>(isoToday);
+  const [fuelEnd, setFuelEnd] = useState<string | null>(null);
+  const [baseReason, setBaseReason] = useState<string | undefined>(undefined);
+  const [retailReason, setRetailReason] = useState<string | undefined>(undefined);
+  const [fuelReason, setFuelReason] = useState<string | undefined>(undefined);
+  const [metaSheet, setMetaSheet] = useState<{ kind: "date" | "reason"; section: "base" | "retail" | "fuel" } | null>(
+    null
+  );
+  // Snapshot of the chips' values as prefilled on open — "did the director
+  // change any paperwork?" is measured against this (see hasChanges).
+  const metaBaselineRef = useRef({
+    baseDate: "",
+    retailStart: "",
+    retailEnd: null as string | null,
+    fuelStart: "",
+    fuelEnd: null as string | null,
+    baseReason: undefined as string | undefined,
+    retailReason: undefined as string | undefined,
+    fuelReason: undefined as string | undefined,
+  });
+
   // Reset edit state whenever a new item opens — including scan-while-
   // editing, which mounts a fresh EditScreen via MobileShell's `key={itemId}`.
   useEffect(() => {
@@ -74,6 +119,27 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
     setFuelSheetOpen(false);
     setSavedFlash(false);
     setFuelBaselineOnOpen(item?.fuelSaver ?? null);
+    const today = isoToday();
+    const meta = {
+      baseDate: item?.baseEffectiveDate ?? today,
+      retailStart: item?.allowanceStartDate ?? today,
+      retailEnd: item?.allowanceEndDate ?? isoAddDays(today, 6),
+      fuelStart: item?.fuelSaverStartDate ?? today,
+      fuelEnd: item?.fuelSaverEndDate ?? isoAddDays(today, 6),
+      baseReason: item?.chosenBaseReason as string | undefined,
+      retailReason: item?.chosenRetailReason as string | undefined,
+      fuelReason: item?.chosenFuelReason as string | undefined,
+    };
+    metaBaselineRef.current = meta;
+    setBaseDate(meta.baseDate);
+    setRetailStart(meta.retailStart);
+    setRetailEnd(meta.retailEnd);
+    setFuelStart(meta.fuelStart);
+    setFuelEnd(meta.fuelEnd);
+    setBaseReason(meta.baseReason);
+    setRetailReason(meta.retailReason);
+    setFuelReason(meta.fuelReason);
+    setMetaSheet(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itemId]);
 
@@ -166,15 +232,45 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
       if (item.category_type !== "temporary_allowance") updatePriceType(item.id, "temporary_allowance");
       updateRetailPrice(item.id, retailQty, retailDraftCents / 100);
     }
+    // Dates & reasons: written for every section that carries a change
+    // (typed just now or already pending), overriding the mutators' defaults
+    // with whatever the chips hold.
+    if (baseDraftCents != null || item.newBasePrice != null) {
+      updateBaseEffectiveDate(item.id, baseDate);
+      if (baseReason) commitBaseReason(item.id, baseReason as StoreBaseReason);
+    }
+    if (retailDraftCents != null || item.newRetailPrice != null) {
+      updateAllowanceDates(item.id, retailStart, retailEnd);
+      if (retailReason) commitRetailReason(item.id, retailReason as StorePromoReason);
+    }
+    if (fuelChangedNow || (item.fuelSaver ?? 0) > 0) {
+      updateFuelSaverDates(item.id, fuelStart, fuelEnd);
+      if (fuelReason) commitFuelReason(item.id, fuelReason as StorePromoReason);
+    }
   };
+
+  const fuelChangedNow = item ? (item.fuelSaver ?? null) !== fuelBaselineOnOpen : false;
+  // Sections that carry a change (typed this screen or already pending) —
+  // these are the ones whose meta chips (dates + reason) are shown. Base's
+  // chips render unconditionally inside its expanded editor instead.
+  const retailChanged = retailDraftCents != null || item?.newRetailPrice != null;
+
+  // Anything to save from this screen: a typed price draft, a fuel change,
+  // or edited paperwork (dates/reason) on a section that carries a change —
+  // re-opening an item from the tray just to fix its reason must count.
+  const mb = metaBaselineRef.current;
+  const metaChanged =
+    (retailChanged && (retailStart !== mb.retailStart || retailEnd !== mb.retailEnd || retailReason !== mb.retailReason)) ||
+    ((baseDraftCents != null || item?.newBasePrice != null) && (baseDate !== mb.baseDate || baseReason !== mb.baseReason)) ||
+    ((fuelChangedNow || (item?.fuelSaver ?? 0) > 0) &&
+      (fuelStart !== mb.fuelStart || fuelEnd !== mb.fuelEnd || fuelReason !== mb.fuelReason));
+  const hasChanges = baseDraftCents != null || retailDraftCents != null || fuelChangedNow || metaChanged;
 
   const handleSaveNext = () => {
     if (!canSave || !item) return;
-    const savedSomething =
-      baseDraftCents != null || retailDraftCents != null || (item.fuelSaver ?? null) !== fuelBaselineOnOpen;
     commitDrafts();
     if (mode === "walk") {
-      if (savedSomething) {
+      if (hasChanges) {
         setSavedFlash(true);
         setTimeout(onSaveNext, 600);
       } else {
@@ -214,10 +310,12 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
   if (savedFlash) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 bg-white">
-        <span className="flex size-16 items-center justify-center rounded-full bg-emerald-100">
+        <span className="pop-in flex size-16 items-center justify-center rounded-full bg-emerald-100">
           <Check className="size-8 text-emerald-600" aria-hidden="true" />
         </span>
-        <p className="text-lg font-semibold text-gray-900">Saved</p>
+        <p className="rise-in text-lg font-semibold text-gray-900" style={{ animationDelay: "80ms" }}>
+          Saved
+        </p>
       </div>
     );
   }
@@ -235,33 +333,22 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
       </div>
 
       {/* py-3 + gap-3: tight enough that the full Retail card (the primary
-          section, now stepper-tall) clears the keypad fold at 640px. */}
+          section, now stepper-tall) clears the keypad fold at 640px.
+          Grouping via proximity: the three price levers cluster at gap-2 (one
+          perceptual unit — the editing surface), while identity above and the
+          reference pills below sit a full gap-3 apart. */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <div className="flex flex-col gap-3">
-          {/* Identity zone — glanceable: name, size · UPC, On Hand, current retail. */}
-          <div className="flex items-start gap-3">
-            <div className="flex size-14 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-gray-50">
-              <Package className="size-6 text-gray-300" aria-hidden="true" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-base font-semibold text-gray-900">{item.name}</p>
-              <p className="mt-0.5 truncate text-xs text-gray-500">
-                {item.size ?? item.packSize} · UPC {item.upc}
-              </p>
-              <div className="mt-1.5 flex items-center gap-2">
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                  On hand {item.onHand ?? "—"}
-                </span>
-                {/* The live shelf price — the same reference the Retail
-                    section's "was" line uses, so the two prominent prices
-                    on screen never disagree (base lives in its disclosure). */}
-                <span className="text-lg font-bold tabular-nums text-gray-900">{fmt(liveRetail)}</span>
-              </div>
-            </div>
+          {/* Identity zone — two lines, no chrome: name, then size · UPC ·
+              OH on one meta line. Prices live in the section cards below. */}
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold text-gray-900">{item.name}</p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              {item.size ?? item.packSize} · UPC {item.upc} · <span className="font-medium text-gray-700">OH: {item.onHand ?? "—"}</span>
+            </p>
           </div>
 
-          {mode === "walk" && <p className="text-xs text-gray-600">Applies after desktop review</p>}
-
+          <div className="flex flex-col gap-2">
           <RetailSection
             qty={retailQty}
             onQtyChange={setRetailQty}
@@ -271,17 +358,66 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
             hasDraft={retailDraftCents != null}
             error={retailError}
             onFocus={() => setActiveTarget("retail")}
+            meta={
+              retailChanged ? (
+                <>
+                  <MetaChip
+                    icon={DateIcon}
+                    label={fmtDateRange(retailStart, retailEnd) ?? "Dates"}
+                    ariaLabel="Retail promo window"
+                    onClick={() => setMetaSheet({ kind: "date", section: "retail" })}
+                  />
+                  <MetaChip
+                    icon={ReasonIcon}
+                    empty={!retailReason}
+                    label={retailReason ? reasonLabel(retailReason) : "+ Reason"}
+                    ariaLabel="Retail change reason"
+                    onClick={() => setMetaSheet({ kind: "reason", section: "retail" })}
+                  />
+                </>
+              ) : undefined
+            }
+          />
+
+          <FuelSaverRow
+            value={item.fuelSaver}
+            onOpen={() => {
+              // Moving on to fuel ends the typing intent — drop the keypad so
+              // the sheet isn't stacked on top of it.
+              setActiveTarget(null);
+              setFuelSheetOpen(true);
+            }}
+            meta={
+              /* Only for a fuel change made on THIS screen — an untouched
+                 live fuel saver must not advertise missing paperwork. */
+              fuelChangedNow ? (
+                <>
+                  <MetaChip
+                    icon={DateIcon}
+                    label={fmtDateRange(fuelStart, fuelEnd) ?? "Dates"}
+                    ariaLabel="Fuel Saver run window"
+                    onClick={() => setMetaSheet({ kind: "date", section: "fuel" })}
+                  />
+                  <MetaChip
+                    icon={ReasonIcon}
+                    empty={!fuelReason}
+                    label={fuelReason ? reasonLabel(fuelReason) : "+ Reason"}
+                    ariaLabel="Fuel Saver change reason"
+                    onClick={() => setMetaSheet({ kind: "reason", section: "fuel" })}
+                  />
+                </>
+              ) : undefined
+            }
           />
 
           <BaseDisclosure
             open={baseOpen}
             onToggle={() => {
               // Expanding Base IS the intent to edit it — summon the keypad
-              // targeted at base without a second tap; collapsing it ends
-              // that intent, so the keypad hides again.
-              const next = !baseOpen;
-              setBaseOpen(next);
-              setActiveTarget(next ? "base" : null);
+              // targeted at base without a second tap. One-way: once open it
+              // stays open for this item (the next scan resets it).
+              setBaseOpen(true);
+              setActiveTarget("base");
             }}
             currentLabel={`Base price · ${fmt(baseRef)}`}
             active={activeTarget === "base"}
@@ -293,19 +429,29 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
             error={baseError}
             notice={baseNotice}
             familyNote={familyItems.length > 0 ? `Family price — updates all ${familyItems.length + 1} items` : null}
+            meta={
+              /* Always present while the editor is open — expanding Base IS
+                 the edit intent, so its paperwork is visible from the start. */
+              <>
+                <MetaChip
+                  icon={DateIcon}
+                  label={`Effective ${fmtDateShort(baseDate) ?? "today"}`}
+                  ariaLabel="Base effective date"
+                  onClick={() => setMetaSheet({ kind: "date", section: "base" })}
+                />
+                <MetaChip
+                  icon={ReasonIcon}
+                  empty={!baseReason}
+                  label={baseReason ? reasonLabel(baseReason) : "+ Reason"}
+                  ariaLabel="Base change reason"
+                  onClick={() => setMetaSheet({ kind: "reason", section: "base" })}
+                />
+              </>
+            }
           />
+          </div>
 
-          <FuelSaverRow
-            value={item.fuelSaver}
-            onOpen={() => {
-              // Moving on to fuel ends the typing intent — drop the keypad so
-              // the sheet isn't stacked on top of it.
-              setActiveTarget(null);
-              setFuelSheetOpen(true);
-            }}
-          />
-
-          <DetailsDisclosure item={item} />
+          <ItemInfoPills item={item} liveRetail={liveRetail} familyItems={familyItems} />
         </div>
       </div>
 
@@ -324,7 +470,16 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
             beside the primary button, inviting mis-taps during fast
             one-handed Save & next runs. */}
         <div className="px-4 py-3">
-          <Button variant="primary" disabled={!canSave} onClick={handleSaveNext} className="h-14 w-full">
+          {/* Disabled until something actually changed (price, fuel, or
+              paperwork) — a red call-to-action with nothing behind it reads
+              as a lie, in either mode. Skipping an item has its own paths:
+              scan the next one, the header X, or hardware back. */}
+          <Button
+            variant="primary"
+            disabled={!canSave || !hasChanges}
+            onClick={handleSaveNext}
+            className="h-14 w-full"
+          >
             {mode === "walk" ? "Save & next" : "Review change"}
           </Button>
         </div>
@@ -343,6 +498,51 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
           else setMaintFuelBaseline(item.id, fuelBaselineOnOpen);
           updateFuelSaver(item.id, v);
         }}
+      />
+
+      <ReasonSheet
+        open={metaSheet?.kind === "reason"}
+        title={
+          metaSheet?.section === "base"
+            ? "Base change reason"
+            : metaSheet?.section === "fuel"
+              ? "Fuel Saver reason"
+              : "Retail change reason"
+        }
+        options={metaSheet?.section === "base" ? STORE_BASE_REASON_OPTIONS : STORE_PROMO_REASON_OPTIONS}
+        value={metaSheet?.section === "base" ? baseReason : metaSheet?.section === "fuel" ? fuelReason : retailReason}
+        onSelect={(v) => {
+          if (metaSheet?.section === "base") setBaseReason(v);
+          else if (metaSheet?.section === "fuel") setFuelReason(v);
+          else setRetailReason(v);
+        }}
+        onClose={() => setMetaSheet(null)}
+      />
+
+      <EffectiveSheet
+        open={metaSheet?.kind === "date"}
+        title={
+          metaSheet?.section === "base"
+            ? "Base effective date"
+            : metaSheet?.section === "fuel"
+              ? "Fuel Saver run"
+              : "Promo window"
+        }
+        mode={metaSheet?.section === "base" ? "single" : "range"}
+        start={metaSheet?.section === "base" ? baseDate : metaSheet?.section === "fuel" ? fuelStart : retailStart}
+        end={metaSheet?.section === "fuel" ? fuelEnd : retailEnd}
+        onApply={(s, e) => {
+          if (metaSheet?.section === "base") {
+            setBaseDate(s);
+          } else if (metaSheet?.section === "fuel") {
+            setFuelStart(s);
+            setFuelEnd(e);
+          } else {
+            setRetailStart(s);
+            setRetailEnd(e);
+          }
+        }}
+        onClose={() => setMetaSheet(null)}
       />
     </div>
   );

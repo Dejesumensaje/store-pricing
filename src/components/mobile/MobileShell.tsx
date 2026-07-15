@@ -92,6 +92,17 @@ function MobileShellInner() {
     </>
   );
 
+  // Every navigation gets a quick fade + rise (screen-in) instead of a hard
+  // cut — keyed so the animation replays per destination, including the same
+  // screen for a different item.
+  const screenKey = "itemId" in view ? `${view.name}:${view.itemId}` : view.name;
+  return (
+    <div key={screenKey} className="screen-in h-full">
+      {renderView()}
+    </div>
+  );
+
+  function renderView() {
   switch (view.name) {
     case "home":
       return (
@@ -178,5 +189,6 @@ function MobileShellInner() {
 
     default:
       return null;
+  }
   }
 }

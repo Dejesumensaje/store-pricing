@@ -1,17 +1,18 @@
 "use client";
 
 import { Fuel } from "lucide-react";
+import { fmt } from "@/lib/format";
 
-export const fuelCents = (v: number | null | undefined) => (v && v > 0 ? `+${Math.round(v * 100)}¢` : "None");
+// Dollar amounts ("$0.10") — the fuel icon already says what the number is,
+// so no "+" prefix.
+export const fuelAmountLabel = (v: number | null | undefined) => (v && v > 0 ? fmt(v) : "None");
 
-// Desktop's blue fuel chip (see buildStoreColumns.FuelChip) with the mobile
-// cents label ("+10¢") instead of dollars — the chip must echo what the
-// director just picked in the fuel dropdown, which speaks cents on mobile.
+// Desktop's blue fuel chip (see buildStoreColumns.FuelChip).
 export function FuelChip({ value }: { value: number }) {
   return (
     <span className="inline-flex items-center gap-0.5 rounded-sm border border-blue-200 bg-blue-50 px-1 py-px text-[10px] font-bold tabular-nums text-blue-700">
       <Fuel aria-hidden="true" className="size-2.5" />
-      {fuelCents(value)}
+      {fuelAmountLabel(value)}
     </span>
   );
 }
@@ -36,7 +37,7 @@ export function FuelMoveLine({
       {label && <span className="w-9 shrink-0 text-[10px] uppercase tracking-wide text-gray-500">{label}</span>}
       {changed && from != null && from > 0 && (
         <>
-          <span className="text-xs text-gray-400 line-through">{fuelCents(from)}</span>
+          <span className="text-xs text-gray-400 line-through">{fuelAmountLabel(from)}</span>
           <span aria-hidden="true" className="text-gray-300">
             →
           </span>

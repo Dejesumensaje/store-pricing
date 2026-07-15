@@ -3,6 +3,7 @@
 import { Check } from "lucide-react";
 import { BottomSheet } from "./BottomSheet";
 import { FUEL_SAVER_OPTIONS } from "@/lib/pricing-meta";
+import { fuelAmountLabel } from "./FuelMove";
 
 type Props = {
   open: boolean;
@@ -11,11 +12,10 @@ type Props = {
   onSelect: (value: number | null) => void;
 };
 
-// Reuses desktop's shared FUEL_SAVER_OPTIONS catalog, rendered as cents
-// ("+10¢"…) instead of dollars — the mobile convention for this field (see
-// FuelSaverRow). Selecting an option commits immediately (no separate Save
-// step) — Fuel Saver carries no Override record, so there's nothing to
-// stage.
+// Reuses desktop's shared FUEL_SAVER_OPTIONS catalog, rendered in dollars
+// ("+$0.10"…) — the same vocabulary as the desktop fuel chip. Selecting an
+// option commits immediately (no separate Save step) — Fuel Saver carries no
+// Override record, so there's nothing to stage.
 export function FuelSaverSheet({ open, value, onClose, onSelect }: Props) {
   const current = (value ?? 0).toFixed(2);
   return (
@@ -23,7 +23,7 @@ export function FuelSaverSheet({ open, value, onClose, onSelect }: Props) {
       <ul className="flex flex-col gap-1">
         {FUEL_SAVER_OPTIONS.map((opt) => {
           const amount = Number(opt.value);
-          const label = amount > 0 ? `+${Math.round(amount * 100)}¢` : "None";
+          const label = fuelAmountLabel(amount);
           const selected = opt.value === current;
           return (
             <li key={opt.value}>

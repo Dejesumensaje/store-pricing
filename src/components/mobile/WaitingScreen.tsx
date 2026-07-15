@@ -47,7 +47,11 @@ export function WaitingScreen({ mode, sessionCount, onOpenTray, onSimulateScan, 
               aria-label={`Session tray, ${sessionCount ?? 0} edited this walk`}
               className="-mr-1 flex min-h-11 select-none touch-manipulation items-center rounded-lg px-1.5 active:bg-gray-100"
             >
-              <Badge tone={sessionCount ? "in-progress" : "neutral"}>{sessionCount ?? 0} edited</Badge>
+              {/* Keyed by count: the badge bumps the moment a save lands in
+                  it — the walk's running tally answering "did that stick?". */}
+              <span key={sessionCount} className={sessionCount ? "count-pop inline-flex" : "inline-flex"}>
+                <Badge tone={sessionCount ? "in-progress" : "neutral"}>{sessionCount ?? 0} edited</Badge>
+              </span>
             </button>
           ) : (
             <span className="w-10" aria-hidden="true" />

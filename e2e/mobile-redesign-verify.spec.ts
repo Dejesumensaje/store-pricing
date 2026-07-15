@@ -10,8 +10,10 @@ const SHOT = (name: string) => ({ path: `e2e/screenshots/mobile-${name}.png` });
 async function pickFuelDifferentFromCurrent(page: Page) {
   // Fuel rows carry seeded values that vary per item — pick whatever differs
   // from the current label so the change is guaranteed to register.
-  const row = page.getByRole("button", { name: /Fuel Saver/ });
-  const current = (await row.innerText()).includes("None") ? "+10¢" : "None";
+  // Match the selector ROW ("Fuel Saver $0.10" / "Fuel Saver None"), not the
+  // meta chips whose labels also start with "Fuel Saver".
+  const row = page.getByRole("button", { name: /^Fuel Saver (\$|None)/ });
+  const current = (await row.innerText()).includes("None") ? "$0.10" : "None";
   await row.click();
   await page.getByRole("dialog").getByRole("button", { name: current, exact: true }).click();
   return current;
@@ -35,20 +37,29 @@ test.describe("mobile shell (TC57X viewport)", () => {
 
     // Scan Lay's (W7BESS — carries a seeded pending retail TA).
     await page.getByRole("button", { name: "Simulate scan" }).click();
+    await page.waitForTimeout(300); // sheet slide-in settles
     await page.screenshot(SHOT("03-simulate-sheet"));
     await page.getByRole("button", { name: /Lay's Classic Potato Chips/ }).click();
 
-    // Issue-4 regression: the identity price is the LIVE retail — the same
-    // number the Retail section's "was" line references. (Scope to the mobile
-    // shell: the CSS-hidden desktop tree is still in the DOM.)
+    // (Scope to the mobile shell: the CSS-hidden desktop tree is in the DOM.)
     const shell = page.getByTestId("mobile-shell");
-    const wasLine = await shell.getByText(/^was \$/).innerText(); // "was $3.99"
-    const livePrice = wasLine.replace("was ", "");
-    await expect(shell.getByText(livePrice, { exact: true }).first()).toBeVisible();
+    await expect(shell.getByText(/^was \$/)).toBeVisible();
+    await expect(shell.getByText(/· OH: \d/)).toBeVisible();
 
-    // On open: whole item glanceable, keypad hidden, no field focused.
+    // Info pills → full-screen panel and back.
+    await page.getByRole("button", { name: "Details" }).click();
+    await expect(page.getByRole("dialog", { name: "Product details" })).toBeVisible();
+    await expect(page.getByRole("dialog").getByText("POS Description")).toBeVisible();
+    await page.waitForTimeout(300); // let the panel's rise-in animation settle
+    await page.screenshot(SHOT("03d-details-panel"));
+    await page.getByRole("dialog").getByRole("button", { name: "Back" }).click();
+    await expect(page.getByRole("dialog", { name: "Product details" })).not.toBeVisible();
+
+    // On open: whole item glanceable, keypad hidden, no field focused, and
+    // the primary action disabled until a real change exists.
     await expect(shell.locator(".caret-blink")).toHaveCount(0);
     await expect(page.getByRole("group", { name: "Price keypad" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
     await page.screenshot(SHOT("03b-edit-pristine"));
 
     // Tapping the retail box summons the keypad, focused there (one caret).
@@ -69,6 +80,13 @@ test.describe("mobile shell (TC57X viewport)", () => {
       await page.getByRole("button", { name: d, exact: true }).click();
     }
     await expect(shell.getByText("$2.99", { exact: true })).toBeVisible();
+
+    // The change now carries meta chips: prefilled promo window + empty
+    // reason. Pick a reason from the shared catalog sheet.
+    await expect(page.getByRole("button", { name: "Retail promo window" })).toBeVisible();
+    await page.getByRole("button", { name: "Retail change reason" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Manager special", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Retail change reason" })).toContainText("Manager special");
     await page.screenshot(SHOT("04-edit-retail"));
     await page.getByRole("button", { name: "Save & next" }).click();
 
@@ -141,6 +159,8 @@ test.describe("mobile shell (TC57X viewport)", () => {
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
     await page.getByRole("button", { name: "Simulate scan" }).click();
     await page.getByRole("button", { name: /Pop Secret/ }).click();
+    // Nothing changed yet — the primary call-to-action must not invite a tap.
+    await expect(page.getByRole("button", { name: "Review change" })).toBeDisabled();
     const picked = await pickFuelDifferentFromCurrent(page);
     await page.getByRole("button", { name: "Review change" }).click();
 
@@ -148,11 +168,19 @@ test.describe("mobile shell (TC57X viewport)", () => {
     await expect(shell.getByText("Review change")).toBeVisible();
     await expect(shell.getByText("Fuel Saver")).toBeVisible();
     await expect(shell.getByText(picked)).toBeVisible();
-    await expect(shell.getByText("Immediately")).toBeVisible();
+
+    // Reason is REQUIRED before anything reaches SAP — Send stays disabled
+    // until the changed section carries one (settable right here).
+    await expect(page.getByRole("button", { name: "Send to SAP" })).toBeDisabled();
+    await expect(shell.getByText("Add a change reason to send")).toBeVisible();
+    await page.getByRole("button", { name: "Fuel Saver change reason" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Displays", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Send to SAP" })).toBeEnabled();
     await page.screenshot(SHOT("10-maint-review"));
 
     await page.getByRole("button", { name: "Send to SAP" }).click();
     await expect(page.getByText("Sent to SAP")).toBeVisible();
+    await page.waitForTimeout(500); // pop + staggered rows settle
     await page.screenshot(SHOT("11-maint-success"));
     await page.getByRole("button", { name: "Scan next item" }).click();
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();

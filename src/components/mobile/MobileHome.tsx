@@ -42,7 +42,7 @@ export function MobileHome({ onStoreWalk, onItemMaintenance }: Props) {
       <div className="flex flex-1 flex-col gap-3 p-4">
         <button
           onClick={onStoreWalk}
-          className="flex min-h-28 flex-col justify-between rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left active:bg-gray-100"
+          className="flex min-h-28 select-none touch-manipulation flex-col justify-between rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left transition-transform duration-75 active:scale-[0.98] active:bg-gray-100 motion-reduce:transition-none"
         >
           <div className="flex items-center justify-between">
             <span className="flex size-10 items-center justify-center rounded-full bg-brand/10">
@@ -58,7 +58,7 @@ export function MobileHome({ onStoreWalk, onItemMaintenance }: Props) {
 
         <button
           onClick={onItemMaintenance}
-          className="flex min-h-28 flex-col justify-between rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left active:bg-gray-100"
+          className="flex min-h-28 select-none touch-manipulation flex-col justify-between rounded-2xl border border-gray-200 bg-gray-50 p-4 text-left transition-transform duration-75 active:scale-[0.98] active:bg-gray-100 motion-reduce:transition-none"
         >
           <div className="flex items-center justify-between">
             <span className="flex size-10 items-center justify-center rounded-full bg-brand/10">

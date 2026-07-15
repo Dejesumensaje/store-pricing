@@ -28,17 +28,19 @@ export function MaintenanceSuccess({ itemId, onScanNext }: Props) {
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-        <span className="flex size-20 items-center justify-center rounded-full bg-emerald-100">
+        {/* The payoff moment: check pops with a slight overshoot, then the
+            headline and summary rows rise in staggered beneath it. */}
+        <span className="pop-in flex size-20 items-center justify-center rounded-full bg-emerald-100">
           <CheckCircle2 className="size-10 text-emerald-600" aria-hidden="true" />
         </span>
-        <div>
+        <div className="rise-in" style={{ animationDelay: "80ms" }}>
           <p className="text-lg font-semibold text-gray-900">Sent to SAP</p>
           {item && <p className="mt-1 text-sm text-gray-500">{item.name}</p>}
         </div>
         {item && (
           /* Desktop's shelf-tag convention — white base tag, yellow promo
              tag, blue fuel chip — same as the review recap it just confirmed. */
-          <div className="flex flex-col gap-2 text-sm tabular-nums text-gray-700">
+          <div className="rise-in flex flex-col gap-2 text-sm tabular-nums text-gray-700" style={{ animationDelay: "160ms" }}>
             {baseOverride && (
               <p className="flex items-center justify-center gap-1.5">
                 <span className="text-[10px] uppercase tracking-wide text-gray-500">Base</span>

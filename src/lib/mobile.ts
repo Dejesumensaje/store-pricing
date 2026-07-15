@@ -79,3 +79,15 @@ export const CATEGORY_TO_DEPARTMENT: Record<string, string> = {
 export function departmentForCategory(category: string): string {
   return CATEGORY_TO_DEPARTMENT[category] ?? "Grocery";
 }
+
+// ISO date helpers for the mobile meta chips (effective dates). Same
+// YYYY-MM-DD shape the pricing-store mutators default with.
+export function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function isoAddDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
