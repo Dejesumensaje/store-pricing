@@ -73,6 +73,20 @@ export type PricingItem = {
   sensitivity: Sensitivity;
   /** Supplier/vendor of record (distinct from the consumer brand). */
   vendorName?: string;
+  /**
+   * Deterministic UPC-A barcode synthesized for the mobile scan flows (the
+   * mock catalog carries no real UPC). Same id always yields the same code —
+   * see `upcFromId` in `lib/mobile.ts`.
+   */
+  upc?: string;
+  /** POS receipt description — a short, all-caps rendering of the name (mobile Details disclosure only). */
+  posDescription?: string;
+  /** Units currently on hand at the active store (deterministic mock; mobile Details disclosure only). */
+  onHand?: number;
+  /** Mirrors `packSize` — mobile's Details disclosure reads this field name. */
+  size?: string;
+  /** Store department, derived from `category` (mobile Details disclosure only). */
+  department?: string;
   /** Known Value Item — a price shoppers watch closely. Drives a drawer badge. */
   isKvi?: boolean;
   /** Display name of the price family this item belongs to (e.g. "Reg Chips 11.5 oz"). */

@@ -1,20 +1,19 @@
 "use client";
 
 import { SearchInput, Button, Tooltip, CountBadge } from "@dejesumensaje/converge-ds-experimental";
-import { ListFilter, ScanLine } from "lucide-react";
+import { ListFilter } from "lucide-react";
 import { ColumnsMenu, ColumnOption } from "../pricing-table/ColumnsMenu";
 
 type Props = {
   search: string;
   onSearch: (value: string) => void;
   onOpenFilter: () => void;
-  onScan: () => void;
   activeFilterCount: number;
   columnOptions: ColumnOption[];
   onToggleColumn: (id: string, visible: boolean) => void;
 };
 
-export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFilterCount, columnOptions, onToggleColumn }: Props) {
+export function ItemsToolbar({ search, onSearch, onOpenFilter, activeFilterCount, columnOptions, onToggleColumn }: Props) {
   return (
     // Mobile: search pinned left, actions clustered right (justify-between).
     // Desktop: the whole toolbar sits at the right of the tabs row, items inline.
@@ -43,15 +42,6 @@ export function ItemsToolbar({ search, onSearch, onOpenFilter, onScan, activeFil
         visible on desktop.
       */}
       <div className="search-actions flex items-center gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          iconLeft={ScanLine}
-          className="md:hidden"
-          onClick={onScan}
-        >
-          Scan
-        </Button>
         {/* Icon-only with a tooltip; the active-filter count rides as a badge
             (label removed to match the columns action's compact register). */}
         <Tooltip content="Filters">

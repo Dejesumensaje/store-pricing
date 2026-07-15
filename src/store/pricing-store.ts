@@ -43,6 +43,11 @@ type PricingStore = {
   setRetailChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
   setFuelChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
   removeFromLooseTray: (overrideId: string) => void;
+  // Mobile Item Maintenance's "Send to SAP" — confirms every pending override
+  // on the item (pending → confirmed) so desktop's Status column reads
+  // "Live" immediately, instead of the "pending until desktop review" state
+  // Store Walk edits leave behind. Additive: no other flow calls this.
+  confirmItemOverrides: (itemId: string) => void;
 };
 
 const SIX_DAYS_MS = 6 * 86400000;
@@ -384,6 +389,23 @@ export const usePricingStore = create<PricingStore>((set) => ({
         items: state.items.map(clear),
       };
     }),
+
+  confirmItemOverrides: (itemId) => {
+    set((state) => ({
+      overrides: state.overrides.map((o) =>
+        o.itemId === itemId && o.status === "pending" ? { ...o, status: "confirmed" as OverrideStatus } : o
+      ),
+      items: state.items.map((item) => {
+        if (item.id !== itemId) return item;
+        return withOverrideFlags({
+          ...item,
+          baseOverrideStatus: item.baseOverrideStatus === "pending" ? "confirmed" : item.baseOverrideStatus,
+          retailOverrideStatus: item.retailOverrideStatus === "pending" ? "confirmed" : item.retailOverrideStatus,
+        });
+      }),
+    }));
+    commitDecision(itemId, {});
+  },
 }));
 
 // The store currently in view (stable object from STORES).

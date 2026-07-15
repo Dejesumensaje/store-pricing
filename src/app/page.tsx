@@ -4,7 +4,6 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import {
   Button,
   CountBadge,
-  Select,
   ToggleGroup,
   useToast,
 } from "@dejesumensaje/converge-ds-experimental";
@@ -12,8 +11,7 @@ import { SearchX } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { StorePricingHeader } from "@/components/store/StorePricingHeader";
 import { ItemsToolbar } from "@/components/store/ItemsToolbar";
-import { MobileItemList } from "@/components/store/MobileItemList";
-import { ScanOverlay } from "@/components/store/ScanOverlay";
+import { MobileShell } from "@/components/mobile/MobileShell";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { DataTable } from "@/components/pricing-table/DataTable";
 import { buildStoreColumns, STORE_OPTIONAL_COLUMNS } from "@/components/store/buildStoreColumns";
@@ -66,7 +64,6 @@ export default function StorePricingPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [visibleCols, setVisibleCols] = useState<Set<string>>(new Set());
   const [drawerItemId, setDrawerItemId] = useState<string | null>(null);
-  const [scanOpen, setScanOpen] = useState(false);
 
   const hqCount = useMemo(() => items.filter(hqReviewNeeded).length, [items]);
   // View-lens segments. "All items" is always present; the HQ lens appears only
@@ -223,7 +220,11 @@ export default function StorePricingPage() {
     });
 
   return (
-    <div id="main-content" className="flex h-full flex-col bg-gray-50">
+    <>
+    {/* Desktop-identical at ≥48rem — the mobile surface below is a wholly
+        separate, scan-first experience (MobileShell), not a shrunken version
+        of this tree. */}
+    <div id="main-content" className="hidden h-full flex-col bg-gray-50 md:flex">
       <AppHeader
         hqCount={hqCount}
         onViewHq={() => {
@@ -262,35 +263,24 @@ export default function StorePricingPage() {
                 search={search}
                 onSearch={setSearch}
                 onOpenFilter={() => setFilterOpen(true)}
-                onScan={() => setScanOpen(true)}
                 activeFilterCount={activeFilterCount}
                 columnOptions={columnOptions}
                 onToggleColumn={onToggleColumn}
               />
             </div>
             {/* View lens — shown only when there's more than "All items" to
-                switch between (an HQ set exists). The toggle is the single
-                navigation model: no separate "review" banner. md+ gets the
-                segmented control, mobile a dropdown picker. */}
+                switch between (an HQ set exists). This whole tree is desktop-only
+                now (see the `hidden md:flex` wrapper below), so the toggle needs
+                no mobile fallback. */}
             {viewOptions.length > 1 && (
-              <>
-                <div className="mt-3 hidden md:block">
-                  <ToggleGroup
-                    aria-label="Item view"
-                    value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
-                    onValueChange={(v) => setStoreView(v as "all" | "hq")}
-                    options={viewOptions}
-                  />
-                </div>
-                <div className="mt-3 md:hidden">
-                  <Select
-                    label="View"
-                    value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
-                    onChange={(v) => setStoreView(v as "all" | "hq")}
-                    options={viewOptions}
-                  />
-                </div>
-              </>
+              <div className="mt-3 hidden md:block">
+                <ToggleGroup
+                  aria-label="Item view"
+                  value={viewOptions.some((o) => o.value === storeView) ? storeView : "all"}
+                  onValueChange={(v) => setStoreView(v as "all" | "hq")}
+                  options={viewOptions}
+                />
+              </div>
             )}
             <div className="mt-4 flex-1 min-h-0 flex flex-col">
               {activeFilterCount > 0 && (
@@ -317,50 +307,40 @@ export default function StorePricingPage() {
                   }
                 />
               ) : (
-                <>
-                  {/* Own scroll region on mobile so the pinned header stays put. */}
-                  <div className="md:hidden flex-1 min-h-0 overflow-y-auto">
-                    <MobileItemList
-                      rows={rows}
-                      onRowClick={(r) => setDrawerItemId(r.id)}
-                    />
-                  </div>
-
-                  {/* Tablet/desktop: full data table. flex-1 + min-h-0 lets DataTable's
-                      h-full/overflow-auto create a real scroll container so sticky headers work. */}
-                  <div className="hidden md:flex md:flex-col md:flex-1 md:min-h-0">
-                    <DataTable
-                      columns={columns}
-                      rows={rows}
-                      rowKey={(r) => r.id}
-                      flat
-                      isOverride={(r) => r.hasOverride}
-                      needsReview={(r) => hqReviewNeeded(r)}
-                      onRowClick={(r) => setDrawerItemId(r.id)}
-                    />
-                  </div>
-                </>
+                // Tablet/desktop only now — MobileShell renders its own scan-first
+                // surface below `md`. flex-1 + min-h-0 lets DataTable's
+                // h-full/overflow-auto create a real scroll container so sticky
+                // headers work.
+                <div className="flex flex-1 flex-col min-h-0">
+                  <DataTable
+                    columns={columns}
+                    rows={rows}
+                    rowKey={(r) => r.id}
+                    flat
+                    isOverride={(r) => r.hasOverride}
+                    needsReview={(r) => hqReviewNeeded(r)}
+                    onRowClick={(r) => setDrawerItemId(r.id)}
+                  />
+                </div>
               )}
             </div>
         </>
       </main>
-
-      <ScanOverlay
-        open={scanOpen}
-        items={items}
-        onClose={() => setScanOpen(false)}
-        onScanResult={(id) => {
-          setScanOpen(false);
-          setDrawerItemId(id);
-        }}
-      />
-
-      <FilterDrawer open={filterOpen} onOpenChange={setFilterOpen} facets={facets} value={filters} onApply={setFilters} />
-
-      <ItemEditDrawer
-        itemId={drawerItemId}
-        onClose={() => setDrawerItemId(null)}
-      />
     </div>
+
+    <div className="md:hidden h-full" data-testid="mobile-shell">
+      <MobileShell />
+    </div>
+
+    {/* Outside both branches: FilterDrawer/ItemEditDrawer portal, and fully
+        unmount when closed, so nothing on mobile can open them anymore
+        (there's no control left below `md` that calls setFilterOpen/setDrawerItemId). */}
+    <FilterDrawer open={filterOpen} onOpenChange={setFilterOpen} facets={facets} value={filters} onApply={setFilters} />
+
+    <ItemEditDrawer
+      itemId={drawerItemId}
+      onClose={() => setDrawerItemId(null)}
+    />
+    </>
   );
 }

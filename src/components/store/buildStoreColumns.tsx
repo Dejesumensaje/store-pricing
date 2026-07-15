@@ -135,14 +135,17 @@ export function HqBadge({ reasons }: { reasons?: PriceChangeReason[] }) {
 // base price, yellow card for a retail promo. ONE tag style — whether the value
 // is the director's committed decision or HQ's proposal, the tag looks the same;
 // the HQ name badge + "Needs review" status carry the "this is a proposal" signal.
-const TAG_CHIP: Record<"white" | "yellow", string> = {
+// Exported: the mobile session tray / maintenance recap reuse the exact same
+// tag treatment so a price move reads identically on the handheld and here.
+export const TAG_CHIP: Record<"white" | "yellow", string> = {
   white: "whitespace-nowrap rounded border border-gray-300 bg-white px-1.5 py-0.5 font-semibold text-gray-900",
   yellow: "whitespace-nowrap rounded border border-amber-300 bg-amber-200 px-1.5 py-0.5 font-semibold text-amber-950",
 };
 
 // One "original → after" line. No change ⇒ just the current price (muted). New
 // items have no current price to strike, so they read "Set {price}".
-function MoveLine({
+// Exported for the mobile surfaces (see TAG_CHIP).
+export function MoveLine({
   label,
   original,
   display,

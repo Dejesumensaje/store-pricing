@@ -9,6 +9,7 @@
 import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 import { round2 } from "@/lib/pricing-math";
+import { upcFromId, departmentForCategory } from "@/lib/mobile";
 
 // Deterministic (no Math.random — hydration must be stable) char-code sum,
 // used below to decide which competitors have an active TPR on a given item.
@@ -72,6 +73,13 @@ function enrichItemContext(item: PricingItem): PricingItem {
     // High-sensitivity SKUs are the prices shoppers watch — flag them KVI.
     isKvi: item.isKvi ?? item.sensitivity === "H",
     priceFamilyName: item.priceFamilyName ?? (familyId ? FAMILY_NAMES[familyId] : undefined),
+    // Mobile-only context (Zebra TC57X scan flows + Details disclosure) —
+    // synthesized deterministically since the mock catalog has no real UPC.
+    upc: item.upc ?? upcFromId(item.id),
+    posDescription: item.posDescription ?? item.name.toUpperCase().slice(0, 22),
+    onHand: item.onHand ?? (idSum % 40) + 3,
+    size: item.size ?? item.packSize,
+    department: item.department ?? departmentForCategory(item.category),
     // Temp-allowance defaults (retail overrides are seeded explicitly below).
     currentRetailPrice: item.currentRetailPrice ?? item.currentBasePrice,
     allowanceCost: item.allowanceCost ?? round2(item.cost * 0.8),
