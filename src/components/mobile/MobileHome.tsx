@@ -52,7 +52,7 @@ export function MobileHome({ onStoreWalk, onItemMaintenance }: Props) {
           </div>
           <div>
             <p className="text-base font-semibold text-gray-900">Store Walk</p>
-            <p className="mt-0.5 text-sm text-gray-500">Scan through the aisle — many items, pending until desktop review.</p>
+            <p className="mt-0.5 text-sm text-gray-500">Edit prices now, send later</p>
           </div>
         </button>
 
@@ -68,7 +68,7 @@ export function MobileHome({ onStoreWalk, onItemMaintenance }: Props) {
           </div>
           <div>
             <p className="text-base font-semibold text-gray-900">Item Maintenance</p>
-            <p className="mt-0.5 text-sm text-gray-500">One item, confirmed — sends to SAP now.</p>
+            <p className="mt-0.5 text-sm text-gray-500">Send price changes instantly</p>
           </div>
         </button>
       </div>
