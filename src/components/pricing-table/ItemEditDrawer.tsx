@@ -20,7 +20,7 @@ import { BasePriceSoftWarningModal } from "./BasePriceSoftWarningModal";
 import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
-import { evaluateBaseChange, committedSoftWarnings, BaseChangeEvaluation } from "@/lib/relationship-validation";
+import { evaluateBaseChange, committedSoftWarnings, validPriceWindow, planLadderRepair, BaseChangeEvaluation, PriceWindow, RepairPlan } from "@/lib/relationship-validation";
 import {
   REASON_META,
   PriceChangeReason,
@@ -35,7 +35,7 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PRICE_TYPE_INTENT, FUEL_SAVER_OPTIONS, fuelSaverSelectValue } from "@/lib/pricing-meta";
 import { deriveItemStatus, hqReviewNeeded, baseRecPending, retailRecPending, fuelRecPending } from "@/lib/item-status";
 import { fmt, fmtQtyPrice, fmtDateRange, fmtEffectiveDate } from "@/lib/format";
-import { perUnit, round2, promoDurationDays, fmtSignedPct } from "@/lib/pricing-math";
+import { perUnit, round2, promoDurationDays } from "@/lib/pricing-math";
 import { buildItemsById } from "@/lib/edlp-ceiling";
 import { RotateCcw, Trash2, Check, Package, Link2, Pencil, CalendarClock, AlertCircle, AlertTriangle, Info } from "lucide-react";
 
@@ -237,6 +237,10 @@ export function ItemEditDrawer({
     total: number;
     qty?: number;
     evaluation: BaseChangeEvaluation;
+    /** Fully-valid price range for this item; null = ladders mutually conflict. */
+    window: PriceWindow | null;
+    /** Minimal neighbor repair that keeps the proposed price. */
+    repairPlan: RepairPlan;
   } | null>(null);
   // A proposed base price that lands inside a relationship's minimum gap —
   // parked while the warning dialog asks the director to cancel, save anyway,
@@ -385,7 +389,13 @@ export function ItemEditDrawer({
       }
       const evaluation = evaluateBaseChange(item.id, proposedPerUnit, itemsById);
       if (evaluation.hard.length > 0) {
-        setBlockedProposal({ total: v, qty, evaluation });
+        setBlockedProposal({
+          total: v,
+          qty,
+          evaluation,
+          window: validPriceWindow(item.id, itemsById),
+          repairPlan: planLadderRepair(item.id, proposedPerUnit, itemsById),
+        });
         baseRejectedRef.current = true;
         return;
       }
@@ -439,33 +449,33 @@ export function ItemEditDrawer({
     }
   };
 
-  // Resolve a blocked proposal by committing it AND repositioning the affected
-  // SKUs by the same % — the ladder keeps its shape. Calls updateBasePrice
-  // directly (not commitBase): scaled prices are NOT re-validated against
-  // their own other relationships (single pass, accepted prototype limit) and
-  // the family toast is suppressed in favor of one summary toast.
-  const scaleBlocked = () => {
+  // Resolve a blocked proposal by committing it AND applying the minimal
+  // repair plan — each neighbor moves just far enough to restore its ladder.
+  // Calls updateBasePrice directly (not commitBase): the plan was already
+  // validated with bounded cascade when it was computed, and the family toast
+  // is suppressed in favor of one summary toast.
+  const fixRelated = () => {
     if (!item || !blockedProposal) return;
-    const { total, qty, evaluation } = blockedProposal;
+    const { total, qty, evaluation, repairPlan } = blockedProposal;
     updateBasePrice(item.id, total, qty);
     const done = new Set(evaluation.changedIds);
-    let scaled = 0;
-    for (const id of evaluation.scaleTargets) {
-      if (done.has(id)) continue;
-      const target = itemsById.get(id);
+    let fixed = 0;
+    for (const change of repairPlan.changes) {
+      if (done.has(change.itemId)) continue;
+      const target = itemsById.get(change.itemId);
       if (!target) continue;
-      // The % applies to the live price; an existing pending edit on the
-      // target is replaced in place.
-      updateBasePrice(id, round2(target.currentBasePrice * (1 + evaluation.deltaPct)));
-      scaled++;
-      done.add(id);
-      // A scaled family member propagates to its siblings — don't write twice.
+      updateBasePrice(change.itemId, change.to);
+      fixed++;
+      done.add(change.itemId);
+      // A repaired family member propagates to its siblings — don't write twice.
       if (target.familyId) {
         for (const f of itemsById.values()) if (f.familyId === target.familyId) done.add(f.id);
       }
     }
+    const residuals = repairPlan.residuals.length;
     toast.success(
-      `Price saved — scaled ${scaled} related SKU${scaled === 1 ? "" : "s"} by ${fmtSignedPct(evaluation.deltaPct)}`
+      `Price saved — adjusted ${fixed} related SKU${fixed === 1 ? "" : "s"} to keep the ladders intact` +
+        (residuals > 0 ? ` (${residuals} conflict${residuals === 1 ? "" : "s"} remain — see flagged items)` : "")
     );
     setBlockedProposal(null);
     baseRejectedRef.current = false;
@@ -1389,13 +1399,28 @@ export function ItemEditDrawer({
       editedItemId={item?.id ?? null}
       proposedTotal={blockedProposal?.total ?? 0}
       proposedQty={blockedProposal?.qty}
+      window={blockedProposal?.window ?? null}
+      repairPlan={blockedProposal?.repairPlan ?? null}
       onRevert={() => {
         // Nothing was committed — collapsing the editor drops the stale draft.
         setBlockedProposal(null);
         baseRejectedRef.current = false;
         setEditingBase(false);
       }}
-      onScale={scaleBlocked}
+      onUsePrice={(price) => {
+        if (!item) return;
+        const prevPrice = item.newBasePrice ?? null;
+        const prevQty = item.newBaseQty ?? undefined;
+        updateBasePrice(item.id, price);
+        if (familyItems.length > 0) {
+          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
+            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
+          });
+        }
+        setBlockedProposal(null);
+        baseRejectedRef.current = false;
+      }}
+      onFixRelated={fixRelated}
     />
     <RetailPriceWarningModal
       open={pendingRetailProposal != null}

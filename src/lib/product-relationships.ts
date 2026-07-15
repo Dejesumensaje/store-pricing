@@ -95,6 +95,16 @@ export const PRODUCT_RELATIONSHIPS: ProductRelationship[] = [
     itemIds: ["EDLP-2", "W7BESS"],
     memberLabels: { "EDLP-2": "Private label", "W7BESS": "National brand" },
   },
+  {
+    // Large-group fixture: real relationships can span dozens of items, and
+    // the break UI must stay usable at that size (windowed member lists).
+    // SKU-1001..1022 seed with monotonically increasing prices, so the rank
+    // order below is already a valid ladder.
+    id: "sp-center-store-band",
+    type: "size_parity",
+    name: "Center-store price band",
+    itemIds: Array.from({ length: 22 }, (_, i) => `SKU-${1001 + i}`),
+  },
 ];
 
 export function relationshipsFor(itemId: string): ProductRelationship[] {

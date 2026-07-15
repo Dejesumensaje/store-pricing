@@ -1,13 +1,12 @@
 "use client";
 
-import { Modal, Button, Badge } from "@dejesumensaje/converge-ds-experimental";
+import { Modal, Button } from "@dejesumensaje/converge-ds-experimental";
 import { AlertTriangle, Info } from "lucide-react";
 import { BaseChangeEvaluation } from "@/lib/relationship-validation";
-import { RELATIONSHIP_META } from "@/lib/product-relationships";
 import { PricingItem } from "@/types/pricing";
 import { fmt } from "@/lib/format";
 import { useGuardedActions } from "@/components/shared/useGuardedActions";
-import { RelationshipMembersDisclosure } from "./RelationshipMembersDisclosure";
+import { BrokenLaddersSummary } from "./BrokenLaddersSummary";
 
 type Props = {
   open: boolean;
@@ -17,7 +16,7 @@ type Props = {
   /** Price that satisfies every violated gap — the least-intrusive valid price. */
   suggestedPrice: number;
   itemsById: Map<string, PricingItem>;
-  /** The item being edited — flagged inside the relationship disclosures. */
+  /** The item being edited — flagged inside the relationship panels. */
   editedItemId: string | null;
   /** The parked proposal as entered: total for `proposedQty` units. */
   proposedTotal: number;
@@ -43,6 +42,7 @@ export function BasePriceSoftWarningModal({
   onProceed,
 }: Props) {
   const soft = evaluation?.soft ?? [];
+  const ladderCount = new Set(soft.map((v) => v.relationship.id)).size;
 
   // Same Enter-guard as BlockedPriceChangeModal — the keydown that triggered
   // the commit must not immediately activate a button on the newly focused modal.
@@ -77,43 +77,29 @@ export function BasePriceSoftWarningModal({
         <div className="flex items-start gap-2 text-sm text-gray-600">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" aria-hidden="true" />
           <span>
-            This price creates a narrow gap with {soft.length} related SKU{soft.length === 1 ? "" : "s"}. Pricing fundamentals recommend a wider spread.
+            This price leaves a narrow gap in{" "}
+            {ladderCount === 1 ? "a pricing ladder" : `${ladderCount} pricing ladders`}.
           </span>
         </div>
 
-        {soft.map((v) => {
-          const comparatorName = itemsById.get(v.comparatorId)?.name ?? v.comparatorId;
-          return (
-            <div
-              key={`${v.relationship.id}:${v.offenderId}:${v.comparatorId}`}
-              className="flex flex-col gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="warning" size="sm">{RELATIONSHIP_META[v.relationship.type].label}</Badge>
-                <span className="text-sm font-medium text-gray-900">{v.relationship.name}</span>
-              </div>
-              <p className="text-xs tabular-nums text-amber-900">{v.message}</p>
-              <p className="text-xs text-amber-700">
-                In conflict with: {comparatorName}
-              </p>
-              <RelationshipMembersDisclosure
-                // Re-key per proposal so a new parked proposal starts collapsed.
-                key={`${v.relationship.id}:${v.offenderId}:${v.comparatorId}:${proposedTotal}`}
-                relationship={v.relationship}
-                itemsById={itemsById}
-                changedIds={evaluation?.changedIds ?? []}
-                editedItemId={editedItemId}
-                proposedTotal={proposedTotal}
-                proposedQty={proposedQty}
-                tone="soft"
-              />
-            </div>
-          );
-        })}
+        <BrokenLaddersSummary
+          // Re-key per proposal so a new parked proposal starts collapsed.
+          key={proposedTotal}
+          violations={soft}
+          itemsById={itemsById}
+          changedIds={evaluation?.changedIds ?? []}
+          editedItemId={editedItemId}
+          proposedTotal={proposedTotal}
+          proposedQty={proposedQty}
+          tone="soft"
+        />
 
         <div className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
           <Info className="mt-0.5 size-4 shrink-0 text-gray-400" aria-hidden="true" />
-          <span>Keeps every relationship gap within its required minimum.</span>
+          <span>
+            <span className="font-medium text-gray-700">Use {fmt(suggestedPrice)}</span> — keeps every
+            gap within its required minimum.
+          </span>
         </div>
       </div>
     </Modal>

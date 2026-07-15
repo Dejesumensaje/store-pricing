@@ -175,6 +175,160 @@ export function evaluateBaseChange(
 }
 
 /**
+ * The per-unit price range for `itemId` (and its family — they share one
+ * price) that satisfies every relationship it belongs to at FULL validity
+ * (order + minimum gaps), against the members' pending-or-live prices.
+ * `min`/`max` are null when that side is unconstrained. Returns null when the
+ * bounds cross — no single price can satisfy every ladder.
+ */
+export type PriceWindow = { min: number | null; max: number | null };
+
+export function validPriceWindow(
+  itemId: string,
+  itemsById: Map<string, PricingItem>
+): PriceWindow | null {
+  const item = itemsById.get(itemId);
+  if (!item) return { min: null, max: null };
+  const changed = new Set(familyGroupIds(item, itemsById));
+
+  let min: number | null = null;
+  let max: number | null = null;
+  for (const rel of relationshipsTouching([...changed])) {
+    if (rel.type === "family") continue;
+    const g = minGapFor(rel) / 100;
+    for (let i = 0; i < rel.itemIds.length - 1; i++) {
+      const low = itemsById.get(rel.itemIds[i]);
+      const high = itemsById.get(rel.itemIds[i + 1]);
+      if (!low || !high) continue;
+      const lowChanged = changed.has(low.id);
+      const highChanged = changed.has(high.id);
+      // Two family members on adjacent ranks would always collide (they share
+      // one price) — not solvable by choosing the price; skip.
+      if (lowChanged === highChanged) continue;
+      if (highChanged) {
+        // We are the higher rank: stay at least the gap above the comparator.
+        const bound = Math.ceil(effectivePerUnit(low) * (1 + g) * 100) / 100;
+        min = min == null ? bound : Math.max(min, bound);
+      } else {
+        // We are the lower rank: stay at least the gap below the comparator.
+        const bound = Math.floor((effectivePerUnit(high) / (1 + g)) * 100) / 100;
+        max = max == null ? bound : Math.min(max, bound);
+      }
+    }
+  }
+  if (min != null && max != null && min > max) return null;
+  return { min, max };
+}
+
+export type RepairChange = {
+  itemId: string;
+  /** Pending-or-live per-unit price before the repair. */
+  from: number;
+  /** Per-unit price after the repair. */
+  to: number;
+};
+
+export type RepairPlan = {
+  changes: RepairChange[];
+  /** Violations still present after the plan — ladders that mutually conflict. */
+  residuals: Violation[];
+};
+
+/**
+ * Minimal repair for a hard break: keep the edited item at its proposed
+ * per-unit price and move ONLY the neighbors that must move, each just far
+ * enough to restore rank order plus the minimum gap. Repairs cascade — a
+ * moved neighbor is re-checked against its own other relationships (bounded
+ * passes) and moving a family member carries its whole family. A neighbor
+ * pulled in two opposite directions is left alone and reported in
+ * `residuals` instead.
+ */
+export function planLadderRepair(
+  itemId: string,
+  proposedPerUnit: number,
+  itemsById: Map<string, PricingItem>
+): RepairPlan {
+  const item = itemsById.get(itemId);
+  if (!item) return { changes: [], residuals: [] };
+  const anchors = new Set(familyGroupIds(item, itemsById));
+  // Working per-unit prices: the proposal on the anchors, repairs as they land.
+  const working = new Map<string, number>();
+  for (const id of anchors) working.set(id, proposedPerUnit);
+  const direction = new Map<string, 1 | -1>();
+
+  const priceOf = (m: PricingItem) => working.get(m.id) ?? effectivePerUnit(m);
+  // Repairing a family member reprices its whole family (updateBasePrice propagates).
+  const applyRepair = (target: PricingItem, to: number, dir: 1 | -1) => {
+    const ids = familyGroupIds(target, itemsById);
+    for (const id of ids) {
+      working.set(id, to);
+      direction.set(id, dir);
+    }
+  };
+
+  for (let pass = 0; pass < 30; pass++) {
+    let touched = false;
+    for (const rel of relationshipsTouching([...working.keys()])) {
+      if (rel.type === "family") continue;
+      const g = minGapFor(rel) / 100;
+      for (let i = 0; i < rel.itemIds.length - 1; i++) {
+        const low = itemsById.get(rel.itemIds[i]);
+        const high = itemsById.get(rel.itemIds[i + 1]);
+        if (!low || !high) continue;
+        // Same scoping as validation: pre-existing problems in untouched
+        // corners of a ladder are not this repair's to fix.
+        if (!working.has(low.id) && !working.has(high.id)) continue;
+        const lowC = Math.round(priceOf(low) * 100);
+        const highC = Math.round(priceOf(high) * 100);
+        if (highC > lowC && (highC / lowC - 1) * 100 >= g * 100 - 0.05) continue;
+
+        // The violated pair: hold the anchored/already-repaired side, move the
+        // other just enough. An item may be re-repaired further in the SAME
+        // direction (a cascade tightening); an opposite pull is a conflict.
+        const lowHeld = anchors.has(low.id) || working.has(low.id);
+        const highHeld = anchors.has(high.id) || working.has(high.id);
+        let target: PricingItem;
+        let to: number;
+        let dir: 1 | -1;
+        if (highHeld && !anchors.has(low.id) && (!lowHeld || direction.get(low.id) === -1)) {
+          target = low;
+          to = Math.floor((priceOf(high) / (1 + g)) * 100) / 100;
+          dir = -1;
+          if (working.has(low.id) && to >= priceOf(low)) continue; // already low enough
+        } else if (lowHeld && !anchors.has(high.id) && (!highHeld || direction.get(high.id) === 1)) {
+          target = high;
+          to = Math.ceil(priceOf(low) * (1 + g) * 100) / 100;
+          dir = 1;
+          if (working.has(high.id) && to <= priceOf(high)) continue; // already high enough
+        } else {
+          continue; // both sides pinned in conflicting directions → residual
+        }
+        applyRepair(target, to, dir);
+        touched = true;
+      }
+    }
+    if (!touched) break;
+  }
+
+  const changes: RepairChange[] = [...working.entries()]
+    .filter(([id]) => !anchors.has(id))
+    .map(([id, to]) => {
+      const m = itemsById.get(id)!;
+      return { itemId: id, from: effectivePerUnit(m), to };
+    });
+
+  const residuals = checkRelationships(
+    relationshipsTouching([...working.keys()]),
+    new Set(working.keys()),
+    itemId,
+    itemsById,
+    working
+  );
+
+  return { changes, residuals };
+}
+
+/**
  * Soft violations present in the CURRENT committed prices — derived state for
  * the persistent warning banner and the relationship-row highlights. Only
  * relationships where the item (or a family member) carries a pending base
