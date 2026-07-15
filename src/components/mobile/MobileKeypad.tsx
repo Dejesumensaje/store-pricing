@@ -1,10 +1,13 @@
 "use client";
 
-import { Delete } from "lucide-react";
+import { ChevronDown, Delete } from "lucide-react";
 
 type Props = {
   onDigit: (d: string) => void;
   onBackspace: () => void;
+  /** Dismisses the keypad — rendered as the Android-style hide-keyboard key
+      in the otherwise-empty bottom-left cell. */
+  onHide?: () => void;
   disabled?: boolean;
 };
 
@@ -25,7 +28,7 @@ const KEY =
 // (2, 9, 9 → $2.99); there's no decimal key because there's no decimal to
 // enter. Which field the digits land in is signalled by the caret + brand
 // border + tinted label on the target price box.
-export function MobileKeypad({ onDigit, onBackspace, disabled }: Props) {
+export function MobileKeypad({ onDigit, onBackspace, onHide, disabled }: Props) {
   return (
     <div role="group" aria-label="Price keypad" className="grid grid-cols-3 gap-2 px-3 pt-2">
       {DIGIT_KEYS.map((k) => (
@@ -33,7 +36,18 @@ export function MobileKeypad({ onDigit, onBackspace, disabled }: Props) {
           {k}
         </button>
       ))}
-      <span aria-hidden="true" />
+      {onHide ? (
+        <button
+          type="button"
+          onClick={onHide}
+          aria-label="Hide keypad"
+          className={`${KEY} flex items-center justify-center text-gray-600`}
+        >
+          <ChevronDown className="size-5" aria-hidden="true" />
+        </button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
       <button type="button" disabled={disabled} onClick={() => onDigit("0")} className={KEY}>
         0
       </button>

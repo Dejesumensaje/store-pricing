@@ -46,10 +46,23 @@ test.describe("mobile shell (TC57X viewport)", () => {
     const livePrice = wasLine.replace("was ", "");
     await expect(shell.getByText(livePrice, { exact: true }).first()).toBeVisible();
 
-    // Focus invariant: exactly ONE caret on screen, sitting in the default
-    // (retail) target while the amount renders placeholder-dimmed.
-    await expect(shell.locator(".caret-blink")).toHaveCount(1);
+    // On open: whole item glanceable, keypad hidden, no field focused.
+    await expect(shell.locator(".caret-blink")).toHaveCount(0);
+    await expect(page.getByRole("group", { name: "Price keypad" })).not.toBeVisible();
     await page.screenshot(SHOT("03b-edit-pristine"));
+
+    // Tapping the retail box summons the keypad, focused there (one caret).
+    await page.getByRole("button", { name: "Edit retail price" }).click();
+    await expect(page.getByRole("group", { name: "Price keypad" })).toBeVisible();
+    await expect(shell.locator(".caret-blink")).toHaveCount(1);
+    await page.waitForTimeout(250); // let the keypad's entry animation settle
+    await page.screenshot(SHOT("03c-keypad-summoned"));
+
+    // Hide key dismisses it; re-tap brings it back.
+    await page.getByRole("button", { name: "Hide keypad" }).click();
+    await expect(page.getByRole("group", { name: "Price keypad" })).not.toBeVisible();
+    await expect(shell.locator(".caret-blink")).toHaveCount(0);
+    await page.getByRole("button", { name: "Edit retail price" }).click();
 
     // Cents keypad: 2, 9, 9 → $2.99.
     for (const d of ["2", "9", "9"]) {
@@ -86,6 +99,7 @@ test.describe("mobile shell (TC57X viewport)", () => {
     // Re-edit from the tray: retail multi-unit is the PROMINENT stepper…
     await page.locator("li").filter({ hasText: "Lay's" }).getByRole("button").first().click();
     await page.getByRole("button", { name: "Increase retail quantity" }).click();
+    await page.getByRole("button", { name: "Edit retail price" }).click();
     for (const d of ["5", "5", "0"]) {
       await page.getByRole("button", { name: d, exact: true }).click();
     }

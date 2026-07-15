@@ -49,7 +49,10 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
     ? [...itemsById.values()].filter((i) => i.familyId === item.familyId && i.id !== item.id)
     : [];
 
-  const [activeTarget, setActiveTarget] = useState<"retail" | "base">("retail");
+  // null = no field focused, keypad hidden. The screen opens with the whole
+  // item glanceable; tapping a price box summons the keypad (à la the OS
+  // keyboard appearing on input focus).
+  const [activeTarget, setActiveTarget] = useState<"retail" | "base" | null>(null);
   const [retailDigits, setRetailDigits] = useState("");
   const [retailQty, setRetailQty] = useState(1);
   const [baseDigits, setBaseDigits] = useState("");
@@ -62,7 +65,7 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
   // Reset edit state whenever a new item opens — including scan-while-
   // editing, which mounts a fresh EditScreen via MobileShell's `key={itemId}`.
   useEffect(() => {
-    setActiveTarget("retail");
+    setActiveTarget(null);
     setRetailDigits("");
     setRetailQty(item?.newRetailQty ?? 1);
     setBaseDigits("");
@@ -133,11 +136,11 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
 
   const onDigit = (d: string) => {
     if (activeTarget === "retail") setRetailDigits((s) => (s.length >= MAX_DIGITS ? s : s + d));
-    else setBaseDigits((s) => (s.length >= MAX_DIGITS ? s : s + d));
+    else if (activeTarget === "base") setBaseDigits((s) => (s.length >= MAX_DIGITS ? s : s + d));
   };
   const onBackspace = () => {
     if (activeTarget === "retail") setRetailDigits((s) => s.slice(0, -1));
-    else setBaseDigits((s) => s.slice(0, -1));
+    else if (activeTarget === "base") setBaseDigits((s) => s.slice(0, -1));
   };
 
   // Commit whatever valid drafts exist, without navigating — shared by
@@ -273,12 +276,12 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
           <BaseDisclosure
             open={baseOpen}
             onToggle={() => {
-              // Expanding Base IS the intent to edit it — retarget the keypad
-              // immediately so digits land there without a second tap (and
-              // hand it back to Retail on collapse).
+              // Expanding Base IS the intent to edit it — summon the keypad
+              // targeted at base without a second tap; collapsing it ends
+              // that intent, so the keypad hides again.
               const next = !baseOpen;
               setBaseOpen(next);
-              setActiveTarget(next ? "base" : "retail");
+              setActiveTarget(next ? "base" : null);
             }}
             currentLabel={`Base price · ${fmt(baseRef)}`}
             active={activeTarget === "base"}
@@ -292,14 +295,30 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
             familyNote={familyItems.length > 0 ? `Family price — updates all ${familyItems.length + 1} items` : null}
           />
 
-          <FuelSaverRow value={item.fuelSaver} onOpen={() => setFuelSheetOpen(true)} />
+          <FuelSaverRow
+            value={item.fuelSaver}
+            onOpen={() => {
+              // Moving on to fuel ends the typing intent — drop the keypad so
+              // the sheet isn't stacked on top of it.
+              setActiveTarget(null);
+              setFuelSheetOpen(true);
+            }}
+          />
 
           <DetailsDisclosure item={item} />
         </div>
       </div>
 
       <div className="shrink-0 border-t border-gray-100 pb-[env(safe-area-inset-bottom)]">
-        <MobileKeypad onDigit={onDigit} onBackspace={onBackspace} />
+        {/* The keypad appears only while a price box is focused (tap to
+            summon, like the OS keyboard) — the rest of the time the whole
+            item is glanceable. Save stays pinned in the thumb zone either
+            way. */}
+        {activeTarget != null && (
+          <div className="keypad-in">
+            <MobileKeypad onDigit={onDigit} onBackspace={onBackspace} onHide={() => setActiveTarget(null)} />
+          </div>
+        )}
         {/* One dismiss affordance only — the header X (plus Android hardware
             back), identical in both modes. No footer Cancel: it sat right
             beside the primary button, inviting mis-taps during fast

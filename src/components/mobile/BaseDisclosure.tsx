@@ -39,12 +39,13 @@ export function BaseDisclosure({
   familyNote,
 }: Props) {
   const sectionRef = useRef<HTMLElement>(null);
-  // Base sits low in the scroll zone, just above the fixed keypad dock. When
-  // it expands, pull the editor (stepper, price field, and any EDLP
+  // Base sits low in the scroll zone, just above the keypad dock. When it
+  // expands — or when its field re-summons the keypad (which shrinks the
+  // scroll zone) — pull the editor (stepper, price field, and any EDLP
   // error/notice) into view so it isn't hidden behind the keypad.
   useEffect(() => {
     if (open) sectionRef.current?.scrollIntoView({ block: "end" });
-  }, [open]);
+  }, [open, active]);
 
   if (!open) {
     return (
@@ -76,6 +77,7 @@ export function BaseDisclosure({
         <button
           type="button"
           onClick={onFocus}
+          aria-label="Edit base price"
           className={`flex-1 rounded-lg border-2 px-3 py-2 text-left transition-colors ${
             active ? "border-brand bg-brand/5" : "border-gray-200 bg-white"
           }`}

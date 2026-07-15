@@ -38,6 +38,7 @@ export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active
         <button
           type="button"
           onClick={onFocus}
+          aria-label="Edit retail price"
           className={`min-w-0 flex-1 rounded-lg border-2 px-3 py-2 text-left transition-colors ${
             active ? "border-brand bg-brand/5" : "border-gray-200 bg-white"
           }`}

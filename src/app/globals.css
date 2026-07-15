@@ -149,13 +149,27 @@ label:has(> input:not(:disabled)) {
   animation: caret-blink 1.1s step-end infinite;
 }
 
+/*
+ * The on-demand keypad appearing when a price field takes focus — a short
+ * rise + fade (not a full-height slide, which would sweep across the pinned
+ * Save button mid-animation). 150ms: quick enough to feel attached to the tap.
+ */
+@keyframes keypad-in {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.keypad-in {
+  animation: keypad-in 150ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .decision-pop,
   .review-dot,
   .review-dot-once,
   .hq-pulse,
   .waiting-pulse,
-  .caret-blink {
+  .caret-blink,
+  .keypad-in {
     animation: none !important;
   }
 }
