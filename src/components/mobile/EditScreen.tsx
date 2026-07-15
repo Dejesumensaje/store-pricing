@@ -150,10 +150,17 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
   // make "was $X" read as a no-op the moment an item already carries a
   // pending retail edit (see W7BESS's seeded temp allowance).
   const liveRetail = item ? item.currentRetailPrice ?? item.currentBasePrice : 0;
+  // Whether a promo actually EXISTS (live TA or pending retail edit). The
+  // enrichment layer mirrors currentRetailPrice from base on every item, so
+  // the honest signal is the category type — same rule the desktop table
+  // uses for its retail row. Without a promo, the readout starts at $0.00:
+  // creating the first promo is a blank slate, not an edit of the base
+  // price masquerading as one.
+  const hasRetail = item ? item.category_type === "temporary_allowance" || item.newRetailPrice != null : false;
   // Mirrors the Base pattern below: the readout shows a TOTAL for `retailQty`
   // units — a pending "N for $X" resumes as-is, otherwise the live per-unit
   // price scaled by the chosen qty until a draft is typed.
-  const retailExistingTotal = item ? item.newRetailPrice ?? liveRetail * retailQty : 0;
+  const retailExistingTotal = item ? item.newRetailPrice ?? (hasRetail ? liveRetail * retailQty : 0) : 0;
   const retailDraftCents = retailDigits === "" ? null : parseInt(retailDigits, 10);
   const retailDisplayCents = retailDraftCents ?? Math.round(retailExistingTotal * 100);
   const baseRef = item ? (item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice) : 0;
@@ -352,7 +359,7 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
           <RetailSection
             qty={retailQty}
             onQtyChange={setRetailQty}
-            wasLabel={`was ${fmt(liveRetail)}`}
+            wasLabel={hasRetail ? `was ${fmt(liveRetail)}` : `no promo yet · base ${fmt(baseRef)}`}
             displayCents={retailDisplayCents}
             active={activeTarget === "retail"}
             hasDraft={retailDraftCents != null}
@@ -388,9 +395,11 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
               setFuelSheetOpen(true);
             }}
             meta={
-              /* Only for a fuel change made on THIS screen — an untouched
-                 live fuel saver must not advertise missing paperwork. */
-              fuelChangedNow ? (
+              /* A live fuel saver ALWAYS has a run window — the date chip
+                 shows whenever one exists. The reason chip only appears for
+                 a change made on THIS screen (or an already-set reason), so
+                 an untouched fuel saver never nags about missing paperwork. */
+              fuelChangedNow || (item.fuelSaver ?? 0) > 0 ? (
                 <>
                   <MetaChip
                     icon={DateIcon}
@@ -398,13 +407,15 @@ export function EditScreen({ itemId, mode, autoSaveRef, onSaveNext, onCancel }: 
                     ariaLabel="Fuel Saver run window"
                     onClick={() => setMetaSheet({ kind: "date", section: "fuel" })}
                   />
-                  <MetaChip
-                    icon={ReasonIcon}
-                    empty={!fuelReason}
-                    label={fuelReason ? reasonLabel(fuelReason) : "+ Reason"}
-                    ariaLabel="Fuel Saver change reason"
-                    onClick={() => setMetaSheet({ kind: "reason", section: "fuel" })}
-                  />
+                  {(fuelChangedNow || fuelReason) && (
+                    <MetaChip
+                      icon={ReasonIcon}
+                      empty={!fuelReason}
+                      label={fuelReason ? reasonLabel(fuelReason) : "+ Reason"}
+                      ariaLabel="Fuel Saver change reason"
+                      onClick={() => setMetaSheet({ kind: "reason", section: "fuel" })}
+                    />
+                  )}
                 </>
               ) : undefined
             }

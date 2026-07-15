@@ -159,6 +159,12 @@ test.describe("mobile shell (TC57X viewport)", () => {
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
     await page.getByRole("button", { name: "Simulate scan" }).click();
     await page.getByRole("button", { name: /Pop Secret/ }).click();
+    // Pop Secret has no retail price — creating the first promo starts from
+    // a $0.00 blank slate, anchored to the base reference.
+    const shell0 = page.getByTestId("mobile-shell");
+    await expect(shell0.getByText("$0.00", { exact: true })).toBeVisible();
+    await expect(shell0.getByText(/^no promo yet · base \$/)).toBeVisible();
+    await page.screenshot(SHOT("13-maint-no-promo"));
     // Nothing changed yet — the primary call-to-action must not invite a tap.
     await expect(page.getByRole("button", { name: "Review change" })).toBeDisabled();
     const picked = await pickFuelDifferentFromCurrent(page);

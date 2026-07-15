@@ -51,7 +51,9 @@ export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active
         >
           <span
             className={`block truncate text-2xl font-bold tabular-nums ${
-              active && !hasDraft ? "text-gray-400" : "text-gray-900"
+              /* Dimmed while awaiting input: focused-but-untouched, or the
+                 $0.00 blank slate of an item with no promo yet. */
+              !hasDraft && (active || displayCents === 0) ? "text-gray-400" : "text-gray-900"
             }`}
           >
             {qty > 1 ? `${qty} for ${fmt(total)}` : fmt(total)}
