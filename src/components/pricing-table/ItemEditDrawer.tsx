@@ -20,7 +20,7 @@ import { BasePriceSoftWarningModal } from "./BasePriceSoftWarningModal";
 import { EdlpCeilingBlockedModal } from "./EdlpCeilingBlockedModal";
 import { EdlpCeilingWarningModal } from "./EdlpCeilingWarningModal";
 import { evaluateEdlpCeilingChange, committedEdlpCeilingState, EdlpChangeEvaluation } from "@/lib/edlp-ceiling";
-import { evaluateBaseChange, committedSoftWarnings, validPriceWindow, planLadderRepair, BaseChangeEvaluation, PriceWindow, RepairPlan } from "@/lib/relationship-validation";
+import { evaluateBaseChange, committedSoftWarnings, planLadderRepair, BaseChangeEvaluation, RepairPlan } from "@/lib/relationship-validation";
 import {
   REASON_META,
   PriceChangeReason,
@@ -237,8 +237,6 @@ export function ItemEditDrawer({
     total: number;
     qty?: number;
     evaluation: BaseChangeEvaluation;
-    /** Fully-valid price range for this item; null = ladders mutually conflict. */
-    window: PriceWindow | null;
     /** Minimal neighbor repair that keeps the proposed price. */
     repairPlan: RepairPlan;
   } | null>(null);
@@ -393,7 +391,6 @@ export function ItemEditDrawer({
           total: v,
           qty,
           evaluation,
-          window: validPriceWindow(item.id, itemsById),
           repairPlan: planLadderRepair(item.id, proposedPerUnit, itemsById),
         });
         baseRejectedRef.current = true;
@@ -1399,26 +1396,12 @@ export function ItemEditDrawer({
       editedItemId={item?.id ?? null}
       proposedTotal={blockedProposal?.total ?? 0}
       proposedQty={blockedProposal?.qty}
-      window={blockedProposal?.window ?? null}
       repairPlan={blockedProposal?.repairPlan ?? null}
       onRevert={() => {
         // Nothing was committed — collapsing the editor drops the stale draft.
         setBlockedProposal(null);
         baseRejectedRef.current = false;
         setEditingBase(false);
-      }}
-      onUsePrice={(price) => {
-        if (!item) return;
-        const prevPrice = item.newBasePrice ?? null;
-        const prevQty = item.newBaseQty ?? undefined;
-        updateBasePrice(item.id, price);
-        if (familyItems.length > 0) {
-          toast.success(`Updated the whole family (${familyItems.length + 1} items)`, {
-            action: { label: "Undo", onClick: () => updateBasePrice(item.id, prevPrice, prevQty) },
-          });
-        }
-        setBlockedProposal(null);
-        baseRejectedRef.current = false;
       }}
       onFixRelated={fixRelated}
     />

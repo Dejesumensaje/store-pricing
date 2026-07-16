@@ -3,7 +3,7 @@
 import { Modal, Button } from "@dejesumensaje/converge-ds-experimental";
 import { AlertCircle, Lightbulb } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
-import { BaseChangeEvaluation, PriceWindow, RepairPlan } from "@/lib/relationship-validation";
+import { BaseChangeEvaluation, RepairPlan } from "@/lib/relationship-validation";
 import { fmt } from "@/lib/format";
 import { useGuardedActions } from "@/components/shared/useGuardedActions";
 import { BrokenLaddersSummary } from "./BrokenLaddersSummary";
@@ -17,25 +17,13 @@ type Props = {
   /** The parked proposal as entered: total for `proposedQty` units. */
   proposedTotal: number;
   proposedQty?: number;
-  /** Fully-valid price range for the edited item; null = no single price works. */
-  window: PriceWindow | null;
   /** Minimal neighbor repair that keeps the proposed price. */
   repairPlan: RepairPlan | null;
   /** Discard the proposed price — nothing was committed. */
   onRevert: () => void;
-  /** Commit `price` (per-unit) for the edited item instead of the proposal. */
-  onUsePrice: (price: number) => void;
   /** Commit the proposal AND apply the repair plan to the neighbors. */
   onFixRelated: () => void;
 };
-
-/** The proposal clamped into the valid window — the "Use $X" price. */
-export function clampToWindow(perUnitPrice: number, window: PriceWindow | null): number | null {
-  if (!window) return null;
-  if (window.min != null && perUnitPrice < window.min) return window.min;
-  if (window.max != null && perUnitPrice > window.max) return window.max;
-  return null; // already inside — a hard break implies this never happens
-}
 
 export function BlockedPriceChangeModal({
   open,
@@ -44,37 +32,21 @@ export function BlockedPriceChangeModal({
   editedItemId,
   proposedTotal,
   proposedQty,
-  window,
   repairPlan,
   onRevert,
-  onUsePrice,
   onFixRelated,
 }: Props) {
   const hard = evaluation?.hard ?? [];
   const ladderCount = new Set(hard.map((v) => v.relationship.id)).size;
-  const usePrice = clampToWindow(
-    proposedQty != null && proposedQty > 1 ? proposedTotal / proposedQty : proposedTotal,
-    window
-  );
   const repairCount = new Set(
     (repairPlan?.changes ?? []).map((c) => c.itemId)
   ).size;
   const repairs = repairPlan ? new Map(repairPlan.changes.map((c) => [c.itemId, c.to])) : undefined;
+  const proposedPerUnit = proposedQty != null && proposedQty > 1 ? proposedTotal / proposedQty : proposedTotal;
 
   // The modal opens mid-keystroke: the Enter that commits the price must not
   // immediately activate a button on the newly focused modal.
   const guarded = useGuardedActions(open);
-
-  const windowLabel =
-    window == null
-      ? null
-      : window.min != null && window.max != null
-        ? `between ${fmt(window.min)} and ${fmt(window.max)}`
-        : window.min != null
-          ? `at least ${fmt(window.min)}`
-          : window.max != null
-            ? `at most ${fmt(window.max)}`
-            : null;
 
   return (
     <Modal
@@ -89,20 +61,13 @@ export function BlockedPriceChangeModal({
       dismissible={false}
       showCloseButton={false}
       footer={
-        // Least → most recommended: discard, keep price by moving neighbors,
-        // keep ladders by adjusting this price (primary).
         <div className="flex items-center justify-end gap-2">
           <Button variant="secondary" onClick={guarded(onRevert)}>
             Revert
           </Button>
           {repairCount > 0 && (
-            <Button variant={usePrice != null ? "secondary" : "primary"} onClick={guarded(onFixRelated)}>
+            <Button variant="primary" onClick={guarded(onFixRelated)}>
               Fix {repairCount} related item{repairCount === 1 ? "" : "s"}
-            </Button>
-          )}
-          {usePrice != null && (
-            <Button variant="primary" onClick={guarded(() => onUsePrice(usePrice))}>
-              Use {fmt(usePrice)}
             </Button>
           )}
         </div>
@@ -133,15 +98,10 @@ export function BlockedPriceChangeModal({
         <div className="flex items-start gap-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">
           <Lightbulb className="mt-0.5 size-4 shrink-0 text-gray-400" aria-hidden="true" />
           <span className="tabular-nums">
-            {windowLabel != null ? (
-              <>
-                To keep every ladder, price this item {windowLabel}.
-                {repairCount > 0 && (
-                  <> Keeping {fmt(proposedQty != null && proposedQty > 1 ? proposedTotal / proposedQty : proposedTotal)} instead moves {repairCount} related item{repairCount === 1 ? "" : "s"} — expand a ladder above to preview.</>
-                )}
-              </>
+            {repairCount > 0 ? (
+              <>Keeping {fmt(proposedPerUnit)} moves {repairCount} related item{repairCount === 1 ? "" : "s"} to preserve the ladder{ladderCount === 1 ? "" : "s"} — expand a ladder above to preview.</>
             ) : (
-              <>No single price satisfies every ladder — fix the related items instead (expand a ladder above to preview).</>
+              <>No related items can be adjusted to fix this — revert to continue.</>
             )}
           </span>
         </div>
