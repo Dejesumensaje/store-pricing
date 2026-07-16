@@ -1,48 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Check, Tag } from "lucide-react";
+import { Check } from "lucide-react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
 import { BottomSheet } from "./BottomSheet";
 import { isoAddDays } from "@/lib/mobile";
 
-// ─── Meta chips ──────────────────────────────────────────────────────────
-// Dates and reasons are attributes OF A CHANGE, not of the item — so they
-// render as a compact chip row inside the section card they describe, only
-// once that section has a change. The chip is both display and edit
-// affordance (tap → bottom sheet). Defaults (today / one-week window) are
-// prefilled so a Store Walk never blocks on them.
-
-export function MetaChip({
-  icon: Icon,
-  label,
-  onClick,
-  ariaLabel,
-  empty,
-}: {
-  icon: typeof CalendarDays;
-  label: string;
-  onClick: () => void;
-  ariaLabel: string;
-  empty?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={ariaLabel}
-      className={`flex h-10 min-w-0 select-none touch-manipulation items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium active:bg-gray-100 ${
-        empty ? "border-dashed border-gray-400 bg-white/70 text-gray-600" : "border-gray-300 bg-white text-gray-800"
-      }`}
-    >
-      <Icon className={`size-3.5 shrink-0 ${empty ? "text-gray-400" : "text-gray-500"}`} aria-hidden="true" />
-      <span className="truncate">{label}</span>
-    </button>
-  );
-}
-
-export const ReasonIcon = Tag;
-export const DateIcon = CalendarDays;
+// The "when & why" pickers used by the review step (ChangeReviewScreen):
+// reason catalogs and effective dates as bottom sheets.
 
 // ─── Reason sheet ────────────────────────────────────────────────────────
 // One-tap list reusing the desktop reason catalogs verbatim, including their
@@ -131,6 +96,11 @@ export function EffectiveSheet({
       setDraftEnd(end ?? null);
     }
   }, [open, start, end]);
+
+  // After the hooks, before any date math: a closed sheet must not evaluate
+  // its presets — callers pass "" for items that have no dates yet, and
+  // eager JSX evaluation would otherwise do date arithmetic on garbage.
+  if (!open) return null;
 
   const apply = (s: string, e: string | null) => {
     onApply(s, mode === "range" ? e : null);

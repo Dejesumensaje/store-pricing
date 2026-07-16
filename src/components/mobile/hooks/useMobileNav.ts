@@ -10,6 +10,7 @@ export type MobileView =
   | { name: "home" }
   | { name: "walk-waiting" }
   | { name: "walk-edit"; itemId: string }
+  | { name: "walk-review"; itemId: string }
   | { name: "walk-tray" }
   | { name: "maint-waiting" }
   | { name: "maint-edit"; itemId: string }
@@ -22,6 +23,7 @@ function parseHash(hash: string): MobileView {
   if (root !== "m") return { name: "home" };
   if (mode === "walk") {
     if (action === "edit" && id) return { name: "walk-edit", itemId: id };
+    if (action === "review" && id) return { name: "walk-review", itemId: id };
     if (action === "tray") return { name: "walk-tray" };
     return { name: "walk-waiting" };
   }
@@ -42,6 +44,8 @@ function hashFor(view: MobileView): string {
       return "#m/walk";
     case "walk-edit":
       return `#m/walk/edit/${view.itemId}`;
+    case "walk-review":
+      return `#m/walk/review/${view.itemId}`;
     case "walk-tray":
       return "#m/walk/tray";
     case "maint-waiting":

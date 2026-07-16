@@ -12,8 +12,8 @@ async function pickFuelDifferentFromCurrent(page: Page) {
   // from the current label so the change is guaranteed to register.
   // Match the selector ROW ("Fuel Saver $0.10" / "Fuel Saver None"), not the
   // meta chips whose labels also start with "Fuel Saver".
-  const row = page.getByRole("button", { name: /^Fuel Saver (\$|None)/ });
-  const current = (await row.innerText()).includes("None") ? "$0.10" : "None";
+  const row = page.getByRole("button", { name: /^fuel saver (\$|none)/i });
+  const current = (await row.innerText()).toLowerCase().includes("none") ? "$0.10" : "None";
   await row.click();
   await page.getByRole("dialog").getByRole("button", { name: current, exact: true }).click();
   return current;
@@ -43,7 +43,7 @@ test.describe("mobile shell (TC57X viewport)", () => {
 
     // (Scope to the mobile shell: the CSS-hidden desktop tree is in the DOM.)
     const shell = page.getByTestId("mobile-shell");
-    await expect(shell.getByText(/^was \$/)).toBeVisible();
+    await expect(shell.getByText("$3.49", { exact: true })).toBeVisible(); // pending promo readout, no "was" line
     await expect(shell.getByText(/· OH: \d/)).toBeVisible();
 
     // Info pills → full-screen panel and back.
@@ -59,7 +59,7 @@ test.describe("mobile shell (TC57X viewport)", () => {
     // the primary action disabled until a real change exists.
     await expect(shell.locator(".caret-blink")).toHaveCount(0);
     await expect(page.getByRole("group", { name: "Price keypad" })).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
     await page.screenshot(SHOT("03b-edit-pristine"));
 
     // Tapping the retail box summons the keypad, focused there (one caret).
@@ -80,14 +80,19 @@ test.describe("mobile shell (TC57X viewport)", () => {
       await page.getByRole("button", { name: d, exact: true }).click();
     }
     await expect(shell.getByText("$2.99", { exact: true })).toBeVisible();
+    await page.screenshot(SHOT("04-edit-retail"));
 
-    // The change now carries meta chips: prefilled promo window + empty
-    // reason. Pick a reason from the shared catalog sheet.
-    await expect(page.getByRole("button", { name: "Retail promo window" })).toBeVisible();
+    // Step 2 — "when & why": prefilled dates, and a MANDATORY reason — the
+    // primary action stays disabled until every change carries one.
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(shell.getByText("When & why")).toBeVisible();
+    await expect(shell.getByText("Retail")).toBeVisible();
+    // Lay's seeded promo already carries a reason — shown, and editable.
+    await expect(page.getByRole("button", { name: "Retail change reason" })).toContainText("Local deal");
     await page.getByRole("button", { name: "Retail change reason" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Manager special", exact: true }).click();
     await expect(page.getByRole("button", { name: "Retail change reason" })).toContainText("Manager special");
-    await page.screenshot(SHOT("04-edit-retail"));
+    await page.screenshot(SHOT("04c-review-step"));
     await page.getByRole("button", { name: "Save & next" }).click();
 
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
@@ -102,6 +107,9 @@ test.describe("mobile shell (TC57X viewport)", () => {
     await page.screenshot(SHOT("06-edit-doritos"));
     const picked = await pickFuelDifferentFromCurrent(page);
     await page.screenshot(SHOT("07-fuel-sheet-closed")); // row now shows picked value
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.getByRole("button", { name: "Fuel Saver change reason" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Excess stock", exact: true }).click();
     await page.getByRole("button", { name: "Save & next" }).click();
     await expect(page.getByRole("button", { name: "Session tray, 2 edited this walk" })).toBeVisible();
 
@@ -123,17 +131,26 @@ test.describe("mobile shell (TC57X viewport)", () => {
     }
     await expect(shell.getByText("2 for $5.50")).toBeVisible();
     await page.screenshot(SHOT("04b-retail-multiunit"));
-    // …while Base multi-unit stays tucked behind the disclosure. Expanding
-    // it moves the single caret from Retail into the Base price box.
+    // …while Base multi-unit sits behind TWO friction points: the disclosure,
+    // then the "+ Multi-unit price" reveal (stepper starts at 2).
     await page.getByRole("button", { name: /Base price · / }).click();
     await expect(shell.locator(".caret-blink")).toHaveCount(1);
-    await page.getByRole("button", { name: "Increase base quantity" }).click();
-    await page.getByRole("button", { name: "Increase base quantity" }).click();
+    await expect(page.getByRole("button", { name: "Increase base quantity" })).not.toBeVisible();
+    await page.getByRole("button", { name: /Multi-unit price/ }).click();
+    await page.getByRole("button", { name: "Increase base quantity" }).click(); // 2 → 3
     for (const d of ["9", "9", "9"]) {
       await page.getByRole("button", { name: d, exact: true }).click();
     }
     await expect(page.getByText("3 for $9.99")).toBeVisible();
     await page.screenshot(SHOT("09-base-expanded"));
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    // Review lists both changed sections; retail's reason persisted from the
+    // earlier edit, base still needs one before saving.
+    await expect(shell.getByText("Base price")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Base effective date" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
+    await page.getByRole("button", { name: "Base change reason" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Cost change", exact: true }).click();
     await page.getByRole("button", { name: "Save & next" }).click();
 
     // End walk clears the session.
@@ -166,12 +183,12 @@ test.describe("mobile shell (TC57X viewport)", () => {
     await expect(shell0.getByText(/^no promo yet · base \$/)).toBeVisible();
     await page.screenshot(SHOT("13-maint-no-promo"));
     // Nothing changed yet — the primary call-to-action must not invite a tap.
-    await expect(page.getByRole("button", { name: "Review change" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Next", exact: true })).toBeDisabled();
     const picked = await pickFuelDifferentFromCurrent(page);
-    await page.getByRole("button", { name: "Review change" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     const shell = page.getByTestId("mobile-shell");
-    await expect(shell.getByText("Review change")).toBeVisible();
+    await expect(shell.getByText("When & why")).toBeVisible();
     await expect(shell.getByText("Fuel Saver")).toBeVisible();
     await expect(shell.getByText(picked)).toBeVisible();
 

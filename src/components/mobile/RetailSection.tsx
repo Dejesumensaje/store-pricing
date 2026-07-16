@@ -7,8 +7,10 @@ type Props = {
   qty: number;
   onQtyChange: (qty: number) => void;
   displayCents: number;
-  /** "was $X.XX" — the live per-unit shelf price reference. */
-  wasLabel: string;
+  /** Optional anchor under the price — used only for the no-promo blank
+      slate ("no promo yet · base $X"). The old "was $X" reference is gone:
+      it repeated information without informing the decision. */
+  subLabel?: string | null;
   active: boolean;
   /** True once the director has typed digits this edit. Until then the
       active field renders its amount placeholder-dimmed: the first keypad
@@ -17,26 +19,23 @@ type Props = {
   hasDraft: boolean;
   error: string | null;
   onFocus: () => void;
-  /** Meta chip row (promo window + reason) — present once this section has a
-      change to describe. */
-  meta?: React.ReactNode;
 };
 
-// The primary section — multi-unit promos ("N for $X") get the prominent
-// stepper+price layout here, mirroring Base's expanded editor exactly (same
-// card, same internal heading, same stepper) so the two read as one system.
-// No % off / $ off on mobile. The price box is the default keypad target the
-// moment the item opens.
-export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active, hasDraft, error, onFocus, meta }: Props) {
+// Step 1 of the two-step flow answers only "how much" — no dates, no
+// reasons (those live on the review step). Deliberately monochrome: the
+// sections must separate by structure and typography alone, legible in
+// black and white. Retail's primacy is carried by its size (largest price
+// box, always expanded), not by color.
+export function RetailSection({ qty, onQtyChange, displayCents, subLabel, active, hasDraft, error, onFocus }: Props) {
   const total = displayCents / 100;
+  // Sub-line only when it carries information: per-unit math on a multi-unit
+  // price, and/or the blank-slate anchor.
+  const subParts = [qty > 1 ? fmtUnitPrice(qty, total) : null, subLabel ?? null].filter(Boolean);
   return (
-    /* Yellow-tag identity — the same shelf-tag color language as the desktop
-       table and the session tray, so the promo lever is recognizable at a
-       glance instead of blending with Base/Fuel. Focus is carried by the
-       price box (border + caret + dimmed amount), not the card color. */
-    <section className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-      <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-900">
-        <span aria-hidden="true" className="size-2.5 rounded-sm border border-amber-400 bg-amber-300" />
+    <section className="flex flex-col gap-2 rounded-xl border border-gray-300 bg-white p-3">
+      {/* Color marks exactly one thing on this screen: the active field.
+          The label tints with its box so "where am I typing" is unmissable. */}
+      <h3 className={`text-xs font-semibold uppercase tracking-wide ${active ? "text-brand" : "text-gray-700"}`}>
         Retail
       </h3>
       <div className="flex items-center gap-3">
@@ -46,13 +45,11 @@ export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active
           onClick={onFocus}
           aria-label="Edit retail price"
           className={`min-w-0 flex-1 rounded-lg border-2 px-3 py-2 text-left transition-colors ${
-            active ? "border-brand bg-brand/5" : "border-gray-200 bg-white"
+            active ? "border-brand bg-brand/10" : "border-gray-300 bg-gray-50"
           }`}
         >
           <span
             className={`block truncate text-2xl font-bold tabular-nums ${
-              /* Dimmed while awaiting input: focused-but-untouched, or the
-                 $0.00 blank slate of an item with no promo yet. */
               !hasDraft && (active || displayCents === 0) ? "text-gray-400" : "text-gray-900"
             }`}
           >
@@ -64,13 +61,10 @@ export function RetailSection({ qty, onQtyChange, displayCents, wasLabel, active
               />
             )}
           </span>
-          <span className="block truncate text-xs text-gray-500">
-            {qty > 1 ? `${fmtUnitPrice(qty, total)} · ${wasLabel}` : wasLabel}
-          </span>
+          {subParts.length > 0 && <span className="block truncate text-xs text-gray-500">{subParts.join(" · ")}</span>}
         </button>
       </div>
       {error && <span className="text-xs font-medium text-red-500">{error}</span>}
-      {meta && <div className="flex flex-wrap gap-2">{meta}</div>}
     </section>
   );
 }

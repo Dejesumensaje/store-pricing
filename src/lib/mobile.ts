@@ -80,6 +80,12 @@ export function departmentForCategory(category: string): string {
   return CATEGORY_TO_DEPARTMENT[category] ?? "Grocery";
 }
 
+// Mobile Fuel Saver catalog: multiples of 10¢ up to $1.00 (user decision
+// 2026-07-16), superseding the desktop's sparse FUEL_SAVER_OPTIONS on the
+// handheld. Values are plain dollar amounts — desktop renders whatever the
+// item carries, so the two catalogs coexist.
+export const MOBILE_FUEL_VALUES: number[] = Array.from({ length: 10 }, (_, i) => (i + 1) * 0.1);
+
 // ISO date helpers for the mobile meta chips (effective dates). Same
 // YYYY-MM-DD shape the pricing-store mutators default with.
 export function isoToday(): string {
@@ -88,6 +94,9 @@ export function isoToday(): string {
 
 export function isoAddDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  // Defensive: an empty/garbage input (e.g. an item with no promo dates yet)
+  // must not throw "Invalid time value" — anchor on today instead.
+  const base = isNaN(d.getTime()) ? new Date() : d;
+  base.setDate(base.getDate() + days);
+  return base.toISOString().slice(0, 10);
 }

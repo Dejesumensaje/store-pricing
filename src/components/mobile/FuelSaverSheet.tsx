@@ -2,7 +2,7 @@
 
 import { Check } from "lucide-react";
 import { BottomSheet } from "./BottomSheet";
-import { FUEL_SAVER_OPTIONS } from "@/lib/pricing-meta";
+import { MOBILE_FUEL_VALUES } from "@/lib/mobile";
 import { fuelAmountLabel } from "./FuelMove";
 
 type Props = {
@@ -12,29 +12,27 @@ type Props = {
   onSelect: (value: number | null) => void;
 };
 
-// Reuses desktop's shared FUEL_SAVER_OPTIONS catalog, rendered in dollars
-// ("+$0.10"…) — the same vocabulary as the desktop fuel chip. Selecting an
-// option commits immediately (no separate Save step) — Fuel Saver carries no
-// Override record, so there's nothing to stage.
+// Mobile catalog: None + multiples of 10¢ up to $1.00, in dollars ("$0.10"…).
+// Selecting an option commits immediately (no separate Save step) — Fuel
+// Saver carries no Override record, so there's nothing to stage.
 export function FuelSaverSheet({ open, value, onClose, onSelect }: Props) {
-  const current = (value ?? 0).toFixed(2);
+  const current = value ?? 0;
+  const options = [null, ...MOBILE_FUEL_VALUES];
   return (
     <BottomSheet open={open} onClose={onClose} title="Fuel Saver">
       <ul className="flex flex-col gap-1">
-        {FUEL_SAVER_OPTIONS.map((opt) => {
-          const amount = Number(opt.value);
-          const label = fuelAmountLabel(amount);
-          const selected = opt.value === current;
+        {options.map((amount) => {
+          const selected = Math.abs((amount ?? 0) - current) < 0.001;
           return (
-            <li key={opt.value}>
+            <li key={amount ?? "none"}>
               <button
                 onClick={() => {
-                  onSelect(amount > 0 ? amount : null);
+                  onSelect(amount);
                   onClose();
                 }}
                 className="flex w-full items-center justify-between rounded-lg px-3 py-3 text-left text-base font-medium text-gray-900 hover:bg-gray-50 active:bg-gray-100"
               >
-                {label}
+                {fuelAmountLabel(amount)}
                 {selected && <Check className="size-4 text-brand" aria-hidden="true" />}
               </button>
             </li>

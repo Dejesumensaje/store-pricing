@@ -13,7 +13,7 @@ import { SimulateScanSheet } from "./SimulateScanSheet";
 import { UpcEntryScreen } from "./UpcEntryScreen";
 import { EditScreen } from "./EditScreen";
 import { SessionTray } from "./SessionTray";
-import { MaintenanceReview } from "./MaintenanceReview";
+import { ChangeReviewScreen } from "./ChangeReviewScreen";
 import { MaintenanceSuccess } from "./MaintenanceSuccess";
 
 // Mounts at `/` under `max-md` only (see page.tsx's `md:hidden` wrapper).
@@ -132,8 +132,18 @@ function MobileShellInner() {
           itemId={view.itemId}
           mode="walk"
           autoSaveRef={autoSaveRef}
-          onSaveNext={() => navigate({ name: "walk-waiting" })}
+          onSaveNext={() => navigate({ name: "walk-review", itemId: view.itemId })}
           onCancel={() => navigate({ name: "walk-waiting" })}
+        />
+      );
+
+    case "walk-review":
+      return (
+        <ChangeReviewScreen
+          itemId={view.itemId}
+          mode="walk"
+          onBack={() => navigate({ name: "walk-edit", itemId: view.itemId })}
+          onDone={() => navigate({ name: "walk-waiting" })}
         />
       );
 
@@ -177,10 +187,11 @@ function MobileShellInner() {
 
     case "maint-review":
       return (
-        <MaintenanceReview
+        <ChangeReviewScreen
           itemId={view.itemId}
+          mode="maint"
           onBack={() => navigate({ name: "maint-edit", itemId: view.itemId })}
-          onSent={() => navigate({ name: "maint-sent", itemId: view.itemId })}
+          onDone={() => navigate({ name: "maint-sent", itemId: view.itemId })}
         />
       );
 
