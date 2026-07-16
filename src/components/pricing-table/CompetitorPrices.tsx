@@ -1,15 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { Badge, Button, Tooltip } from "@dejesumensaje/converge-ds-experimental";
-import { Pencil, Store } from "lucide-react";
+import { Badge, Tooltip } from "@dejesumensaje/converge-ds-experimental";
+import { Store } from "lucide-react";
 import { PricingItem } from "@/types/pricing";
-import { usePricingStore } from "@/store/pricing-store";
 import { orderCompetitors, effectivePrice, competitorIndex, priceDiffLabel, priceDiffClass } from "@/lib/competitors";
 import { fmt } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { EmptyState } from "../shared/EmptyState";
-import { CompetitorPricesModal } from "./CompetitorPricesModal";
 
 type Props = {
   item: PricingItem;
@@ -20,13 +17,9 @@ const FIELD_LABEL = "text-[10px] font-semibold uppercase tracking-wide text-gray
 // Competitor prices has its own identity — a flat section (h3 + gray subtitle,
 // no CollapsibleSection chrome), so it doesn't read as another accordion in
 // the Product relationships family. Base and Retail (their active TPR) are
-// compared side by side; the index stays a base ratio. Owns its modal's open
-// state; the modal renders as a sibling, not lifted into ItemEditDrawer.
-// Editing is desktop-only — the Edit button hides below md.
+// compared side by side; the index stays a base ratio. Read-only: competitor
+// prices are no longer editable at store level.
 export function CompetitorPrices({ item }: Props) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const updateCompetitors = usePricingStore((s) => s.updateCompetitors);
-
   // Compare per-unit — a pack-size base competes on its unit price.
   const ourBase = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
   // Our retail: the pending promo price, else the live one for TA items.
@@ -48,23 +41,13 @@ export function CompetitorPrices({ item }: Props) {
     : "grid grid-cols-[minmax(0,1fr)_5.5rem] md:grid-cols-[minmax(0,1fr)_5.5rem_2.5rem] items-start gap-2";
 
   return (
-    <>
-      <section className="flex flex-col gap-2">
-        <div className="flex min-h-6 items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-gray-700">
-            Competitor prices <span className="font-normal text-gray-400">· vs our prices</span>
-          </h3>
-          <Button
-            variant="secondary"
-            size="sm"
-            iconLeft={Pencil}
-            className="max-md:hidden"
-            onClick={() => setModalOpen(true)}
-          >
-            Edit
-          </Button>
-        </div>
-        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <section className="flex flex-col gap-2">
+      <div className="flex min-h-6 items-center gap-3">
+        <h3 className="text-sm font-semibold text-gray-700">
+          Competitor prices <span className="font-normal text-gray-400">· vs our prices</span>
+        </h3>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
           {orderedCompetitors.length === 0 ? (
             <EmptyState
               icon={Store}
@@ -163,17 +146,6 @@ export function CompetitorPrices({ item }: Props) {
             </>
           )}
         </div>
-      </section>
-      <CompetitorPricesModal
-        open={modalOpen}
-        item={item}
-        ourBase={ourBase}
-        onClose={() => setModalOpen(false)}
-        onSave={(competitors) => {
-          updateCompetitors(item.id, competitors);
-          setModalOpen(false);
-        }}
-      />
-    </>
+    </section>
   );
 }
