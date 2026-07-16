@@ -81,8 +81,12 @@ export type PricingItem = {
   upc?: string;
   /** POS receipt description — a short, all-caps rendering of the name (mobile Details disclosure only). */
   posDescription?: string;
-  /** Units currently on hand at the active store (deterministic mock; mobile Details disclosure only). */
+  /** Units currently on hand at the active store (deterministic mock; editable on the mobile item screen). */
   onHand?: number;
+  /** Forecast units/week for this item at the active store (deterministic mock) — the baseline the mobile edit is deltaed against. */
+  weeklyUnits?: number;
+  /** The director's corrected weekly-units forecast. null/undefined = no correction (use `weeklyUnits`). */
+  newWeeklyUnits?: number | null;
   /** Mirrors `packSize` — mobile's Details disclosure reads this field name. */
   size?: string;
   /** Store department, derived from `category` (mobile Details disclosure only). */

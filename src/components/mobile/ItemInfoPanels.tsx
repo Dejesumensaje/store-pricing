@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Link2, LineChart, Package, Store } from "lucide-react";
 import type { PricingItem } from "@/types/pricing";
+import { usePricingStore } from "@/store/pricing-store";
 import { effectivePrice } from "@/lib/competitors";
 import { fmt, fmtQtyPrice } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
+import { relationshipsFor, RELATIONSHIP_META } from "@/lib/product-relationships";
 
 type PanelKind = "details" | "competitors" | "relationships" | "financials";
 
@@ -178,27 +180,60 @@ function CompetitorsPanel({ item, liveRetail }: { item: PricingItem; liveRetail:
           );
         })}
       </dl>
-      <p className="mt-3 text-xs text-gray-500">Index = our price vs theirs (over 100 = we're pricier).</p>
+      <p className="mt-3 text-xs text-gray-500">Index = our price vs theirs (over 100 = we&apos;re pricier).</p>
     </div>
   );
 }
 
 function RelationshipsPanel({ item, familyItems }: { item: PricingItem; familyItems: PricingItem[] }) {
-  if (!item.familyId || familyItems.length === 0) {
+  const items = usePricingStore((s) => s.items);
+  // Ladders (size groups / good-better-best / brand pairs) come from the
+  // relationship registry; the price family comes from item.familyId (the
+  // registry's family entries are display metadata, not the source of truth).
+  const ladders = relationshipsFor(item.id).filter((r) => r.type !== "family");
+  const hasFamily = !!item.familyId && familyItems.length > 0;
+  if (!hasFamily && ladders.length === 0) {
     return <p className="mt-10 text-center text-sm text-gray-600">No product relationships for this item.</p>;
   }
+  const priceOf = (i: PricingItem) => fmt(perUnit(i.newBasePrice ?? i.currentBasePrice, i.newBaseQty));
   return (
-    <div>
-      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-        Price family{item.priceFamilyName ? ` · ${item.priceFamilyName}` : ""}
-      </p>
-      <p className="mb-2 text-xs text-gray-500">One shared price — editing any member updates all of them.</p>
-      <dl>
-        <Row label={item.name} value={fmt(perUnit(item.newBasePrice ?? item.currentBasePrice, item.newBaseQty))} strong />
-        {familyItems.map((f) => (
-          <Row key={f.id} label={f.name} value={fmt(perUnit(f.newBasePrice ?? f.currentBasePrice, f.newBaseQty))} />
-        ))}
-      </dl>
+    <div className="flex flex-col gap-5">
+      {hasFamily && (
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Line pricing{item.priceFamilyName ? ` · ${item.priceFamilyName}` : ""}
+          </p>
+          <p className="mb-2 text-xs text-gray-500">One shared price — editing any member updates all of them.</p>
+          <dl>
+            <Row label={item.name} value={priceOf(item)} strong />
+            {familyItems.map((f) => (
+              <Row key={f.id} label={f.name} value={priceOf(f)} />
+            ))}
+          </dl>
+        </div>
+      )}
+      {ladders.map((rel) => (
+        <div key={rel.id}>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            {RELATIONSHIP_META[rel.type].label} · {rel.name}
+          </p>
+          <dl>
+            {rel.itemIds.map((id) => {
+              const member = id === item.id ? item : items.find((i) => i.id === id);
+              if (!member) return null;
+              const chip = rel.memberLabels?.[id];
+              return (
+                <Row
+                  key={id}
+                  label={chip ? `${member.name} · ${chip}` : member.name}
+                  value={priceOf(member)}
+                  strong={id === item.id}
+                />
+              );
+            })}
+          </dl>
+        </div>
+      ))}
     </div>
   );
 }

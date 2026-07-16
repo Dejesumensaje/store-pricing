@@ -42,6 +42,12 @@ type PricingStore = {
   setBaseChangeReason: (itemId: string, reason: StoreBaseReason | HqBaseReason) => void;
   setRetailChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
   setFuelChangeReason: (itemId: string, reason: StorePromoReason | HqPromoReason) => void;
+  // Mobile inventory corrections (walk item screen). On-hand is a fact fix —
+  // it overwrites the count directly. Weekly units keeps `weeklyUnits` as the
+  // forecast baseline and records the correction in `newWeeklyUnits` (null =
+  // correction cleared), so the UI can show the delta ("12 (+2)").
+  updateOnHand: (itemId: string, value: number) => void;
+  updateWeeklyUnits: (itemId: string, value: number | null) => void;
   removeFromLooseTray: (overrideId: string) => void;
   // Mobile Item Maintenance's "Send to SAP" — confirms every pending override
   // on the item (pending → confirmed) so desktop's Status column reads
@@ -352,6 +358,21 @@ export const usePricingStore = create<PricingStore>((set) => ({
   setFuelChangeReason: (itemId, reason) =>
     set((state) => ({
       items: state.items.map((item) => (item.id === itemId ? { ...item, chosenFuelReason: reason } : item)),
+    })),
+
+  updateOnHand: (itemId, value) =>
+    set((state) => ({
+      items: state.items.map((item) => (item.id === itemId ? { ...item, onHand: Math.max(0, Math.round(value)) } : item)),
+    })),
+
+  updateWeeklyUnits: (itemId, value) =>
+    set((state) => ({
+      items: state.items.map((item) => {
+        if (item.id !== itemId) return item;
+        const rounded = value == null ? null : Math.max(0, Math.round(value));
+        // Correcting back to the baseline IS clearing the correction.
+        return { ...item, newWeeklyUnits: rounded === item.weeklyUnits ? null : rounded };
+      }),
     })),
 
   // Discarding a pending change also clears the edit from the table cell —

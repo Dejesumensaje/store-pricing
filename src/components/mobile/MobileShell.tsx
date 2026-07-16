@@ -11,9 +11,8 @@ import { MobileHome } from "./MobileHome";
 import { WaitingScreen } from "./WaitingScreen";
 import { SimulateScanSheet } from "./SimulateScanSheet";
 import { UpcEntryScreen } from "./UpcEntryScreen";
-import { EditScreen } from "./EditScreen";
+import { ItemScreen } from "./ItemScreen";
 import { SessionTray } from "./SessionTray";
-import { ChangeReviewScreen } from "./ChangeReviewScreen";
 import { MaintenanceSuccess } from "./MaintenanceSuccess";
 
 // Mounts at `/` under `max-md` only (see page.tsx's `md:hidden` wrapper).
@@ -42,9 +41,9 @@ function MobileShellInner() {
   const [simulateOpen, setSimulateOpen] = useState(false);
   const [upcEntryOpen, setUpcEntryOpen] = useState(false);
   const [unknownUpc, setUnknownUpc] = useState<string | null>(null);
-  // Set by the currently-mounted EditScreen to its own "commit valid drafts"
+  // Set by the currently-mounted ItemScreen to its own "commit valid drafts"
   // function — lets a hardware scan mid-edit autosave before jumping to the
-  // next item, without lifting EditScreen's draft state out of the component.
+  // next item, without lifting ItemScreen's draft state out of the component.
   const autoSaveRef = useRef<(() => void) | null>(null);
 
   // Shared resolver for every scan source — the real wedge, "Simulate scan",
@@ -74,7 +73,7 @@ function MobileShellInner() {
       useMobileSessionStore.getState().setMaintFuelBaseline(item.id, item.fuelSaver ?? null, { reset: true });
       navigate({ name: "maint-edit", itemId: item.id });
     }
-    // maint-edit / maint-review: mid-flow scans are ignored — Item
+    // maint-edit: mid-flow scans are ignored — Item
     // Maintenance is a deliberate single-item flow (the continuous-scan
     // autosave rhythm is a Store Walk behavior only, per the plan).
   };
@@ -127,23 +126,15 @@ function MobileShellInner() {
 
     case "walk-edit":
       return (
-        <EditScreen
+        <ItemScreen
           key={view.itemId}
           itemId={view.itemId}
           mode="walk"
           autoSaveRef={autoSaveRef}
-          onSaveNext={() => navigate({ name: "walk-review", itemId: view.itemId })}
+          // Post-save replaceState: back from the scanner must not re-enter
+          // the just-saved item's editor.
+          onDone={() => navigate({ name: "walk-waiting" }, { replace: true })}
           onCancel={() => navigate({ name: "walk-waiting" })}
-        />
-      );
-
-    case "walk-review":
-      return (
-        <ChangeReviewScreen
-          itemId={view.itemId}
-          mode="walk"
-          onBack={() => navigate({ name: "walk-edit", itemId: view.itemId })}
-          onDone={() => navigate({ name: "walk-waiting" })}
         />
       );
 
@@ -175,23 +166,13 @@ function MobileShellInner() {
 
     case "maint-edit":
       return (
-        <EditScreen
+        <ItemScreen
           key={view.itemId}
           itemId={view.itemId}
           mode="maint"
           autoSaveRef={autoSaveRef}
-          onSaveNext={() => navigate({ name: "maint-review", itemId: view.itemId })}
-          onCancel={() => navigate({ name: "maint-waiting" })}
-        />
-      );
-
-    case "maint-review":
-      return (
-        <ChangeReviewScreen
-          itemId={view.itemId}
-          mode="maint"
-          onBack={() => navigate({ name: "maint-edit", itemId: view.itemId })}
           onDone={() => navigate({ name: "maint-sent", itemId: view.itemId })}
+          onCancel={() => navigate({ name: "maint-waiting" })}
         />
       );
 

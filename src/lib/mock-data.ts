@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
+import { registerRelationships, type ProductRelationship } from "@/lib/product-relationships";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 import { round2 } from "@/lib/pricing-math";
 import { upcFromId, departmentForCategory } from "@/lib/mobile";
@@ -15,15 +16,22 @@ import { upcFromId, departmentForCategory } from "@/lib/mobile";
 // used below to decide which competitors have an active TPR on a given item.
 const idCharCodeSum = (id: string) => [...id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
 
-// Family pricing: the one seeded family in this catalog — a store editing any
-// member's base price updates them all (see updateBasePrice).
+// Family pricing (line pricing): editing any member's base price updates them
+// all (see updateBasePrice). Members seed at one shared price (RBCS5-1's
+// pending edit is the demo exception). The synthetic catalog generates its
+// own per-subcategory families further below.
 const FAMILY_IDS: Record<string, string> = {
   "RBCS5-1": "fl-tortilla",
   "RBCS5-7": "fl-tortilla",
   "RBCS5-8": "fl-tortilla",
+  "NC-3": "fl-tortilla",
+  "ND-1": "fl-tortilla",
+  "NC-2": "fl-lays-snacks",
+  "ND-5": "fl-lays-snacks",
 };
 const FAMILY_NAMES: Record<string, string> = {
   "fl-tortilla": "Reg Tortilla Chips 9–11 oz",
+  "fl-lays-snacks": "Lay's snacks 4.75–7.75 oz",
 };
 
 // Synthesize believable competitor prices + temp-allowance fields for every
@@ -63,7 +71,9 @@ function enrichItemContext(item: PricingItem): PricingItem {
       address: "345 Main St, Madison WI",
     },
   ];
-  const familyId = FAMILY_IDS[item.id];
+  // Curated table first; generated items (synthetic catalog) arrive with
+  // their familyId already set — don't clobber it with undefined.
+  const familyId = FAMILY_IDS[item.id] ?? item.familyId;
   return {
     ...item,
     competitors,
@@ -78,6 +88,9 @@ function enrichItemContext(item: PricingItem): PricingItem {
     upc: item.upc ?? upcFromId(item.id),
     posDescription: item.posDescription ?? item.name.toUpperCase().slice(0, 22),
     onHand: item.onHand ?? (idSum % 40) + 3,
+    // Weekly-units forecast, deterministic like onHand (different modulus so
+    // the two numbers don't visibly track each other on the mobile screen).
+    weeklyUnits: item.weeklyUnits ?? (idSum % 27) + 4,
     size: item.size ?? item.packSize,
     department: item.department ?? departmentForCategory(item.category),
     // Temp-allowance defaults (retail overrides are seeded explicitly below).
@@ -650,7 +663,7 @@ const SYNTHETIC_ROLES: ItemRole[] = ["Traffic driver", "Margin driver", "Destina
 const SYNTHETIC_SENS: Sensitivity[] = ["H", "M", "L"];
 const ITEMS_PER_CATEGORY = 11;
 
-const syntheticCatalog: PricingItem[] = TAXONOMY.flatMap((cat, ci) =>
+const syntheticRaw: PricingItem[] = TAXONOMY.flatMap((cat, ci) =>
   Array.from({ length: ITEMS_PER_CATEGORY }, (_, i): PricingItem => {
     const n = ci * ITEMS_PER_CATEGORY + i + 1;
     const sub = cat.subcategories[i % cat.subcategories.length];
@@ -679,7 +692,59 @@ const syntheticCatalog: PricingItem[] = TAXONOMY.flatMap((cat, ci) =>
       category_type: "no_change",
     };
   })
-).map(enrichItemContext);
+);
+
+// ─── Synthetic relationships ─────────────────────────────────────────────────
+// In a real assortment almost every SKU sits in SOME line or ladder — the
+// catalog should read that way. Per category, the items sharing a subcategory
+// (i % subcategories.length) form one group: the FIRST subcategory becomes a
+// size ladder (members ordered by seeded price, so it's valid from day one;
+// minGapPct 0 = order-checked only, no synthetic gap-noise), every other one
+// becomes a price family, its members aligned to one shared price (that's
+// what line pricing means). Beverages/Coffee (ci 0–1 = SKU-1001..1022) are
+// skipped: they already form the sp-center-store-band fixture, whose
+// monotonic price seed a family alignment would corrupt.
+const syntheticById = new Map(syntheticRaw.map((it) => [it.id, it]));
+const syntheticRels: ProductRelationship[] = [];
+TAXONOMY.forEach((cat, ci) => {
+  if (ci <= 1) return;
+  const len = cat.subcategories.length;
+  for (let j = 0; j < len; j++) {
+    const ids = Array.from({ length: ITEMS_PER_CATEGORY }, (_, i) => i)
+      .filter((i) => i % len === j)
+      .map((i) => `SKU-${1000 + ci * ITEMS_PER_CATEGORY + i + 1}`);
+    if (ids.length < 2) continue;
+    if (j === 0) {
+      const sorted = [...ids].sort(
+        (a, b) => syntheticById.get(a)!.currentBasePrice - syntheticById.get(b)!.currentBasePrice
+      );
+      syntheticRels.push({
+        id: `sp-syn-${ci}`,
+        type: "size_parity",
+        name: `${cat.subcategories[0]} sizes`,
+        itemIds: sorted,
+        memberLabels: Object.fromEntries(sorted.map((id) => [id, syntheticById.get(id)!.packSize])),
+        minGapPct: 0,
+      });
+    } else {
+      const famId = `fl-syn-${ci}-${j}`;
+      const famName = `${cat.subcategories[j]} line`;
+      const lead = syntheticById.get(ids[0])!;
+      for (const id of ids) {
+        const it = syntheticById.get(id)!;
+        it.currentBasePrice = lead.currentBasePrice;
+        it.cost = lead.cost;
+        it.recommendedBasePrice = lead.currentBasePrice;
+        it.familyId = famId;
+        it.priceFamilyName = famName;
+      }
+      syntheticRels.push({ id: famId, type: "family", name: famName, itemIds: ids });
+    }
+  }
+});
+registerRelationships(syntheticRels);
+
+const syntheticCatalog: PricingItem[] = syntheticRaw.map(enrichItemContext);
 
 // ─── Unified catalog ─────────────────────────────────────────────────────────
 // One list of every item. Each carries its own `category_type` (price type),
