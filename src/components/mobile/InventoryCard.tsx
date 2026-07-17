@@ -8,14 +8,29 @@ type FieldProps = {
   /** Signed delta vs. the baseline ("12 (+2)") — weekly units only. */
   delta?: number | null;
   onFocus: () => void;
+  /** One-tap way back — present only while a draft exists this visit. */
+  onUndo?: () => void;
 };
 
 // One integer keypad target — same active/caret grammar as the price boxes,
 // so "tap a value, type on the keypad" is a single skill across the screen.
-function IntField({ label, value, active, hasDraft, delta, onFocus }: FieldProps) {
+function IntField({ label, value, active, hasDraft, delta, onFocus, onUndo }: FieldProps) {
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-      <span className={`text-xs font-medium ${active ? "text-brand" : "text-gray-400"}`}>{label}</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className={`text-xs font-medium ${active ? "text-brand" : "text-gray-400"}`}>{label}</span>
+        {/* Reversible-draft editing: a corrected count returns to its found
+            value in one tap, no keypad backspacing. */}
+        {onUndo && (
+          <button
+            type="button"
+            onClick={onUndo}
+            className="min-h-9 select-none touch-manipulation px-1 text-xs font-semibold text-brand active:opacity-70"
+          >
+            Undo
+          </button>
+        )}
+      </div>
       {/* Same affordance convention as the price rows: bare bold numeral,
           chrome only while active. One register BELOW base price — inventory
           is context, not a decision; it must not read as a third price. */}
@@ -61,11 +76,13 @@ type Props = {
   onHandActive: boolean;
   onHandHasDraft: boolean;
   onFocusOnHand: () => void;
+  onUndoOnHand?: () => void;
   weekly: number;
   weeklyDelta: number;
   weeklyActive: boolean;
   weeklyHasDraft: boolean;
   onFocusWeekly: () => void;
+  onUndoWeekly?: () => void;
 };
 
 // Inventory corrections — secondary by design: one quiet card, two fields,
@@ -76,15 +93,24 @@ export function InventoryCard({
   onHandActive,
   onHandHasDraft,
   onFocusOnHand,
+  onUndoOnHand,
   weekly,
   weeklyDelta,
   weeklyActive,
   weeklyHasDraft,
   onFocusWeekly,
+  onUndoWeekly,
 }: Props) {
   return (
     <section className="flex gap-6">
-      <IntField label="On hand" value={onHand} active={onHandActive} hasDraft={onHandHasDraft} onFocus={onFocusOnHand} />
+      <IntField
+        label="On hand"
+        value={onHand}
+        active={onHandActive}
+        hasDraft={onHandHasDraft}
+        onFocus={onFocusOnHand}
+        onUndo={onUndoOnHand}
+      />
       <IntField
         label="Weekly units"
         value={weekly}
@@ -92,6 +118,7 @@ export function InventoryCard({
         hasDraft={weeklyHasDraft}
         delta={weeklyDelta}
         onFocus={onFocusWeekly}
+        onUndo={onUndoWeekly}
       />
     </section>
   );

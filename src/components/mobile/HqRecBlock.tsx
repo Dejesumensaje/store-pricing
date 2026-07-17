@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, Check, Sparkles } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, RotateCcw, Sparkles } from "lucide-react";
 
 export type HqRecStatus =
   | "pending" // no decision yet — full block, Accept is primary
@@ -45,7 +45,12 @@ export function HqRecBlock({ status, currentLabel, recLabel, down, saveNote, rea
           <Check className="size-3.5 text-emerald-600" aria-hidden="true" />
           Accepted {recLabel}
         </span>
-        <button type="button" onClick={onUndo} className="min-h-9 select-none touch-manipulation px-1 text-xs font-semibold text-brand active:opacity-70">
+        <button
+          type="button"
+          onClick={onUndo}
+          className="flex min-h-9 select-none touch-manipulation items-center gap-1.5 px-1.5 text-xs font-semibold text-brand active:opacity-70"
+        >
+          <RotateCcw className="size-3.5 text-brand/70" aria-hidden="true" />
           Undo
         </button>
       </div>
@@ -59,7 +64,12 @@ export function HqRecBlock({ status, currentLabel, recLabel, down, saveNote, rea
           <span className={HQ_PILL}>HQ</span>
           Keeping current — rec declined
         </span>
-        <button type="button" onClick={onUndo} className="min-h-9 select-none touch-manipulation px-1 text-xs font-semibold text-brand active:opacity-70">
+        <button
+          type="button"
+          onClick={onUndo}
+          className="flex min-h-9 select-none touch-manipulation items-center gap-1.5 px-1.5 text-xs font-semibold text-brand active:opacity-70"
+        >
+          <RotateCcw className="size-3.5 text-brand/70" aria-hidden="true" />
           Undo
         </button>
       </div>

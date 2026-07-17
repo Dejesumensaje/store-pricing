@@ -256,8 +256,12 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await page.getByRole("button", { name: "Simulate scan" }).click();
     await page.getByRole("button", { name: /Doritos Nacho Cheese/ }).click();
     await pickFuelDifferentFromCurrent(page);
+    // Reversible-draft editing: a fuel change is now a local draft, so the X
+    // asks before discarding meaningful work. Confirm the discard.
     await page.getByRole("button", { name: "Cancel" }).click(); // header X
+    await page.getByRole("dialog", { name: "Discard changes?" }).getByRole("button", { name: "Discard changes" }).click();
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
+    // The change never committed (draft only), so the walk stays clean.
     await expect(page.getByRole("button", { name: "Session tray, 0 edited this walk" })).toBeVisible();
   });
 

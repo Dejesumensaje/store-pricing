@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { Calendar, ChevronDown, ChevronRight, Fuel, Link2, Loader2, Tag, X } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, Fuel, Link2, Loader2, RotateCcw, Tag, X } from "lucide-react";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { useMobileSessionStore } from "@/store/mobile-session";
 import { buildItemsById, evaluateEdlpCeilingChange } from "@/lib/edlp-ceiling";
@@ -21,11 +21,12 @@ import {
   type PriceChangeReason,
 } from "@/lib/price-change-reason";
 import { baseRecPending, retailRecPending } from "@/lib/item-status";
-import type { StoreBaseReason, StorePromoReason } from "@/types/pricing";
+import type { StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
 import { PriceRow } from "./PriceRow";
 import { HqRecBlock, type HqRecStatus } from "./HqRecBlock";
 import { InventoryCard } from "./InventoryCard";
 import { SaveOverlay } from "./SaveOverlay";
+import { BottomSheet } from "./BottomSheet";
 import { MobileKeypad } from "./MobileKeypad";
 import { FuelSaverSheet } from "./FuelSaverSheet";
 import { fuelAmountLabel } from "./FuelMove";
@@ -111,6 +112,21 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // Blocked-CTA redirect: which section is being pulsed at, if any.
   const [pulseSection, setPulseSection] = useState<Section | null>(null);
   const [saving, setSaving] = useState(false);
+  // ── Draft buffers for the edits that used to hit the store on touch ──────
+  // Reversible-draft-editing (docs/plan): fuel, reasons and dates are now
+  // staged locally like prices — NOTHING commits until Save (commitDrafts), so
+  // backing out (X → discard) never leaks a stranded reason/date/fuel. The
+  // `undefined` sentinel means "untouched this visit" — null/0/"" are all
+  // legal committed values, so they can't double as the sentinel.
+  const [fuelDraft, setFuelDraft] = useState<number | null | undefined>(undefined);
+  const [baseReasonDraft, setBaseReasonDraft] = useState<StoreBaseReason | HqBaseReason | undefined>(undefined);
+  const [retailReasonDraft, setRetailReasonDraft] = useState<StorePromoReason | HqPromoReason | undefined>(undefined);
+  const [fuelReasonDraft, setFuelReasonDraft] = useState<StorePromoReason | HqPromoReason | undefined>(undefined);
+  const [baseDateDraft, setBaseDateDraft] = useState<string | null | undefined>(undefined);
+  const [retailDatesDraft, setRetailDatesDraft] = useState<{ start: string | null; end: string | null } | undefined>(undefined);
+  const [fuelDatesDraft, setFuelDatesDraft] = useState<{ start: string | null; end: string | null } | undefined>(undefined);
+  // The one sanctioned dialog: discarding meaningful unsaved work on exit.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   // ── Retail derivations (ported from the old EditScreen) ────────────────
   const liveRetail = item ? item.currentRetailPrice ?? item.currentBasePrice : 0;
@@ -245,7 +261,9 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
       : retailQty === 1 && retailDraftCents === recRetailCents
         ? "accepted"
         : "typing";
-  const fuelVal = item?.fuelSaver ?? null;
+  // Effective fuel = draft when touched this visit, else the committed value.
+  const effFuel = fuelDraft !== undefined ? fuelDraft : item?.fuelSaver ?? null;
+  const fuelVal = effFuel;
   const fuelRecStatus: HqRecStatus = kept.fuel
     ? "kept"
     : fuelVal == null || fuelVal <= 0
@@ -255,7 +273,8 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         : "typing";
 
   // Registers a fuel change in the session (walk) / its own baseline (maint)
-  // before committing — shared by the sheet, the rec accept, and undo.
+  // and writes the value — called ONLY from commitDrafts now (fuel is a local
+  // draft until Save, like every other edit).
   const commitFuel = (value: number | null) => {
     if (!item) return;
     if (mode === "walk") touchSection(item.id, "fuel", fuelBaselineOnOpen);
@@ -277,6 +296,37 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     setPops((p) => ({ ...p, retail: p.retail + 1 }));
   };
 
+  // ── One-tap reversal, per section — the visible way back the principle asks
+  // for. Each resets EVERYTHING that section drafted this visit (value, qty,
+  // reason, date, keep-decision, the seeded-deal flag) so the section returns
+  // to exactly how it was found. No store writes happened, so this is pure
+  // local reset — no confirmation, instant.
+  const undoRetail = () => {
+    setRetailDigits("");
+    setRetailQty(item?.newRetailQty ?? 1);
+    setDealSeeded(false);
+    setKept((k) => ({ ...k, retail: false }));
+    setRetailReasonDraft(undefined);
+    setRetailDatesDraft(undefined);
+    if (activeTarget === "retail") setActiveTarget(null);
+  };
+  const undoBase = () => {
+    setBaseDigits("");
+    setBaseQty(item?.newBaseQty ?? 1);
+    setKept((k) => ({ ...k, base: false }));
+    setBaseReasonDraft(undefined);
+    setBaseDateDraft(undefined);
+    if (activeTarget === "base") setActiveTarget(null);
+  };
+  const undoFuel = () => {
+    setFuelDraft(undefined);
+    setKept((k) => ({ ...k, fuel: false }));
+    setFuelReasonDraft(undefined);
+    setFuelDatesDraft(undefined);
+  };
+  const undoOnHand = () => setOnHandDigits("");
+  const undoWeekly = () => setWeeklyDigits("");
+
   // ── Which sections carry a change (drafted now, or committed earlier this
   // session — walk scopes to the session's touched sections, like the old
   // review step did, so a pre-seeded pending override never surfaces). ─────
@@ -291,7 +341,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // and maintenance now read identically until you actually edit.
   const baseChanged = baseDraftCents != null || (!!baseOverride && mode === "walk" && !!entry?.sections.base);
   const retailChanged = retailDraftCents != null || (!!retailOverride && mode === "walk" && !!entry?.sections.retail);
-  const fuelChangedNow = item ? (item.fuelSaver ?? null) !== fuelBaselineOnOpen : false;
+  const fuelChangedNow = item ? effFuel !== fuelBaselineOnOpen : false;
   const fuelChanged =
     fuelChangedNow ||
     (mode === "walk"
@@ -310,7 +360,8 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   };
   const reasonFor = (s: Section): string | null => {
     if (!item) return null;
-    const chosen = s === "base" ? item.chosenBaseReason : s === "retail" ? item.chosenRetailReason : item.chosenFuelReason;
+    const draft = s === "base" ? baseReasonDraft : s === "retail" ? retailReasonDraft : fuelReasonDraft;
+    const chosen = draft ?? (s === "base" ? item.chosenBaseReason : s === "retail" ? item.chosenRetailReason : item.chosenFuelReason);
     if (chosen) return reasonLabelOf(chosen);
     if (recOriginated(s)) {
       const hq = s === "base" ? item.hqBaseReason : s === "retail" ? item.hqRetailReason : item.hqFuelReason;
@@ -341,6 +392,22 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     keptAny ||
     inventoryChanged ||
     (mode === "walk" && entry != null);
+  // Tighter than hasChanges: ONLY unsaved work from this visit (the local
+  // drafts), never a prior-visit commit already in the walk. This gates the
+  // discard confirmation, so re-opening an already-edited item and leaving it
+  // untouched exits cleanly — no dialog about "unsaved edits" when there are none.
+  const hasUnsavedDrafts =
+    baseDraftCents != null ||
+    retailDraftCents != null ||
+    fuelChangedNow ||
+    keptAny ||
+    inventoryChanged ||
+    baseReasonDraft !== undefined ||
+    retailReasonDraft !== undefined ||
+    fuelReasonDraft !== undefined ||
+    baseDateDraft !== undefined ||
+    retailDatesDraft !== undefined ||
+    fuelDatesDraft !== undefined;
 
   // ── Keypad routing — one keypad, four targets ───────────────────────────
   // Leaving the retail field with nothing typed collapses a seeded "Add deal"
@@ -437,11 +504,28 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
       if (item.category_type !== "temporary_allowance") updatePriceType(item.id, "temporary_allowance");
       updateRetailPrice(item.id, retailQty, retailDraftCents / 100);
     }
+    // Fuel — the only draft that carries its own session/baseline bookkeeping.
+    // commitFuel does the touchSection/setMaintFuelBaseline pairing so the
+    // walk tally and computeWalkRows behave exactly as before; guarded so a
+    // no-op fuel never creates a dead walk entry.
+    if (fuelChangedNow) commitFuel(effFuel);
     for (const s of ["base", "retail", "fuel"] as const) {
       if (kept[s]) setSectionReviewed(item.id, s, true);
     }
     if (onHandDraft != null) updateOnHand(item.id, onHandDraft);
     if (weeklyDraft != null) updateWeeklyUnits(item.id, weeklyDraft);
+    // Dates & reasons LAST — the price/type/fuel mutators above seed default
+    // dates and (for a fuel removal) clear the reason, so an explicit pick must
+    // land after them to win. Fuel date/reason only when fuel actually stays on.
+    if (baseDateDraft !== undefined) updateBaseEffectiveDate(item.id, baseDateDraft);
+    if (retailDatesDraft) updateAllowanceDates(item.id, retailDatesDraft.start, retailDatesDraft.end);
+    if (fuelDatesDraft && effFuel != null && effFuel > 0) updateFuelSaverDates(item.id, fuelDatesDraft.start, fuelDatesDraft.end);
+    if (baseReasonDraft !== undefined) setBaseChangeReason(item.id, baseReasonDraft);
+    if (retailReasonDraft !== undefined) setRetailChangeReason(item.id, retailReasonDraft);
+    // Fuel reason commits even for a removal (None): the app requires a reason
+    // for any fuel change, and this runs AFTER commitFuel — which clears the
+    // reason on removal — so the director's pick is what survives.
+    if (fuelReasonDraft !== undefined) setFuelChangeReason(item.id, fuelReasonDraft);
   };
 
   useEffect(() => {
@@ -501,8 +585,14 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     }, 180);
   };
 
+  // Nothing commits before Save now, so there's nothing to roll back on exit —
+  // the parent discards local drafts by remounting. The ONE sanctioned dialog:
+  // confirm before throwing away unsaved work; a pristine screen exits directly.
   const handleCancel = () => {
-    if (item && fuelChangedNow) updateFuelSaver(item.id, fuelBaselineOnOpen);
+    if (hasUnsavedDrafts) {
+      setConfirmDiscard(true);
+      return;
+    }
     onCancel();
   };
 
@@ -523,7 +613,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // at the moment of cause. They render ONLY under a changed section (their
   // arrival is the information); the reason chip turns red until it's filled,
   // the same hue family as the blocked CTA that points back at it.
-  const metaChips = (section: Section, dateLabel: string) => {
+  const metaChips = (section: Section, dateLabel: string, reversal?: React.ReactNode) => {
     const reason = reasonFor(section);
     return (
       <div className="rise-in flex flex-wrap items-center gap-1.5">
@@ -545,27 +635,52 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
           <Tag className={`size-3.5 ${reason ? "text-gray-400" : "text-red-400"}`} aria-hidden="true" />
           {reason ?? "Add reason"}
         </button>
+        {reversal}
       </div>
     );
   };
 
+  // The section-level reversal pill — same "when & why" chip grammar (bordered,
+  // iconed), brand-tinted to read as an action. Sits in the metaChips cluster
+  // so date · reason · undo are one row. Suppressed when an HQ rec is already
+  // showing its own Undo (accepted state) to avoid a duplicate control.
+  const undoChip = (label: string, onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex min-h-9 select-none touch-manipulation items-center gap-1.5 px-1.5 text-xs font-semibold text-brand active:opacity-70"
+    >
+      <RotateCcw className="size-3.5 text-brand/70" aria-hidden="true" />
+      {label}
+    </button>
+  );
+
+  // Effective dates = the visit's draft when set, else the committed value —
+  // the chips and the resting window read these, so a picked-but-unsaved date
+  // shows immediately yet never touches the store until Save.
+  const effBaseDate = baseDateDraft !== undefined ? baseDateDraft : item.baseEffectiveDate ?? null;
+  const effRetailStart = retailDatesDraft ? retailDatesDraft.start : item.allowanceStartDate ?? null;
+  const effRetailEnd = retailDatesDraft ? retailDatesDraft.end : item.allowanceEndDate ?? null;
+  const effFuelStart = fuelDatesDraft ? fuelDatesDraft.start : item.fuelSaverStartDate ?? null;
+  const effFuelEnd = fuelDatesDraft ? fuelDatesDraft.end : item.fuelSaverEndDate ?? null;
+
   // Honest defaults for the date chips: the store mutators seed the same
   // values on commit, so the chip never promises something the save won't do.
   const defaultWeek = fmtDateRange(isoToday(), isoAddDays(isoToday(), 6))!;
-  const baseDateLabel = fmtDateShort(item.baseEffectiveDate) ?? "Today";
-  const retailDateLabel = fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) ?? defaultWeek;
-  const fuelDateLabel = fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate) ?? defaultWeek;
+  const baseDateLabel = fmtDateShort(effBaseDate) ?? "Today";
+  const retailDateLabel = fmtDateRange(effRetailStart, effRetailEnd) ?? defaultWeek;
+  const fuelDateLabel = fmtDateRange(effFuelStart, effFuelEnd) ?? defaultWeek;
 
   // An active promo shows its run window at rest — read-only ground, no reason
   // chip yet (that arrives only with a change). Walking the store, the director
   // can spot a deal about to lapse and decide to extend or end it. The window
   // yields the moment an edit begins: the editable when&why chips take over.
-  const retailEndsIn = daysUntil(item.allowanceEndDate);
+  const retailEndsIn = daysUntil(effRetailEnd);
   const retailEndingSoon = retailEndsIn != null && retailEndsIn >= 0 && retailEndsIn <= 3;
   const endsSoonLabel =
     retailEndsIn === 0 ? "ends today" : retailEndsIn === 1 ? "ends tomorrow" : `ends in ${retailEndsIn} days`;
   const retailWindow =
-    hasRetail && !retailChanged && item.allowanceEndDate ? (
+    hasRetail && !retailChanged && effRetailEnd ? (
       <div
         className={`flex items-center gap-1.5 text-xs ${
           retailEndingSoon ? "font-medium text-amber-700" : "text-gray-500"
@@ -576,7 +691,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
           aria-hidden="true"
         />
         <span>
-          {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate)}
+          {fmtDateRange(effRetailStart, effRetailEnd)}
           {retailEndingSoon && ` · ${endsSoonLabel}`}
         </span>
       </div>
@@ -585,6 +700,20 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const famCount = familyItems.length;
   const saveLabel =
     mode === "maint" ? "Send to SAP" : baseDraftCents != null && famCount > 0 ? `Save · ${famCount + 1} items` : "Save & next";
+
+  // Per-section reversal nodes for the metaChips cluster. Only for a change
+  // drafted THIS visit (a prior-visit committed change can't be undone from
+  // here). A new deal on a promo-less item reverts as "Remove deal" — the
+  // requirement's non-destructive language, returning the item to No-deal. The
+  // accepted-rec guard hands reversal to HqRecBlock's own Undo in that state.
+  const retailReversal =
+    retailDraftCents != null && !(retailRecActive && retailRecStatus === "accepted")
+      ? undoChip(hasRetail ? "Undo" : "Remove deal", undoRetail)
+      : null;
+  const baseReversal =
+    baseDraftCents != null && !(baseRecActive && baseRecStatus === "accepted") ? undoChip("Undo", undoBase) : null;
+  const fuelReversal =
+    fuelChangedNow && !(fuelRecActive && fuelRecStatus === "accepted") ? undoChip("Undo", undoFuel) : null;
 
   // The retail HQ rec renders in the same slot whether the row is a live
   // price or the No-deal resting state — fixed insertion points keep the
@@ -675,7 +804,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                 >
                   {retailRec}
                   {retailWindow}
-                  {retailChanged && metaChips("retail", retailDateLabel)}
+                  {retailChanged && metaChips("retail", retailDateLabel, retailReversal)}
                 </PriceRow>
               )}
             </div>
@@ -780,7 +909,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                     </ul>
                   </div>
                 )}
-                {baseChanged && metaChips("base", baseDateLabel)}
+                {baseChanged && metaChips("base", baseDateLabel, baseReversal)}
               </PriceRow>
             </div>
 
@@ -805,7 +934,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                 {/* The program's name is "Fuel Saver" — never shorten it. */}
                 <span className="whitespace-nowrap text-sm font-medium text-gray-600">Fuel Saver</span>
                 <span className="flex flex-1 items-center justify-end gap-1 text-sm font-semibold tabular-nums text-gray-900">
-                  {fuelAmountLabel(item.fuelSaver)}
+                  {fuelAmountLabel(effFuel)}
                   <ChevronRight className="size-4 text-gray-400" aria-hidden="true" />
                 </span>
               </button>
@@ -818,19 +947,19 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                   reasonLabel={item.hqFuelReason ? reasonLabelOf(item.hqFuelReason) : null}
                   onAccept={() => {
                     setKept((k) => ({ ...k, fuel: false }));
-                    commitFuel(item.recommendedFuelSaver!);
+                    setFuelDraft(item.recommendedFuelSaver!);
                   }}
                   onKeep={() => {
-                    if (fuelChangedNow) commitFuel(fuelBaselineOnOpen);
+                    setFuelDraft(undefined);
                     setKept((k) => ({ ...k, fuel: true }));
                   }}
                   onUndo={() => {
                     if (fuelRecStatus === "kept") setKept((k) => ({ ...k, fuel: false }));
-                    else commitFuel(fuelBaselineOnOpen);
+                    else setFuelDraft(undefined);
                   }}
                 />
               )}
-              {fuelChanged && metaChips("fuel", fuelDateLabel)}
+              {fuelChanged && metaChips("fuel", fuelDateLabel, fuelReversal)}
             </div>
           </section>
 
@@ -840,11 +969,13 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
               onHandActive={activeTarget === "onhand"}
               onHandHasDraft={onHandDraft != null}
               onFocusOnHand={() => setActiveTarget("onhand")}
+              onUndoOnHand={onHandDraft != null ? undoOnHand : undefined}
               weekly={weeklyDisplay}
               weeklyDelta={weeklyDisplay - weeklyBaseline}
               weeklyActive={activeTarget === "weekly"}
               weeklyHasDraft={weeklyDraft != null}
               onFocusWeekly={() => setActiveTarget("weekly")}
+              onUndoWeekly={weeklyDraft != null ? undoWeekly : undefined}
             />
           </div>
 
@@ -890,11 +1021,13 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
 
       <FuelSaverSheet
         open={fuelSheetOpen}
-        value={item.fuelSaver}
+        value={effFuel}
         onClose={() => setFuelSheetOpen(false)}
         onSelect={(v) => {
           setKept((k) => ({ ...k, fuel: false }));
-          commitFuel(v);
+          setFuelDraft(v);
+          // Removing fuel drops its reason (updateFuelSaver clears it on commit).
+          if (v == null || v <= 0) setFuelReasonDraft(undefined);
         }}
       />
 
@@ -914,15 +1047,15 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         }
         value={
           sheet?.section === "base"
-            ? item.chosenBaseReason
+            ? baseReasonDraft ?? item.chosenBaseReason
             : sheet?.section === "fuel"
-              ? item.chosenFuelReason
-              : item.chosenRetailReason
+              ? fuelReasonDraft ?? item.chosenFuelReason
+              : retailReasonDraft ?? item.chosenRetailReason
         }
         onSelect={(v) => {
-          if (sheet?.section === "base") setBaseChangeReason(itemId, v as StoreBaseReason);
-          else if (sheet?.section === "fuel") setFuelChangeReason(itemId, v as StorePromoReason);
-          else if (sheet?.section === "retail") setRetailChangeReason(itemId, v as StorePromoReason);
+          if (sheet?.section === "base") setBaseReasonDraft(v as StoreBaseReason | HqBaseReason);
+          else if (sheet?.section === "fuel") setFuelReasonDraft(v as StorePromoReason | HqPromoReason);
+          else if (sheet?.section === "retail") setRetailReasonDraft(v as StorePromoReason | HqPromoReason);
         }}
         onClose={() => setSheet(null)}
       />
@@ -933,23 +1066,45 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         mode={sheet?.section === "base" ? "single" : "range"}
         start={
           sheet?.section === "base"
-            ? item.baseEffectiveDate ?? isoToday()
+            ? effBaseDate ?? isoToday()
             : sheet?.section === "fuel"
-              ? item.fuelSaverStartDate ?? isoToday()
-              : item.allowanceStartDate ?? isoToday()
+              ? effFuelStart ?? isoToday()
+              : effRetailStart ?? isoToday()
         }
         end={
           sheet?.section === "fuel"
-            ? item.fuelSaverEndDate ?? isoAddDays(isoToday(), 6)
-            : item.allowanceEndDate ?? isoAddDays(isoToday(), 6)
+            ? effFuelEnd ?? isoAddDays(isoToday(), 6)
+            : effRetailEnd ?? isoAddDays(isoToday(), 6)
         }
         onApply={(s, e) => {
-          if (sheet?.section === "base") updateBaseEffectiveDate(itemId, s);
-          else if (sheet?.section === "fuel") updateFuelSaverDates(itemId, s, e);
-          else if (sheet?.section === "retail") updateAllowanceDates(itemId, s, e);
+          if (sheet?.section === "base") setBaseDateDraft(s);
+          else if (sheet?.section === "fuel") setFuelDatesDraft({ start: s, end: e });
+          else if (sheet?.section === "retail") setRetailDatesDraft({ start: s, end: e });
         }}
         onClose={() => setSheet(null)}
       />
+
+      {/* Leaving with unsaved work is the ONE case the principle sanctions a
+          dialog — draft edits themselves never confirm. Backdrop/Escape/X all
+          mean "keep editing", the safe default. */}
+      <BottomSheet open={confirmDiscard} onClose={() => setConfirmDiscard(false)} title="Discard changes?">
+        <div className="flex flex-col gap-2 p-2">
+          <p className="px-1 pb-1 text-sm text-gray-600">Your unsaved edits on this item will be lost.</p>
+          <Button
+            variant="secondary"
+            className="h-12 w-full"
+            onClick={() => {
+              setConfirmDiscard(false);
+              onCancel();
+            }}
+          >
+            Discard changes
+          </Button>
+          <Button variant="primary" className="h-12 w-full" onClick={() => setConfirmDiscard(false)}>
+            Keep editing
+          </Button>
+        </div>
+      </BottomSheet>
 
       {overlay && <SaveOverlay lines={overlay.lines} flyItems={overlay.flyItems} onDone={onDone} />}
     </div>
