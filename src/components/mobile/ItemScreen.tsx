@@ -350,6 +350,18 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     if (activeTarget === "retail" && t !== "retail" && retailDigits === "") setDealSeeded(false);
     setActiveTarget(t);
   };
+  // Tap-outside-to-dismiss: a mis-tap on a value shoots the keypad up, so any
+  // tap landing on non-interactive content (the header, the gaps between rows,
+  // whitespace) drops it again — the same forgiving "tap the backdrop" gesture
+  // as a sheet, so an accidental focus is one tap to undo. Taps on controls
+  // (another field, a stepper, a chip, a rec) are owned by those controls and
+  // must NOT dismiss, so we bail the moment the target sits inside one. No draft
+  // is lost — the digits persist in state; only the keypad hides.
+  const dismissKeypadOnBackdrop = (e: React.MouseEvent) => {
+    if (activeTarget == null) return;
+    if ((e.target as HTMLElement).closest("button, input, a, [role='button']")) return;
+    setTarget(null);
+  };
   const onDigit = (d: string) => {
     if (activeTarget === "retail") setRetailDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
     else if (activeTarget === "base") setBaseDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
@@ -609,7 +621,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         <span className="w-11" aria-hidden="true" />
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-4 py-3" onClick={dismissKeypadOnBackdrop}>
         <div className="flex flex-col gap-7">
           <div className="min-w-0">
             <p className="truncate text-base font-semibold text-gray-900">{item.name}</p>
