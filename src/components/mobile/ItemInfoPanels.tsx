@@ -1,23 +1,32 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, Link2, LineChart, Package, Store } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronLeft, Link2, Package, Store } from "lucide-react";
 import type { PricingItem } from "@/types/pricing";
 import { usePricingStore } from "@/store/pricing-store";
-import { effectivePrice } from "@/lib/competitors";
-import { fmt, fmtQtyPrice } from "@/lib/format";
-import { perUnit } from "@/lib/pricing-math";
-import { relationshipsFor, RELATIONSHIP_META } from "@/lib/product-relationships";
+import { orderCompetitors, effectivePrice, competitorIndex, priceDiffLabel, priceDiffClass } from "@/lib/competitors";
+import { fmt } from "@/lib/format";
+import { perUnit, round2 } from "@/lib/pricing-math";
+import {
+  relationshipsFor,
+  RELATIONSHIP_META,
+  RELATIONSHIP_TYPE_ORDER,
+  minGapFor,
+  type ProductRelationship,
+} from "@/lib/product-relationships";
 
-type PanelKind = "details" | "competitors" | "relationships" | "financials";
+type PanelKind = "details" | "competitors" | "relationships";
 
-// Short labels on the pills (2 columns at 360px leaves ~15 chars before
-// truncation); the full name goes on the opened panel's title.
+// Short labels on the cards; the full name goes on the opened panel's title.
+// Three equal cards in one row (evidence tiles) — a balanced, glanceable set
+// rather than a mixed grid. Each is a vertical tile: icon, label, one-line
+// status (the panel's headline fact).
 const PANELS: { kind: PanelKind; pill: string; title: string; icon: typeof Package }[] = [
   { kind: "details", pill: "Details", title: "Product details", icon: Package },
   { kind: "competitors", pill: "Competitors", title: "Competitor prices", icon: Store },
-  { kind: "relationships", pill: "Relationships", title: "Product relationships", icon: Link2 },
-  { kind: "financials", pill: "Financials", title: "Financials", icon: LineChart },
+  // Card label is "Groups" (fits the narrow column); the panel keeps the full
+  // "Product relationships" title.
+  { kind: "relationships", pill: "Groups", title: "Product relationships", icon: Link2 },
 ];
 
 // Reference info lives behind four pills (2-column grid) that expand into
@@ -28,12 +37,10 @@ const PANELS: { kind: PanelKind; pill: string; title: string; icon: typeof Packa
 // the affordance: pills compress on press, the panel rises in.
 export function ItemInfoPills({
   item,
-  liveRetail,
   familyItems,
   draftBaseUnit,
 }: {
   item: PricingItem;
-  liveRetail: number;
   familyItems: PricingItem[];
   /** The in-progress base draft (per unit) — lights the Relationships pill
       and drives the panel's ripple while a family price is being moved. */
@@ -54,60 +61,81 @@ export function ItemInfoPills({
   const otherGroups = relationshipsFor(item.id).filter((r) => r.type !== "family").length;
   const hasFamily = !!item.familyId && familyItems.length > 0;
   const status: Record<PanelKind, { text: string; live?: boolean }> = {
-    details: { text: item.upc ? `UPC ${item.upc}` : "—" },
+    // Price sensitivity (H/M/L) is the one Detail short enough to glance in a
+    // narrow tile — the UPC and the rest live one tap away in the panel.
+    details: { text: `Sensitivity ${item.sensitivity}` },
     competitors: { text: competitorCount > 0 ? `${competitorCount} tracked` : "None tracked" },
     // Line pricing → how many connected items an edit would move. Else →
     // membership in the comparison groups. Else → nothing.
+    // Copy kept short — these ride in a narrow tile; the full picture is one
+    // tap away in the panel.
     relationships: hasFamily
-      ? { text: `${familyItems.length} items follow`, live: draftBaseUnit != null }
+      ? { text: `${familyItems.length} follow`, live: draftBaseUnit != null }
       : otherGroups > 0
-        ? { text: `In ${otherGroups} related group${otherGroups > 1 ? "s" : ""}` }
+        ? { text: `${otherGroups} related` }
         : { text: "Priced alone" },
-    financials: { text: `Cost ${fmt(item.cost)}` },
+  };
+
+  const openPanel = (kind: PanelKind, el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    // The tapped pill's center is the panel's transform-origin, so it grows
+    // out of THAT pill.
+    setOrigin(`${r.left + r.width / 2}px ${r.top + r.height / 2}px`);
+    setOpen(kind);
   };
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-2">
-        {/* No chevron on the pills — the press-compress motion carries the
-            tappable affordance, and the freed width lets every label fit. */}
+      <div className="grid grid-cols-3 gap-2">
         {PANELS.map(({ kind, pill, icon: Icon }) => (
-          <button
-            key={kind}
-            type="button"
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect();
-              setOrigin(`${r.left + r.width / 2}px ${r.top + r.height / 2}px`);
-              setOpen(kind);
-            }}
-            className="flex min-h-14 select-none touch-manipulation flex-col items-start justify-center gap-0.5 rounded-xl bg-gray-100/70 px-3 py-2.5 text-left transition-transform duration-75 active:scale-[0.97] active:bg-gray-200 motion-reduce:transition-none"
-          >
-            <span className="flex w-full min-w-0 items-center gap-2">
-              <Icon className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-              <span className="min-w-0 truncate text-sm font-medium text-gray-700">{pill}</span>
-            </span>
-            <span
-              className={`w-full min-w-0 truncate pl-6 text-xs ${
-                status[kind].live ? "font-medium text-brand" : "text-gray-400"
-              }`}
-            >
-              {status[kind].text}
-            </span>
-          </button>
+          <Pill key={kind} pill={pill} Icon={Icon} status={status[kind]} onOpen={(el) => openPanel(kind, el)} />
         ))}
       </div>
 
       {open && (
         <InfoPanel title={PANELS.find((p) => p.kind === open)!.title} origin={origin} onClose={() => setOpen(null)}>
           {open === "details" && <DetailsPanel item={item} />}
-          {open === "competitors" && <CompetitorsPanel item={item} liveRetail={liveRetail} />}
-          {open === "relationships" && (
-            <RelationshipsPanel item={item} familyItems={familyItems} draftBaseUnit={draftBaseUnit} />
-          )}
-          {open === "financials" && <FinancialsPanel item={item} />}
+          {open === "competitors" && <CompetitorsPanel item={item} />}
+          {open === "relationships" && <RelationshipsPanel item={item} />}
         </InfoPanel>
       )}
     </>
+  );
+}
+
+// One evidence tile — a vertical card sized to sit three-across at 360px:
+// icon, label, one-line status (the panel's headline fact). Narrow columns
+// can't hold the icon and label side by side, so they stack; the label is free
+// to wrap to a second line and the grid stretches every tile to match, keeping
+// the row balanced. No chevron — the press-compress motion carries the
+// tappable affordance.
+function Pill({
+  pill,
+  Icon,
+  status,
+  onOpen,
+}: {
+  pill: string;
+  Icon: typeof Package;
+  status: { text: string; live?: boolean };
+  onOpen: (el: HTMLElement) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => onOpen(e.currentTarget)}
+      className="flex min-h-[84px] select-none touch-manipulation flex-col items-start gap-1 rounded-xl bg-gray-100/70 px-2.5 py-3 text-left transition-transform duration-75 active:scale-[0.97] active:bg-gray-200 motion-reduce:transition-none"
+    >
+      <Icon className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+      <span className="mt-0.5 w-full text-sm font-medium leading-tight text-gray-700">{pill}</span>
+      <span
+        className={`mt-auto w-full truncate text-[11px] tabular-nums ${
+          status.live ? "font-medium text-brand" : "text-gray-400"
+        }`}
+      >
+        {status.text}
+      </span>
+    </button>
   );
 }
 
@@ -169,182 +197,323 @@ function Row({ label, value, strong }: { label: string; value: React.ReactNode; 
   );
 }
 
+// Trimmed to the identity fields a director actually reads on a walk. Price
+// sensitivity (H/M/L) is the one that also headlines the tile at rest.
+const SENSITIVITY_LABEL: Record<PricingItem["sensitivity"], string> = { H: "High", M: "Medium", L: "Low" };
+
 function DetailsPanel({ item }: { item: PricingItem }) {
   return (
     <dl>
-      <Row label="Description" value={item.name} strong />
-      <Row label="POS Description" value={item.posDescription ?? item.name.toUpperCase().slice(0, 22)} />
       <Row label="UPC" value={item.upc ?? "—"} />
-      <Row label="Vendor" value={item.vendorName ?? item.brand} />
-      <Row label="Brand" value={item.brand} />
-      <Row label="Size" value={item.size ?? item.packSize} />
+      <Row label="Description" value={item.name} strong />
       <Row label="Department" value={item.department ?? item.category} />
-      <Row label="Category" value={`${item.category} · ${item.subcategory}`} />
-      <Row label="Aisle" value={item.aisle} />
-      <Row label="On hand" value={String(item.onHand ?? "—")} />
+      <Row label="Category" value={item.category} />
+      <Row label="Vendor" value={item.vendorName ?? item.brand} />
+      <Row label="Price sensitivity" value={`${SENSITIVITY_LABEL[item.sensitivity]} (${item.sensitivity})`} />
     </dl>
   );
 }
 
-function CompetitorsPanel({ item, liveRetail }: { item: PricingItem; liveRetail: number }) {
-  const competitors = item.competitors ?? [];
+const COMP_FIELD_LABEL = "text-[10px] font-semibold uppercase tracking-wide text-gray-400";
+
+// The desktop competitor table (CompetitorPrices.tsx), reworked for the mobile
+// panel: same columns and data — Our-price anchor doubling as the column header
+// (Base · Retail · Index), each competitor's effective price with its colored
+// diff vs ours, a manual-correction strikethrough, distance/address meta and
+// the "Added by you" badge. Store names are short, so the tighter grid keeps
+// ALL columns — the Index one desktop drops on narrow screens stays here.
+function CompetitorsPanel({ item }: { item: PricingItem }) {
+  // Compare per-unit, pending-aware — mirrors the desktop table exactly.
+  const ourBase = item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice;
+  const ourRetail =
+    item.newRetailPrice != null
+      ? perUnit(item.newRetailPrice, item.newRetailQty)
+      : item.category_type === "temporary_allowance"
+        ? item.currentRetailPrice ?? null
+        : null;
+  const competitors = orderCompetitors(item.competitors ?? []);
   if (competitors.length === 0) {
     return <p className="mt-10 text-center text-sm text-gray-600">No competitor prices for this item.</p>;
   }
+  const showRetail = ourRetail != null || competitors.some((c) => c.retailPrice != null);
+  const grid = showRetail
+    ? "grid grid-cols-[minmax(0,1fr)_4.75rem_4.75rem_2.25rem] items-start gap-1.5"
+    : "grid grid-cols-[minmax(0,1fr)_5rem_2.5rem] items-start gap-2";
+
   return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-        <span className="text-sm font-medium text-gray-700">Our shelf price</span>
-        <span className="text-sm font-semibold tabular-nums text-gray-900">{fmt(liveRetail)}</span>
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      {/* The Our-price row doubles as column header (stacked labels) and the
+          comparison anchor — index 1.00 = our base. */}
+      <div className={`${grid} border-b border-gray-100 bg-gray-50 px-3 py-2`}>
+        <span className="self-center text-xs font-medium text-gray-500">Our price</span>
+        <span className="flex flex-col items-end tabular-nums">
+          <span className={COMP_FIELD_LABEL}>Base</span>
+          <span className="text-sm font-semibold text-gray-900">{fmt(ourBase)}</span>
+        </span>
+        {showRetail && (
+          <span className="flex flex-col items-end tabular-nums">
+            <span className={COMP_FIELD_LABEL}>Retail</span>
+            <span className="text-sm font-semibold text-gray-900">{ourRetail != null ? fmt(ourRetail) : "—"}</span>
+          </span>
+        )}
+        <span className="flex flex-col items-end tabular-nums">
+          <span className={COMP_FIELD_LABEL}>Index</span>
+          <span className="text-xs text-gray-400">1.00</span>
+        </span>
       </div>
-      <dl>
-        {competitors.map((c) => {
-          const price = effectivePrice(c);
-          // Same INDEX the desktop column shows: ours ÷ theirs × 100 — over
-          // 100 means we're pricier than that competitor.
-          const index = price > 0 ? Math.round((liveRetail / price) * 100) : null;
-          return (
-            <Row
-              key={c.name}
-              label={c.distanceMi != null ? `${c.name} · ${c.distanceMi} mi` : c.name}
-              value={
-                <span className="flex items-baseline justify-end gap-2">
-                  <span className="font-semibold text-gray-900">{fmt(price)}</span>
-                  {index != null && (
-                    <span className={`text-xs ${index > 100 ? "text-red-600" : "text-emerald-700"}`}>{index}</span>
-                  )}
+      {competitors.map((c) => {
+        const price = effectivePrice(c);
+        const baseDiff = ourBase - price;
+        const retailDiff = c.retailPrice != null && ourRetail != null ? ourRetail - c.retailPrice : null;
+        const meta =
+          c.source === "user"
+            ? c.address ?? null
+            : [c.distanceMi != null ? `${c.distanceMi} mi` : null, c.address ?? null].filter(Boolean).join(" · ") || null;
+        return (
+          <div key={c.name} className={`${grid} border-b border-gray-100 px-3 py-2 last:border-0`}>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span className="text-sm text-gray-700">{c.name}</span>
+                {c.source === "user" && (
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">Added by you</span>
+                )}
+              </div>
+              {meta && <div className="truncate text-xs text-gray-500">{meta}</div>}
+            </div>
+            <div className="flex flex-col items-end tabular-nums">
+              {c.manualPrice != null ? (
+                <span className="flex items-center gap-0.5 text-sm">
+                  <span className="text-gray-400 line-through">{fmt(c.price)}</span>
+                  <span aria-hidden="true" className="text-gray-300">→</span>
+                  <span className="font-medium text-gray-900">{fmt(c.manualPrice)}</span>
                 </span>
-              }
-            />
-          );
-        })}
-      </dl>
-      <p className="mt-3 text-xs text-gray-500">Index = our price vs theirs (over 100 = we&apos;re pricier).</p>
+              ) : (
+                <span className="text-sm text-gray-700">{fmt(price)}</span>
+              )}
+              <span className={`text-[11px] font-medium ${priceDiffClass(baseDiff)}`}>{priceDiffLabel(baseDiff, price)}</span>
+            </div>
+            {showRetail && (
+              <div className="flex flex-col items-end tabular-nums">
+                {c.retailPrice != null ? (
+                  <>
+                    <span className="text-sm text-gray-700">{fmt(c.retailPrice)}</span>
+                    {retailDiff != null && (
+                      <span className={`text-[11px] font-medium ${priceDiffClass(retailDiff)}`}>
+                        {priceDiffLabel(retailDiff, c.retailPrice)}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-gray-400">—</span>
+                )}
+              </div>
+            )}
+            <span className="self-start text-right text-xs text-gray-500">
+              {competitorIndex(c, ourBase)?.toFixed(2) ?? "—"}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function RelationshipsPanel({
-  item,
-  familyItems,
-  draftBaseUnit,
+const REL_LABEL = "text-[10px] font-semibold uppercase tracking-wide text-gray-400";
+
+// Effective per-unit base price (pending override wins over the live price) —
+// the value every relationship row compares on, and the ladder gap runs against.
+const relBaseUnit = (m: PricingItem) =>
+  m.newBasePrice != null ? perUnit(m.newBasePrice, m.newBaseQty) : m.currentBasePrice;
+
+// Base-price cell: the effective price, with the pre-change price struck through
+// beneath when a member carries a pending base override.
+function BasePriceCell({ m, current }: { m: PricingItem; current: boolean }) {
+  return (
+    <span className="flex flex-col items-end leading-tight tabular-nums">
+      <span className={`text-sm ${current ? "font-semibold text-gray-900" : "text-gray-700"}`}>{fmt(relBaseUnit(m))}</span>
+      {m.newBasePrice != null && (
+        <span className="text-[10px] text-gray-400 line-through">was {fmt(m.currentBasePrice)}</span>
+      )}
+    </span>
+  );
+}
+
+// A short, always-visible statement of how a group's price bands are spaced —
+// the ordering rule plus the minimum gap that makes a step "narrow" (the amber
+// marker). It sits under the section title so every gap on screen has a stated
+// reference, no tap required.
+function ruleCaption(rel: ProductRelationship): { text: string; gap: string | null } {
+  const min = minGapFor(rel);
+  switch (rel.type) {
+    case "family":
+      return { text: "All members share one base price", gap: null };
+    case "size_parity":
+      return { text: "Larger sizes price above smaller", gap: `steps ≥${min}%` };
+    case "good_better_best":
+      return { text: "Higher tiers price above lower", gap: `steps ≥${min}%` };
+    case "brand_pair":
+      return { text: "National brand above private label", gap: `gap ≥${min}%` };
+    default:
+      return { text: "", gap: null };
+  }
+}
+
+// Collapsible relationship section. The gap rule rides as an always-visible
+// caption under the title (mobile has no hover, and this info is worth showing
+// outright) — the min-gap threshold set in medium so the eye lands on it.
+function RelSection({
+  title,
+  caption,
+  count,
+  defaultOpen,
+  children,
 }: {
-  item: PricingItem;
-  familyItems: PricingItem[];
-  draftBaseUnit: number | null;
+  title: React.ReactNode;
+  caption: { text: string; gap: string | null };
+  count: number;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen ?? false);
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full select-none touch-manipulation items-center gap-2 px-4 py-2.5 text-left"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-gray-700">
+            {title} <span className="font-normal text-gray-400">({count})</span>
+          </span>
+          <span className="mt-0.5 block text-xs text-gray-400">
+            {caption.text}
+            {caption.gap && (
+              <>
+                {" · "}
+                <span className="font-medium text-gray-500">{caption.gap}</span>
+              </>
+            )}
+          </span>
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className={`size-4 shrink-0 text-gray-500 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+      {open && <div className="border-t border-gray-100 px-4 py-3">{children}</div>}
+    </div>
+  );
+}
+
+// The desktop Product relationships (ProductRelationships.tsx), reworked for the
+// mobile panel: one collapsible section per relationship (scales when an item
+// sits in many groups), each with column headers that name the values as BASE
+// PRICE — plus SIZE and PRICE / UoM for size groups. Between adjacent ranked
+// members we show the base-price GAP (amber when tighter than the ladder's
+// minimum), and a ⓘ tooltip states the rule that sets those bands.
+function RelationshipsPanel({ item }: { item: PricingItem }) {
   const items = usePricingStore((s) => s.items);
-  // Ladders (size groups / good-better-best / brand pairs) come from the
-  // relationship registry; the price family comes from item.familyId (the
-  // registry's family entries are display metadata, not the source of truth).
-  const ladders = relationshipsFor(item.id).filter((r) => r.type !== "family");
-  const hasFamily = !!item.familyId && familyItems.length > 0;
-  if (!hasFamily && ladders.length === 0) {
+  const relationships = relationshipsFor(item.id).sort(
+    (a, b) => RELATIONSHIP_TYPE_ORDER.indexOf(a.type) - RELATIONSHIP_TYPE_ORDER.indexOf(b.type)
+  );
+  if (relationships.length === 0) {
     return <p className="mt-10 text-center text-sm text-gray-600">No product relationships for this item.</p>;
   }
-  const priceOf = (i: PricingItem) => fmt(perUnit(i.newBasePrice ?? i.currentBasePrice, i.newBaseQty));
-  // The in-progress draft moving the shared price: the panel shows the move
-  // rippling through every member (read-only — propagation is automatic).
-  const sharedCurrent = perUnit(item.newBasePrice ?? item.currentBasePrice, item.newBaseQty);
-  const moved = hasFamily && draftBaseUnit != null && Math.abs(draftBaseUnit - sharedCurrent) > 0.001;
-  return (
-    <div className="flex flex-col gap-5">
-      {hasFamily && (
-        <div>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Line pricing{item.priceFamilyName ? ` · ${item.priceFamilyName}` : ""}
-          </p>
-          {moved ? (
-            <>
-              <p className="mb-2 text-xs text-gray-600">
-                <span className="font-semibold text-gray-900">{familyItems.length + 1} items</span> share this price.
-                This change moves them {fmt(sharedCurrent)} →{" "}
-                <span className="font-semibold text-gray-900 tabular-nums">{fmt(draftBaseUnit)}</span>.
-              </p>
-              <dl>
-                {[item, ...familyItems].map((f, i) => (
-                  <div
-                    key={f.id}
-                    className="line-morph flex items-baseline justify-between gap-3 border-b border-gray-100 py-2.5 last:border-b-0"
-                    style={{ animationDelay: `${Math.min(i, 20) * 32}ms` }}
-                  >
-                    <dt className="min-w-0 truncate text-sm text-gray-500">{f.name}</dt>
-                    <dd className="flex shrink-0 items-baseline gap-1.5 text-sm tabular-nums">
-                      <span className="text-gray-400 line-through">{priceOf(f)}</span>
-                      <span className="font-semibold text-gray-900">{fmt(draftBaseUnit)}</span>
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </>
-          ) : (
-            <>
-              <p className="mb-2 text-xs text-gray-500">One shared price — editing any member updates all of them.</p>
-              <dl>
-                <Row label={item.name} value={priceOf(item)} strong />
-                {familyItems.map((f) => (
-                  <Row key={f.id} label={f.name} value={priceOf(f)} />
-                ))}
-              </dl>
-            </>
-          )}
-        </div>
-      )}
-      {ladders.map((rel) => (
-        <div key={rel.id}>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            {RELATIONSHIP_META[rel.type].label} · {rel.name}
-          </p>
-          <dl>
-            {rel.itemIds.map((id) => {
-              const member = id === item.id ? item : items.find((i) => i.id === id);
-              if (!member) return null;
-              const chip = rel.memberLabels?.[id];
-              return (
-                <Row
-                  key={id}
-                  label={chip ? `${member.name} · ${chip}` : member.name}
-                  value={priceOf(member)}
-                  strong={id === item.id}
-                />
-              );
-            })}
-          </dl>
-        </div>
-      ))}
-    </div>
-  );
-}
+  const lookup = (id: string) => (id === item.id ? item : items.find((i) => i.id === id));
 
-function FinancialsPanel({ item }: { item: PricingItem }) {
-  const margin = (price: number, cost: number) => (price > 0 ? `${(((price - cost) / price) * 100).toFixed(1)}%` : "—");
-  const baseUnit = perUnit(item.newBasePrice ?? item.currentBasePrice, item.newBaseQty);
-  const retailUnit = item.newRetailPrice != null ? perUnit(item.newRetailPrice, item.newRetailQty) : item.currentRetailPrice;
-  // During an allowance the vendor funds part of the discount — margin on a
-  // promo price is computed against the net (allowance) cost when present.
-  const retailCost = item.allowanceCost ?? item.cost;
   return (
-    <dl>
-      <Row label="Unit cost" value={fmt(item.cost)} strong />
-      {item.allowanceCost != null && <Row label="Allowance cost" value={fmt(item.allowanceCost)} />}
-      <Row
-        label="Base price"
-        value={item.newBaseQty && item.newBaseQty > 1 ? fmtQtyPrice(item.newBaseQty, item.newBasePrice ?? item.currentBasePrice) : fmt(baseUnit)}
-      />
-      <Row label="Base margin" value={margin(baseUnit, item.cost)} />
-      {retailUnit != null && (
-        <>
-          <Row
-            label="Retail price"
-            value={
-              item.newRetailPrice != null && item.newRetailQty && item.newRetailQty > 1
-                ? fmtQtyPrice(item.newRetailQty, item.newRetailPrice)
-                : fmt(retailUnit)
+    <div className="flex flex-col gap-2">
+      {relationships.map((rel) => {
+        const meta = RELATIONSHIP_META[rel.type];
+        const members = rel.itemIds.map(lookup).filter((m): m is PricingItem => m != null);
+        if (members.length === 0) return null;
+        const isSize = rel.type === "size_parity";
+        const isFamily = rel.type === "family";
+        const minGap = minGapFor(rel);
+        const grid = isSize
+          ? "grid grid-cols-[minmax(0,1fr)_3.25rem_4.75rem_3rem] items-center gap-2"
+          : "grid grid-cols-[minmax(0,1fr)_6.5rem] items-center gap-2";
+        return (
+          <RelSection
+            key={rel.id}
+            defaultOpen
+            count={members.length}
+            caption={ruleCaption(rel)}
+            title={
+              <>
+                {meta.label} <span className="font-normal text-gray-400">· {rel.name}</span>
+              </>
             }
-          />
-          <Row label="Retail margin" value={margin(retailUnit, retailCost)} />
-        </>
-      )}
-    </dl>
+          >
+            <div className="-mx-4 -my-3">
+              <div className={`${grid} bg-gray-50 px-4 py-2`}>
+                <span className={REL_LABEL}>Item</span>
+                {isSize && <span className={REL_LABEL}>Size</span>}
+                <span className={`${REL_LABEL} text-right`}>Base price</span>
+                {isSize && <span className={`${REL_LABEL} text-right`}>Price / UoM</span>}
+              </div>
+              {members.map((m, i) => {
+                const current = m.id === item.id;
+                const chip = rel.memberLabels?.[m.id];
+                const size = isSize ? chip ?? m.packSize : null;
+                const oz = size ? parseFloat(size) : NaN;
+                const uom = isSize ? (oz > 0 ? fmt(round2(relBaseUnit(m) / oz)) : "—") : null;
+                const prevUnit = i > 0 ? relBaseUnit(members[i - 1]) : 0;
+                const gap = prevUnit > 0 ? (relBaseUnit(m) / prevUnit - 1) * 100 : 0;
+                const narrow = minGap > 0 && gap < minGap - 0.05;
+                return (
+                  <Fragment key={m.id}>
+                    {/* Separator between members. For ranked ladders it carries
+                        the base-price step, sitting ON the divider (no empty
+                        band); line-priced members share one price, so a plain
+                        rule. */}
+                    {i > 0 &&
+                      (isFamily ? (
+                        <div className="mx-4 h-px bg-gray-100" />
+                      ) : (
+                        <div className="flex items-center gap-2 px-4">
+                          <span className="h-px flex-1 bg-gray-100" />
+                          <span
+                            className={`shrink-0 py-1 text-[11px] tabular-nums ${
+                              narrow ? "font-medium text-amber-600" : "text-gray-400"
+                            }`}
+                          >
+                            ↑ {Math.abs(gap).toFixed(1)}%{narrow ? " narrow" : ""}
+                          </span>
+                        </div>
+                      ))}
+                    <div className={`${grid} px-4 py-2.5`}>
+                      <div className="min-w-0">
+                        {/* Full name gets the whole line — the current item is
+                            marked by the row tint + a brand tag on the meta line,
+                            not a chip competing with the name. */}
+                        <p className={`truncate text-sm ${current ? "font-semibold text-gray-900" : "text-gray-700"}`}>
+                          {m.name}
+                        </p>
+                        <p className="truncate text-xs text-gray-400">
+                          {current && <span className="font-semibold text-brand">This item</span>}
+                          {current && " · "}
+                          {!isSize && chip && (
+                            <>
+                              <span className="font-medium uppercase tracking-wide">{chip}</span> ·{" "}
+                            </>
+                          )}
+                          {m.id}
+                        </p>
+                      </div>
+                      {isSize && <span className="text-xs text-gray-500">{size}</span>}
+                      <BasePriceCell m={m} current={current} />
+                      {isSize && <span className="text-right text-sm tabular-nums text-gray-700">{uom}</span>}
+                    </div>
+                  </Fragment>
+                );
+              })}
+            </div>
+          </RelSection>
+        );
+      })}
+    </div>
   );
 }

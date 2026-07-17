@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { Calendar, ChevronDown, ChevronRight, Fuel, Link2, Loader2, RotateCcw, Tag, X } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, Fuel, Link2, Loader2, RotateCcw, Tag, Wrench, X } from "lucide-react";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { useMobileSessionStore } from "@/store/mobile-session";
 import { buildItemsById, evaluateEdlpCeilingChange } from "@/lib/edlp-ceiling";
-import { evaluateBaseChange, validPriceWindow } from "@/lib/relationship-validation";
+import { evaluateBaseChange, planLadderRepair, familyGroupIds } from "@/lib/relationship-validation";
 import { fmt, fmtDateShort, fmtDateRange } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { fmtSaveAmt } from "@/lib/hq-rec";
@@ -21,10 +21,10 @@ import {
   type PriceChangeReason,
 } from "@/lib/price-change-reason";
 import { baseRecPending, retailRecPending } from "@/lib/item-status";
-import type { StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason } from "@/types/pricing";
+import type { StoreBaseReason, StorePromoReason, HqBaseReason, HqPromoReason, Sensitivity } from "@/types/pricing";
 import { PriceRow } from "./PriceRow";
 import { HqRecBlock, type HqRecStatus } from "./HqRecBlock";
-import { InventoryCard } from "./InventoryCard";
+import { ItemStats } from "./ItemStats";
 import { SaveOverlay } from "./SaveOverlay";
 import { BottomSheet } from "./BottomSheet";
 import { MobileKeypad } from "./MobileKeypad";
@@ -33,7 +33,7 @@ import { fuelAmountLabel } from "./FuelMove";
 import { ItemInfoPills } from "./ItemInfoPanels";
 import { ReasonSheet, EffectiveSheet } from "./MetaChips";
 
-type Target = "retail" | "base" | "onhand" | "weekly" | null;
+type Target = "retail" | "base" | null;
 type Section = "base" | "retail" | "fuel";
 
 type Props = {
@@ -45,9 +45,19 @@ type Props = {
   onCancel: () => void;
 };
 
-// Price buffers go to $9,999.99; the integer fields (on hand / weekly) to 9999.
+// Price buffers go to $9,999.99.
 const MAX_PRICE_DIGITS = 6;
-const MAX_INT_DIGITS = 4;
+
+// Illustrative price elasticity of demand, banded by the item's price
+// sensitivity (H/M/L) — a more sensitive SKU swings harder on a price move.
+// Each pair is [low, high] magnitude, so a price change yields a RANGE of
+// projected unit sales, never a false-precise single number. Mock values;
+// the real model would fit these per category.
+const SALES_ELASTICITY: Record<Sensitivity, [number, number]> = {
+  H: [2.0, 3.0],
+  M: [1.2, 2.0],
+  L: [0.4, 1.0],
+};
 
 const reasonLabelOf = (r: string) => REASON_META[r as PriceChangeReason]?.label ?? r;
 
@@ -63,8 +73,6 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const updateBasePrice = usePricingStore((s) => s.updateBasePrice);
   const updatePriceType = usePricingStore((s) => s.updatePriceType);
   const updateFuelSaver = usePricingStore((s) => s.updateFuelSaver);
-  const updateOnHand = usePricingStore((s) => s.updateOnHand);
-  const updateWeeklyUnits = usePricingStore((s) => s.updateWeeklyUnits);
   const setSectionReviewed = usePricingStore((s) => s.setSectionReviewed);
   const updateBaseEffectiveDate = usePricingStore((s) => s.updateBaseEffectiveDate);
   const updateAllowanceDates = usePricingStore((s) => s.updateAllowanceDates);
@@ -94,8 +102,6 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const [retailQty, setRetailQty] = useState(item?.newRetailQty ?? 1);
   const [baseDigits, setBaseDigits] = useState("");
   const [baseQty, setBaseQty] = useState(item?.newBaseQty ?? 1);
-  const [onHandDigits, setOnHandDigits] = useState("");
-  const [weeklyDigits, setWeeklyDigits] = useState("");
   // "Keep current" decisions are STAGED here (recorded on Save) so X/back
   // discards them like any other unsaved work — one cancel semantics.
   const [kept, setKept] = useState<Record<Section, boolean>>({ base: false, retail: false, fuel: false });
@@ -127,6 +133,10 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const [fuelDatesDraft, setFuelDatesDraft] = useState<{ start: string | null; end: string | null } | undefined>(undefined);
   // The one sanctioned dialog: discarding meaningful unsaved work on exit.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Hard ladder-break resolution: the director chose "Fix related items" — keep
+  // this price and move the neighbors on Save (the repair plan is recomputed at
+  // commit from the current draft). Until chosen, the break blocks the save.
+  const [ladderFixChosen, setLadderFixChosen] = useState(false);
 
   // ── Retail derivations (ported from the old EditScreen) ────────────────
   const liveRetail = item ? item.currentRetailPrice ?? item.currentBasePrice : 0;
@@ -166,29 +176,25 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     return evaluateBaseChange(item.id, baseUnitDraft, itemsById);
   }, [item, baseUnitDraft, itemsById]);
 
-  const ladderWindow = useMemo(() => {
-    if (!item || !ladder || ladder.hard.length === 0) return null;
-    return validPriceWindow(item.id, itemsById);
-  }, [item, ladder, itemsById]);
-
-  // The one price (per-unit) that repairs the break — feeds the fix chip.
-  const ladderFix = useMemo(() => {
-    if (!ladder || ladder.hard.length === 0 || baseUnitDraft == null || !ladderWindow) return null;
-    if (ladderWindow.min != null && baseUnitDraft < ladderWindow.min) return ladderWindow.min;
-    if (ladderWindow.max != null && baseUnitDraft > ladderWindow.max) return ladderWindow.max;
-    return null;
-  }, [ladder, ladderWindow, baseUnitDraft]);
+  // Minimal neighbor repair that keeps THIS price and moves only the ladder
+  // neighbors that must move (recomputed live from the draft) — the plan behind
+  // the "Fix related items" option, and its preview.
+  const repairPlan = useMemo(() => {
+    if (!item || !ladder || ladder.hard.length === 0 || baseUnitDraft == null || baseUnitDraft <= 0) return null;
+    return planLadderRepair(item.id, baseUnitDraft, itemsById);
+  }, [item, ladder, baseUnitDraft, itemsById]);
+  const repairCount = repairPlan ? new Set(repairPlan.changes.map((c) => c.itemId)).size : 0;
+  // A hard ladder break with the EDLP ceiling clear — the state that offers the
+  // Revert / Fix-related resolution (the ceiling is a SAP stop that neighbors
+  // can't fix, so it takes precedence and hides these).
+  const hardLadderBreak =
+    ladder != null && ladder.hard.length > 0 && (baseEdlp == null || baseEdlp.hard.length === 0);
 
   const ladderError = useMemo(() => {
     if (!ladder || ladder.hard.length === 0) return null;
-    const rel = ladder.hard[0].relationship;
-    if (ladderFix != null && baseUnitDraft != null) {
-      return baseUnitDraft < ladderFix
-        ? `Breaks the ${rel.name} ladder — needs at least ${fmt(ladderFix)}.`
-        : `Breaks the ${rel.name} ladder — must stay under ${fmt(ladderFix)}.`;
-    }
-    return `Breaks the ${rel.name} ladder — no single price fits every ladder; fix on desktop.`;
-  }, [ladder, ladderFix, baseUnitDraft]);
+    const names = [...new Set(ladder.hard.map((v) => v.relationship.name))];
+    return names.length === 1 ? `Breaks the ${names[0]} ladder.` : `Breaks ${names.length} pricing ladders.`;
+  }, [ladder]);
 
   const baseError = useMemo(() => {
     if (baseDraftCents == null || baseUnitDraft == null) return null;
@@ -196,8 +202,12 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     if (baseEdlp && baseEdlp.hard.length > 0) {
       return `Exceeds the +10% ceiling (${fmt(baseEdlp.hard[0].hardCeiling)}) over the SAP maximum.`;
     }
+    // "Fix related items" resolves the order break by moving neighbors on Save,
+    // so the ladder no longer blocks the commit. EDLP ceiling / non-positive
+    // price can't be fixed that way, so those still block above.
+    if (ladderFixChosen) return null;
     return ladderError;
-  }, [baseDraftCents, baseUnitDraft, baseEdlp, ladderError]);
+  }, [baseDraftCents, baseUnitDraft, baseEdlp, ladderError, ladderFixChosen]);
 
   const baseNotices = useMemo(() => {
     const notes: string[] = [];
@@ -316,6 +326,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     setKept((k) => ({ ...k, base: false }));
     setBaseReasonDraft(undefined);
     setBaseDateDraft(undefined);
+    setLadderFixChosen(false);
     if (activeTarget === "base") setActiveTarget(null);
   };
   const undoFuel = () => {
@@ -324,8 +335,6 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     setFuelReasonDraft(undefined);
     setFuelDatesDraft(undefined);
   };
-  const undoOnHand = () => setOnHandDigits("");
-  const undoWeekly = () => setWeeklyDigits("");
 
   // ── Which sections carry a change (drafted now, or committed earlier this
   // session — walk scopes to the session's touched sections, like the old
@@ -340,10 +349,17 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // window) the instant you opened an item, before touching anything. Walk
   // and maintenance now read identically until you actually edit.
   const baseChanged = baseDraftCents != null || (!!baseOverride && mode === "walk" && !!entry?.sections.base);
-  const retailChanged = retailDraftCents != null || (!!retailOverride && mode === "walk" && !!entry?.sections.retail);
+  // Adjusting an existing deal's offer window counts as a retail/fuel change on
+  // its own — the "when&why" chips take over and the save commits the new dates,
+  // even with the price/amount untouched.
+  const retailChanged =
+    retailDraftCents != null ||
+    retailDatesDraft !== undefined ||
+    (!!retailOverride && mode === "walk" && !!entry?.sections.retail);
   const fuelChangedNow = item ? effFuel !== fuelBaselineOnOpen : false;
   const fuelChanged =
     fuelChangedNow ||
+    fuelDatesDraft !== undefined ||
     (mode === "walk"
       ? !!entry?.sections.fuel && (item?.fuelSaver ?? null) !== (entry.fuelBaseline ?? null)
       : itemId in maintFuelBaselines && (item?.fuelSaver ?? null) !== (maintFuelBaselines[itemId] ?? null));
@@ -373,15 +389,57 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const missingReason =
     (baseChanged && !reasonFor("base")) || (retailChanged && !reasonFor("retail")) || (fuelChanged && !reasonFor("fuel"));
 
-  // ── Inventory ───────────────────────────────────────────────────────────
-  const onHandDraft = onHandDigits === "" ? null : parseInt(onHandDigits, 10);
-  const weeklyDraft = weeklyDigits === "" ? null : parseInt(weeklyDigits, 10);
-  const onHandDisplay = onHandDraft ?? item?.onHand ?? 0;
-  const weeklyBaseline = item?.weeklyUnits ?? 0;
-  const weeklyDisplay = weeklyDraft ?? item?.newWeeklyUnits ?? weeklyBaseline;
-  const inventoryChanged =
-    (onHandDraft != null && onHandDraft !== (item?.onHand ?? 0)) ||
-    (weeklyDraft != null && weeklyDraft !== (item?.newWeeklyUnits ?? weeklyBaseline));
+  // ── Inventory & sales (both read-only) ────────────────────────────────────
+  // On hand = units in stock (inventory). Weekly units = unit sales velocity
+  // (how many leave the store per week). Neither is editable on the walk — the
+  // walk reports them. Weekly units, though, gets a forward-looking annotation
+  // when a price is drafted (see weeklyProjection).
+  const onHandDisplay = item?.onHand ?? 0;
+  const weeklyDisplay = item?.newWeeklyUnits ?? item?.weeklyUnits ?? 0;
+
+  // ── Sales-impact estimate ────────────────────────────────────────────────
+  // A drafted price change moves the shopper-facing SHELF price, which moves
+  // unit velocity. We project a RANGE off the elasticity band for this SKU's
+  // sensitivity — shown beside Weekly units so the trade-off (a cut lifts
+  // volume, a raise trims it) is visible at the moment of the decision.
+  //
+  // The shelf price is what shoppers actually pay: a live deal, else base. So
+  // the projection compares that price NOW vs WITH this visit's drafts — which
+  // means editing base under an active deal correctly reads as no move (the
+  // shopper still pays the deal), and only a real shelf move projects.
+  const weeklyProjection = useMemo(() => {
+    if (!item) return null;
+    if (baseDraftCents == null && retailDraftCents == null) return null;
+    // A forecast is only meaningful for a price that can actually ship — hide it
+    // while the driving price is invalid. The red error strip and its fix chip
+    // own the row until it's resolved; the estimate returns once it's valid.
+    if (retailDraftCents != null ? retailError != null : baseError != null) return null;
+    const baseline = weeklyDisplay;
+    if (baseline <= 0) return null;
+    // Retail (deal) price shoppers pay now — pending deal wins over committed.
+    const retailNowUnit =
+      item.newRetailPrice != null
+        ? perUnit(item.newRetailPrice, item.newRetailQty)
+        : hasRetail
+          ? item.currentRetailPrice ?? null
+          : null;
+    const shelfNow = retailNowUnit ?? item.currentBasePrice;
+    // Shelf price with THIS visit's drafts applied — a retail draft is the new
+    // deal; a base draft only reaches the shelf when there's no deal covering it.
+    const retailNextUnit = retailDraftCents != null ? perUnit(retailDraftCents / 100, retailQty) : retailNowUnit;
+    const shelfNext = retailNextUnit ?? baseUnitDraft ?? item.currentBasePrice;
+    if (shelfNow <= 0 || shelfNext <= 0) return null;
+    const pct = (shelfNext - shelfNow) / shelfNow;
+    if (Math.abs(pct) < 0.001) return null;
+    const [eLo, eHi] = SALES_ELASTICITY[item.sensitivity];
+    const project = (e: number) => Math.max(0, Math.round(baseline * (1 - e * pct)));
+    const a = project(eLo);
+    const b = project(eHi);
+    const lo = Math.min(a, b);
+    const hi = Math.max(a, b);
+    if (lo === baseline && hi === baseline) return null;
+    return { lo, hi };
+  }, [item, baseDraftCents, retailDraftCents, retailQty, baseUnitDraft, hasRetail, weeklyDisplay, retailError, baseError]);
 
   const canSave = retailError == null && baseError == null;
   const keptAny = kept.base || kept.retail || kept.fuel;
@@ -389,8 +447,9 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     baseDraftCents != null ||
     retailDraftCents != null ||
     fuelChangedNow ||
+    retailDatesDraft !== undefined ||
+    fuelDatesDraft !== undefined ||
     keptAny ||
-    inventoryChanged ||
     (mode === "walk" && entry != null);
   // Tighter than hasChanges: ONLY unsaved work from this visit (the local
   // drafts), never a prior-visit commit already in the walk. This gates the
@@ -401,7 +460,6 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     retailDraftCents != null ||
     fuelChangedNow ||
     keptAny ||
-    inventoryChanged ||
     baseReasonDraft !== undefined ||
     retailReasonDraft !== undefined ||
     fuelReasonDraft !== undefined ||
@@ -409,7 +467,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     retailDatesDraft !== undefined ||
     fuelDatesDraft !== undefined;
 
-  // ── Keypad routing — one keypad, four targets ───────────────────────────
+  // ── Keypad routing — one keypad, the two price targets ───────────────────
   // Leaving the retail field with nothing typed collapses a seeded "Add deal"
   // back to its No-deal resting state — the placeholder never lingers as if
   // it were a decision.
@@ -431,15 +489,19 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   };
   const onDigit = (d: string) => {
     if (activeTarget === "retail") setRetailDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
-    else if (activeTarget === "base") setBaseDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
-    else if (activeTarget === "onhand") setOnHandDigits((s) => (s.length >= MAX_INT_DIGITS ? s : s + d));
-    else if (activeTarget === "weekly") setWeeklyDigits((s) => (s.length >= MAX_INT_DIGITS ? s : s + d));
+    else if (activeTarget === "base") {
+      // Retyping the price reconsiders it — drop any prior "fix related" choice
+      // so the break is re-evaluated against the new value.
+      if (ladderFixChosen) setLadderFixChosen(false);
+      setBaseDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
+    }
   };
   const onBackspace = () => {
     if (activeTarget === "retail") setRetailDigits((s) => s.slice(0, -1));
-    else if (activeTarget === "base") setBaseDigits((s) => s.slice(0, -1));
-    else if (activeTarget === "onhand") setOnHandDigits((s) => s.slice(0, -1));
-    else if (activeTarget === "weekly") setWeeklyDigits((s) => s.slice(0, -1));
+    else if (activeTarget === "base") {
+      if (ladderFixChosen) setLadderFixChosen(false);
+      setBaseDigits((s) => s.slice(0, -1));
+    }
   };
 
   // Focusing any field summons the keypad, which shrinks the scroll zone —
@@ -451,12 +513,9 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const retailRowRef = useRef<HTMLDivElement>(null);
   const baseRowRef = useRef<HTMLDivElement>(null);
   const fuelRowRef = useRef<HTMLDivElement>(null);
-  const inventoryRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (activeTarget === "retail") retailRowRef.current?.scrollIntoView({ block: "nearest" });
     else if (activeTarget === "base") baseRowRef.current?.scrollIntoView({ block: "end" });
-    else if (activeTarget === "onhand" || activeTarget === "weekly")
-      inventoryRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeTarget, baseError]);
 
   // The blocked CTA is a pointer, not a wall: tapping it scrolls to the
@@ -498,22 +557,41 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         for (const f of familyItems) touchSection(f.id, "base", f.fuelSaver ?? null);
       }
       updateBasePrice(item.id, baseDraftCents / 100, baseQty > 1 ? baseQty : undefined);
+      // "Fix related items": keep this price and move the ladder neighbors the
+      // repair plan names, each riding into the walk as its own row (same as
+      // family propagation). A repaired family member carries its whole family.
+      if (ladderFixChosen && baseUnitDraft != null) {
+        const plan = planLadderRepair(item.id, baseUnitDraft, itemsById);
+        const done = new Set(familyGroupIds(item, itemsById));
+        for (const change of plan.changes) {
+          if (done.has(change.itemId)) continue;
+          const target = itemsById.get(change.itemId);
+          if (!target) continue;
+          if (mode === "walk") touchSection(change.itemId, "base", target.fuelSaver ?? null);
+          updateBasePrice(change.itemId, change.to);
+          done.add(change.itemId);
+          if (target.familyId) for (const f of itemsById.values()) if (f.familyId === target.familyId) done.add(f.id);
+        }
+      }
     }
     if (retailDraftCents != null) {
       if (mode === "walk") touchSection(item.id, "retail", fuelBaselineOnOpen);
       if (item.category_type !== "temporary_allowance") updatePriceType(item.id, "temporary_allowance");
       updateRetailPrice(item.id, retailQty, retailDraftCents / 100);
+    } else if (mode === "walk" && retailDatesDraft !== undefined) {
+      // Dates-only edit of an existing deal — mark the section so it belongs to
+      // the session (the new dates commit below).
+      touchSection(item.id, "retail", fuelBaselineOnOpen);
     }
     // Fuel — the only draft that carries its own session/baseline bookkeeping.
     // commitFuel does the touchSection/setMaintFuelBaseline pairing so the
     // walk tally and computeWalkRows behave exactly as before; guarded so a
     // no-op fuel never creates a dead walk entry.
     if (fuelChangedNow) commitFuel(effFuel);
+    else if (mode === "walk" && fuelDatesDraft !== undefined) touchSection(item.id, "fuel", fuelBaselineOnOpen);
     for (const s of ["base", "retail", "fuel"] as const) {
       if (kept[s]) setSectionReviewed(item.id, s, true);
     }
-    if (onHandDraft != null) updateOnHand(item.id, onHandDraft);
-    if (weeklyDraft != null) updateWeeklyUnits(item.id, weeklyDraft);
     // Dates & reasons LAST — the price/type/fuel mutators above seed default
     // dates and (for a fuel removal) clear the reason, so an explicit pick must
     // land after them to win. Fuel date/reason only when fuel actually stays on.
@@ -576,7 +654,8 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
       else if (priceWork || keptAny) lines.push("Prices updated");
       const propagated = baseDraftCents != null && familyItems.length > 0;
       if (propagated) lines.push(`${familyItems.length} related items updated`);
-      if (inventoryChanged) lines.push("Inventory updated");
+      // "Fix related" moved ladder neighbors too — name them on the receipt.
+      if (ladderFixCount > 0) lines.push(`${ladderFixCount} ladder item${ladderFixCount === 1 ? "" : "s"} realigned`);
       if (keptAny) lines.push("HQ decision recorded");
       if (priceWork) lines.push("Added to Store Walk");
       // A representative sample of the family flies into the pending tray —
@@ -681,8 +760,10 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     retailEndsIn === 0 ? "ends today" : retailEndsIn === 1 ? "ends tomorrow" : `ends in ${retailEndsIn} days`;
   const retailWindow =
     hasRetail && !retailChanged && effRetailEnd ? (
-      <div
-        className={`flex items-center gap-1.5 text-xs ${
+      <button
+        type="button"
+        onClick={() => setSheet({ kind: "date", section: "retail" })}
+        className={`flex min-h-9 select-none touch-manipulation items-center gap-1.5 self-start rounded-lg px-1.5 text-xs active:bg-gray-100 ${
           retailEndingSoon ? "font-medium text-amber-700" : "text-gray-500"
         }`}
       >
@@ -694,12 +775,44 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
           {fmtDateRange(effRetailStart, effRetailEnd)}
           {retailEndingSoon && ` · ${endsSoonLabel}`}
         </span>
-      </div>
+      </button>
+    ) : null;
+
+  // Same at-rest, tappable run window for an active Fuel Saver — edit its dates
+  // without touching the cents-off amount.
+  const fuelActive = effFuel != null && effFuel > 0;
+  const fuelEndsIn = daysUntil(effFuelEnd);
+  const fuelEndingSoon = fuelEndsIn != null && fuelEndsIn >= 0 && fuelEndsIn <= 3;
+  const fuelWindow =
+    fuelActive && !fuelChanged && effFuelEnd ? (
+      <button
+        type="button"
+        onClick={() => setSheet({ kind: "date", section: "fuel" })}
+        className={`flex min-h-9 select-none touch-manipulation items-center gap-1.5 self-start rounded-lg px-1.5 text-xs active:bg-gray-100 ${
+          fuelEndingSoon ? "font-medium text-amber-700" : "text-gray-500"
+        }`}
+      >
+        <Calendar className={`size-3.5 ${fuelEndingSoon ? "text-amber-500" : "text-gray-400"}`} aria-hidden="true" />
+        <span>
+          {fmtDateRange(effFuelStart, effFuelEnd)}
+          {fuelEndingSoon &&
+            ` · ${fuelEndsIn === 0 ? "ends today" : fuelEndsIn === 1 ? "ends tomorrow" : `ends in ${fuelEndsIn} days`}`}
+        </span>
+      </button>
     ) : null;
 
   const famCount = familyItems.length;
+  // Every SKU this save writes: the edited item + its family (shared price) +
+  // the ladder neighbors a chosen "Fix related" will move. The count names the
+  // full blast radius, not just the family.
+  const ladderFixCount = ladderFixChosen ? repairCount : 0;
+  const affectedCount = 1 + famCount + ladderFixCount;
   const saveLabel =
-    mode === "maint" ? "Send to SAP" : baseDraftCents != null && famCount > 0 ? `Save · ${famCount + 1} items` : "Save & next";
+    mode === "maint"
+      ? "Send to SAP"
+      : baseDraftCents != null && affectedCount > 1
+        ? `Save · ${affectedCount} items`
+        : "Save & next";
 
   // Per-section reversal nodes for the metaChips cluster. Only for a change
   // drafted THIS visit (a prior-visit committed change can't be undone from
@@ -707,13 +820,15 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // requirement's non-destructive language, returning the item to No-deal. The
   // accepted-rec guard hands reversal to HqRecBlock's own Undo in that state.
   const retailReversal =
-    retailDraftCents != null && !(retailRecActive && retailRecStatus === "accepted")
+    (retailDraftCents != null || retailDatesDraft !== undefined) && !(retailRecActive && retailRecStatus === "accepted")
       ? undoChip(hasRetail ? "Undo" : "Remove deal", undoRetail)
       : null;
   const baseReversal =
     baseDraftCents != null && !(baseRecActive && baseRecStatus === "accepted") ? undoChip("Undo", undoBase) : null;
   const fuelReversal =
-    fuelChangedNow && !(fuelRecActive && fuelRecStatus === "accepted") ? undoChip("Undo", undoFuel) : null;
+    (fuelChangedNow || fuelDatesDraft !== undefined) && !(fuelRecActive && fuelRecStatus === "accepted")
+      ? undoChip("Undo", undoFuel)
+      : null;
 
   // The retail HQ rec renders in the same slot whether the row is a live
   // price or the No-deal resting state — fixed insertion points keep the
@@ -825,20 +940,58 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                 onFocus={() => setTarget("base")}
                 popToken={pops.base}
               >
-                {/* Ladder quick fix — correction at the point of error, keypad
-                    still up. The chip states the exact price it will set. */}
-                {ladderFix != null && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setBaseDigits(String(Math.round(ladderFix * baseQty * 100)));
-                      setPops((p) => ({ ...p, base: p.base + 1 }));
-                    }}
-                    className="min-h-9 select-none touch-manipulation self-start rounded-full bg-gray-900 px-3 text-xs font-semibold text-white active:opacity-80"
-                  >
-                    Use {fmt(ladderFix * baseQty)}
-                    {baseQty > 1 ? ` (${baseQty} for)` : ""}
-                  </button>
+                {/* Hard ladder break — two resolutions, right where it happened:
+                    revert THIS item to its previous price, or keep this price
+                    and let the related items move to preserve the ladder. The
+                    EDLP ceiling (a SAP hard stop) can't be fixed by moving
+                    neighbors, so those options only appear once it's clear. */}
+                {hardLadderBreak && (
+                  ladderFixChosen ? (
+                    <div className="rise-in flex flex-col gap-1.5">
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-gray-600">
+                        <Wrench className="size-3.5 text-gray-400" aria-hidden="true" />
+                        Fixes {repairCount} related item{repairCount === 1 ? "" : "s"} on save
+                      </span>
+                      <ul className="flex flex-col gap-1 pl-5">
+                        {(repairPlan?.changes ?? []).slice(0, 3).map((c) => (
+                          <li key={c.itemId} className="flex items-baseline justify-between gap-2 text-xs">
+                            <span className="min-w-0 truncate text-gray-600">{itemsById.get(c.itemId)?.name ?? c.itemId}</span>
+                            <span className="flex shrink-0 items-baseline gap-1 tabular-nums">
+                              <span className="text-gray-400 line-through">{fmt(c.from)}</span>
+                              <ChevronRight className="size-3 self-center text-gray-300" aria-hidden="true" />
+                              <span className="font-semibold text-gray-900">{fmt(c.to)}</span>
+                            </span>
+                          </li>
+                        ))}
+                        {repairCount > 3 && <li className="pl-0.5 text-xs text-gray-400">+{repairCount - 3} more move with it</li>}
+                      </ul>
+                      {(repairPlan?.residuals.length ?? 0) > 0 && (
+                        <span className="text-xs font-medium text-amber-700">
+                          {repairPlan!.residuals.length} can&apos;t be auto-fixed — review on desktop.
+                        </span>
+                      )}
+                      {undoChip("Undo fix", () => setLadderFixChosen(false))}
+                    </div>
+                  ) : (
+                    <div className="rise-in flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={undoBase}
+                        className="min-h-9 select-none touch-manipulation rounded-full border border-gray-200 bg-white px-3 text-xs font-medium text-gray-700 active:bg-gray-50"
+                      >
+                        Revert to {fmt(baseRef)}
+                      </button>
+                      {repairCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setLadderFixChosen(true)}
+                          className="min-h-9 select-none touch-manipulation rounded-full bg-gray-900 px-3 text-xs font-semibold text-white active:opacity-80"
+                        >
+                          Fix {repairCount} related item{repairCount === 1 ? "" : "s"}
+                        </button>
+                      )}
+                    </div>
+                  )
                 )}
                 {baseNotices.map((n) => (
                   <span key={n} className="text-xs font-medium text-amber-700">
@@ -909,7 +1062,10 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                     </ul>
                   </div>
                 )}
-                {baseChanged && metaChips("base", baseDateLabel, baseReversal)}
+                {/* During an unresolved hard break, "Revert to $X" is the reversal —
+                    drop the redundant metaChips Undo until it's fixed. */}
+                {baseChanged &&
+                  metaChips("base", baseDateLabel, hardLadderBreak && !ladderFixChosen ? null : baseReversal)}
               </PriceRow>
             </div>
 
@@ -959,27 +1115,16 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                   }}
                 />
               )}
+              {fuelWindow}
               {fuelChanged && metaChips("fuel", fuelDateLabel, fuelReversal)}
             </div>
           </section>
 
-          <div ref={inventoryRef} className="border-t border-gray-100 pt-5">
-            <InventoryCard
-              onHand={onHandDisplay}
-              onHandActive={activeTarget === "onhand"}
-              onHandHasDraft={onHandDraft != null}
-              onFocusOnHand={() => setActiveTarget("onhand")}
-              onUndoOnHand={onHandDraft != null ? undoOnHand : undefined}
-              weekly={weeklyDisplay}
-              weeklyDelta={weeklyDisplay - weeklyBaseline}
-              weeklyActive={activeTarget === "weekly"}
-              weeklyHasDraft={weeklyDraft != null}
-              onFocusWeekly={() => setActiveTarget("weekly")}
-              onUndoWeekly={weeklyDraft != null ? undoWeekly : undefined}
-            />
+          <div className="border-t border-gray-100 pt-5">
+            <ItemStats onHand={onHandDisplay} weekly={weeklyDisplay} weeklyProjection={weeklyProjection} />
           </div>
 
-          <ItemInfoPills item={item} liveRetail={liveRetail} familyItems={familyItems} draftBaseUnit={baseUnitDraft} />
+          <ItemInfoPills item={item} familyItems={familyItems} draftBaseUnit={baseUnitDraft} />
         </div>
       </div>
 

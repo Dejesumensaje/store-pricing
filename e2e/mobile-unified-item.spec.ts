@@ -47,7 +47,8 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
     // Evidence pills carry live one-line status (headline fact, no tap).
     await expect(shell.getByText(/\d+ tracked|None tracked/)).toBeVisible();
-    await expect(shell.getByText(/Cost \$\d/)).toBeVisible();
+    // Financials pill is gone — margins already read inline as GM grounds.
+    await expect(shell.getByText(/Cost \$\d/)).toHaveCount(0);
     await page.screenshot(SHOT("01-reading-posture"));
 
     // Editing posture: tap retail → keypad + caret; type 2-9-9 → $2.99 with
@@ -123,7 +124,7 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(page.getByRole("button", { name: "Session tray, 1 edited this walk" })).toBeVisible();
   });
 
-  test("ladder validation inline + line-pricing preview + mandatory reason", async ({ page }) => {
+  test("hard ladder break → revert or fix related; line-pricing preview; save", async ({ page }) => {
     await page.goto("/#m/walk");
     await page.getByRole("button", { name: "Simulate scan" }).click();
     await page.getByRole("button", { name: /Doritos Nacho Cheese/ }).click();
@@ -139,36 +140,36 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await shell.getByRole("button", { name: "Use single price" }).click();
     await expect(page.getByRole("button", { name: "Increase base quantity" })).not.toBeVisible();
     await expect(shell.getByRole("button", { name: /Multi-unit price/ })).toBeVisible();
-    // $1.00 base on the national brand lands below its private label — a
-    // hard ladder break, explained inline with a one-tap fix, and the CTA
-    // flips to the red-outlined blocked state that NAMES the blocker.
+    // $1.00 base on the national brand lands below its private label — a hard
+    // ladder break. The CTA flips to the red-outlined blocked state, and TWO
+    // resolutions appear inline: revert THIS item, or keep the price and let
+    // the related items move to preserve the ladder.
     for (const d of ["1", "0", "0"]) await page.getByRole("button", { name: d, exact: true }).click();
-    await expect(shell.getByText(/Breaks the .* ladder — needs at least/)).toBeVisible();
-    const fixChip = shell.getByRole("button", { name: /^Use \$/ });
-    await expect(fixChip).toBeVisible();
+    await expect(shell.getByText(/Breaks (the .* ladder|\d+ pricing ladders)/)).toBeVisible();
     await expect(page.getByRole("button", { name: "Resolve pricing issue" })).toBeVisible();
+    await expect(shell.getByRole("button", { name: /^Revert to \$/ })).toBeVisible();
+    const fixBtn = shell.getByRole("button", { name: /^Fix \d+ related items?$/ });
+    await expect(fixBtn).toBeVisible();
     await page.screenshot(SHOT("09-ladder-break"));
 
-    await fixChip.click();
-    await expect(shell.getByText(/Breaks the .* ladder/)).toHaveCount(0);
+    // Choose "Fix related": the break clears, the neighbor repairs preview in,
+    // and the save unblocks (the plan applies on commit).
+    await fixBtn.click();
+    await expect(shell.getByText(/Breaks (the .* ladder|\d+ pricing ladders)/)).toHaveCount(0);
+    await expect(shell.getByText(/Fixes \d+ related items? on save/)).toBeVisible();
 
-    // Line pricing: the family consequence, attached to its cause — and
-    // stated again on the Save button itself.
+    // Line pricing (family) is a SEPARATE consequence, still previewed and
+    // stated on the Save button itself.
     const famStrip = shell.getByRole("button", { name: /Also updates \d+ related item/ });
     await expect(famStrip).toBeVisible();
-    const famN = parseInt((await famStrip.innerText()).match(/\d+/)![0], 10);
-    expect(famN).toBeGreaterThan(0);
-    // The Relationships pill lights up while the draft moves the family.
-    await expect(shell.getByText(/\d+ items follow/)).toBeVisible();
+    await expect(shell.getByText(/\d+ follow/)).toBeVisible();
     await famStrip.click();
     await page.screenshot(SHOT("10-family-preview"));
-    const saveBtn = page.getByRole("button", { name: /^Save · \d+ items$/ });
-    await expect(saveBtn).toBeVisible();
 
-    // Doritos seeds a store-chosen base reason — the chip rides in filled,
-    // so nothing gates the save. (The empty-reason gate is exercised in the
-    // maintenance test below.)
+    // Doritos seeds a store-chosen base reason — the chip rides in filled, so
+    // nothing else gates; the save is ready.
     await expect(shell.getByRole("button", { name: /Cost change/ })).toBeVisible();
+    const saveBtn = page.getByRole("button", { name: /^Save · \d+ items$/ });
     await expect(saveBtn).toBeEnabled();
     await page.screenshot(SHOT("11-ready-to-save"));
 
@@ -179,39 +180,110 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await page.screenshot(SHOT("12-family-overlay"));
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
 
-    // The family doesn't just preview — every connected member LANDS in the
-    // walk. The edited item + its N relations all count, and the tray groups
-    // them under one caption (discarded as one, since they share the price).
-    await expect(
-      page.getByRole("button", { name: new RegExp(`Session tray, ${famN + 1} edited this walk`) })
-    ).toBeVisible();
-    await page.getByRole("button", { name: /Session tray, \d+ edited this walk/ }).click();
-    await expect(shell.getByText(new RegExp(`· ${famN + 1} items`))).toBeVisible();
+    // Both consequences LAND in the walk — the family plus the repaired ladder
+    // neighbors — so the tray carries more than the edited item alone.
+    await page.getByRole("button", { name: /Session tray, [1-9]\d* edited this walk/ }).click();
+    await expect(shell.getByText(/Doritos Nacho Cheese/)).toBeVisible();
     await page.screenshot(SHOT("16-family-in-tray"));
   });
 
-  test("inventory: weekly delta, save without reason, no walk-tray noise", async ({ page }) => {
+  test("edit offer dates of an existing deal without changing the price", async ({ page }) => {
+    await page.goto("/#m/walk");
+    await page.getByRole("button", { name: "Simulate scan" }).click();
+    await page.getByRole("button", { name: /Lay's Classic Potato Chips/ }).click();
+
+    const shell = page.getByTestId("mobile-shell");
+    // The active promo shows its run window at rest — and it's now tappable.
+    const runWindow = shell.getByRole("button", { name: /Jul \d+ . Jul \d+/ }).first();
+    await expect(runWindow).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
+
+    // Tap the window → the promo-window sheet; extend to two weeks (no price
+    // touched). The read-only window yields to the editable when&why chips and
+    // the change is saveable on its own.
+    await runWindow.click();
+    await expect(page.getByText(/Promo window/i)).toBeVisible();
+    await page.getByRole("button", { name: "2 weeks" }).click();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeEnabled();
+    await expect(shell.getByRole("button", { name: /^Undo$/ })).toBeVisible();
+    await page.screenshot(SHOT("17-dates-only-change"));
+  });
+
+  test("competitors panel: the desktop comparison table, reworked for mobile", async ({ page }) => {
+    await page.goto("/#m/walk");
+    await page.getByRole("button", { name: "Simulate scan" }).click();
+    await page.getByRole("button", { name: /Lay's Classic Potato Chips/ }).click();
+
+    const shell = page.getByTestId("mobile-shell");
+    await shell.getByRole("button", { name: /^Competitors/ }).click();
+
+    // The full desktop table comes along — headers included: the Our-price
+    // anchor with Base / Retail / Index labels (Lay's has an active deal, so the
+    // Retail column earns its place).
+    const panel = page.getByRole("dialog", { name: "Competitor prices" });
+    await expect(panel.getByText("Our price")).toBeVisible();
+    await expect(panel.getByText("Base", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Retail", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Index", { exact: true })).toBeVisible();
+    // A competitor row: name + distance meta + a colored base diff + the index.
+    await expect(panel.getByText("Walmart")).toBeVisible();
+    await expect(panel.getByText(/\d+\.\d+% (higher|lower)/).first()).toBeVisible();
+    await expect(panel.getByText(/^\d\.\d\d$/).first()).toBeVisible();
+    await page.screenshot(SHOT("18-competitors-table"));
+  });
+
+  test("relationships panel: the desktop groups table, reworked for mobile", async ({ page }) => {
+    await page.goto("/#m/walk");
+    await page.getByRole("button", { name: "Simulate scan" }).click();
+    await page.getByRole("button", { name: /Lay's Classic Potato Chips/ }).click();
+
+    const shell = page.getByTestId("mobile-shell");
+    await shell.getByRole("button", { name: /^Groups/ }).click();
+
+    const panel = page.getByRole("dialog", { name: "Product relationships" });
+    // Collapsible sections per relationship, values named as BASE PRICE — and
+    // size groups add SIZE + PRICE / UoM (the desktop columns, kept on mobile).
+    await expect(panel.getByText(/Size groups/)).toBeVisible();
+    await expect(panel.getByText("Base price", { exact: true }).first()).toBeVisible();
+    await expect(panel.getByText(/Price . UoM/)).toBeVisible();
+    // The 18oz item's UoM (base ÷ oz) and the ladder gap between adjacent sizes.
+    await expect(panel.getByText("18oz", { exact: true })).toBeVisible();
+    await expect(panel.getByText("$0.24")).toBeVisible();
+    await expect(panel.getByText(/↑ \d+\.\d+%/).first()).toBeVisible();
+    // No leftover prose from the old panel.
+    await expect(panel.getByText(/editing any member updates all/)).toHaveCount(0);
+    await page.screenshot(SHOT("19-relationships-table"));
+
+    // Each group states its gap rule inline, always visible (no tap): the
+    // ordering plus the minimum-gap threshold that flags a step as narrow.
+    await expect(panel.getByText(/price above/i).first()).toBeVisible();
+    await expect(panel.getByText(/≥\d+%/).first()).toBeVisible();
+  });
+
+  test("sales: on-hand & weekly units are read-only; a price draft projects a range", async ({ page }) => {
     await page.goto("/#m/walk");
     await page.getByRole("button", { name: "Simulate scan" }).click();
     await page.getByRole("button", { name: /EDLP-5/ }).click();
 
     const shell = page.getByTestId("mobile-shell");
-    await page.getByRole("button", { name: "Edit weekly units" }).click();
-    await expect(page.getByRole("group", { name: "Price keypad" })).toBeVisible();
-    for (const d of ["9", "9"]) await page.getByRole("button", { name: d, exact: true }).click();
-    // Baseline is seeded ≤ 30, so 99 always shows a positive delta.
-    await expect(shell.getByText(/\(\+\d+\)/)).toBeVisible();
-    await page.screenshot(SHOT("13-weekly-delta"));
+    // Both figures are reported, not edited — no keypad target on either.
+    await expect(page.getByRole("button", { name: "Edit weekly units" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Edit on hand" })).toHaveCount(0);
+    // No projection at rest — it's the price draft that summons it.
+    await expect(shell.getByText("est./wk")).toHaveCount(0);
 
-    // Inventory-only change: no reason needed, saves clean.
-    const saveBtn = page.getByRole("button", { name: "Save & next" });
-    await expect(saveBtn).toBeEnabled();
-    await saveBtn.click();
-    await expect(page.getByText("Inventory updated")).toBeVisible();
-    await expect(page.getByText("Added to Store Walk")).toHaveCount(0);
-    await expect(page.getByText("Waiting for barcode…")).toBeVisible();
-    // Not price work → the walk tally stays untouched.
-    await expect(page.getByRole("button", { name: "Session tray, 0 edited this walk" })).toBeVisible();
+    // An INVALID base (over the +10% ceiling) can't ship → no forecast; the
+    // error strip owns the row instead.
+    await page.getByRole("button", { name: "Edit base price" }).click();
+    for (const d of ["9", "9", "9"]) await page.getByRole("button", { name: d, exact: true }).click();
+    await expect(shell.getByText(/Exceeds the \+10% ceiling/)).toBeVisible();
+    await expect(shell.getByText("est./wk")).toHaveCount(0);
+
+    // Correct it to a valid price → the estimated weekly-sales range rises in.
+    for (let i = 0; i < 3; i++) await page.getByRole("button", { name: "Backspace" }).click();
+    for (const d of ["1", "9", "9"]) await page.getByRole("button", { name: d, exact: true }).click();
+    await expect(shell.getByText("est./wk")).toBeVisible();
+    await page.screenshot(SHOT("13-sales-projection"));
   });
 
   test("no deal → add deal seeds a placeholder; blocked-reason CTA points at the cause", async ({ page }) => {
