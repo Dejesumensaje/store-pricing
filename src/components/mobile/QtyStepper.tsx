@@ -19,7 +19,7 @@ export function QtyStepper({ qty, onChange, label }: Props) {
         type="button"
         aria-label={`Decrease ${label} quantity`}
         onClick={() => onChange(Math.max(1, qty - 1))}
-        className="flex size-9 select-none touch-manipulation items-center justify-center rounded-full bg-gray-200 text-gray-700 transition-transform duration-75 active:scale-95 active:bg-gray-300 motion-reduce:transition-none"
+        className="flex size-9.5 select-none touch-manipulation items-center justify-center rounded-full bg-gray-200 text-gray-700 transition-transform duration-75 active:scale-95 active:bg-gray-300 motion-reduce:transition-none"
       >
         <Minus className="size-4" aria-hidden="true" />
       </button>
@@ -28,7 +28,7 @@ export function QtyStepper({ qty, onChange, label }: Props) {
         type="button"
         aria-label={`Increase ${label} quantity`}
         onClick={() => onChange(Math.min(9, qty + 1))}
-        className="flex size-9 select-none touch-manipulation items-center justify-center rounded-full bg-gray-200 text-gray-700 transition-transform duration-75 active:scale-95 active:bg-gray-300 motion-reduce:transition-none"
+        className="flex size-9.5 select-none touch-manipulation items-center justify-center rounded-full bg-gray-200 text-gray-700 transition-transform duration-75 active:scale-95 active:bg-gray-300 motion-reduce:transition-none"
       >
         <Plus className="size-4" aria-hidden="true" />
       </button>

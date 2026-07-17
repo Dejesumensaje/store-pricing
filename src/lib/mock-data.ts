@@ -105,12 +105,13 @@ function enrichItemContext(item: PricingItem): PricingItem {
     baseEffectiveDate: item.baseEffectiveDate ?? (item.newBasePrice != null ? "2026-07-10" : null),
     currentFuelSaver: item.currentFuelSaver ?? null,
     fuelSaver: item.fuelSaver ?? null,
-    // Give any seeded fuel saver a one-week run so the table date tooltip has data.
-    fuelSaverStartDate: item.fuelSaverStartDate ?? (item.fuelSaver ? "2026-06-24" : null),
-    fuelSaverEndDate: item.fuelSaverEndDate ?? (item.fuelSaver ? "2026-06-30" : null),
-    // Every promo (temporary allowance) MUST have a start + end window.
-    allowanceStartDate: item.allowanceStartDate ?? (item.category_type === "temporary_allowance" ? "2026-06-24" : null),
-    allowanceEndDate: item.allowanceEndDate ?? (item.category_type === "temporary_allowance" ? "2026-06-30" : null),
+    // Give any seeded fuel saver a two-week run so the table date tooltip has data.
+    fuelSaverStartDate: item.fuelSaverStartDate ?? (item.fuelSaver ? "2026-07-13" : null),
+    fuelSaverEndDate: item.fuelSaverEndDate ?? (item.fuelSaver ? "2026-07-27" : null),
+    // Every promo (temporary allowance) MUST have a start + end window. Seeded
+    // around "today" (2026-07-16) so a live promo reads as genuinely running.
+    allowanceStartDate: item.allowanceStartDate ?? (item.category_type === "temporary_allowance" ? "2026-07-13" : null),
+    allowanceEndDate: item.allowanceEndDate ?? (item.category_type === "temporary_allowance" ? "2026-07-27" : null),
   };
 }
 
@@ -158,6 +159,10 @@ const baseMockItems: PricingItem[] = [
     newRetailQty: 1,
     newRetailPrice: 3.49,
     retailOverrideStatus: "pending",
+    // This live allowance is days from lapsing — the store walk surfaces it as
+    // "ending soon" so the director can extend or end it on the spot.
+    allowanceStartDate: "2026-07-11",
+    allowanceEndDate: "2026-07-18",
     hasOverride: true,
     // A fuel saver already live on the shelf — the table shows it steady (no change).
     currentFuelSaver: 0.1,
@@ -183,8 +188,8 @@ const baseMockItems: PricingItem[] = [
     retailOverrideStatus: "pending",
     // A 3-week promo — long enough that the yellow tag reads "Sale price", not
     // "Savings this week".
-    allowanceStartDate: "2026-06-24",
-    allowanceEndDate: "2026-07-14",
+    allowanceStartDate: "2026-07-07",
+    allowanceEndDate: "2026-07-28",
     fuelSaver: 0.1,
     hasOverride: true,
     impactSalesValue: 1.4,
@@ -269,8 +274,8 @@ const baseMockItems: PricingItem[] = [
     // so it surfaces in the HQ Recommendations queue and previews as "proposed".
     currentRetailPrice: 3.19,
     recommendedRetailPrice: 2.5,
-    allowanceStartDate: "2026-06-24",
-    allowanceEndDate: "2026-06-30",
+    allowanceStartDate: "2026-07-13",
+    allowanceEndDate: "2026-07-27",
   },
   // A batch of clean HQ proposals (no overrides) so the review worklist shows
   // real scale + a mix of routine vs. flagged (big swings / alerts) decisions.
@@ -280,10 +285,10 @@ const baseMockItems: PricingItem[] = [
   // Carries BOTH an HQ base rec (cost change) and an HQ retail rec (vendor
   // allowance) at once — one row, two independent sections, two different
   // reasons.
-  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.69, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
+  { ...baseItem, id: "HQ-104", name: "Orville Redenbacher 6ct", brand: "Orville", subcategory: "Popcorn", packSize: "6ct", category_type: "temporary_allowance", currentBasePrice: 4.49, cost: 2.7, recommendedBasePrice: 4.69, currentRetailPrice: 4.49, recommendedRetailPrice: 3.49, allowanceStartDate: "2026-07-13", allowanceEndDate: "2026-07-27" },
   { ...baseItem, id: "HQ-105", name: "Planters Peanuts 16oz", brand: "Planters", subcategory: "Nuts", packSize: "16oz", currentBasePrice: 5.99, cost: 3.8, recommendedBasePrice: 7.49, itemRole: "Margin driver" },
   { ...baseItem, id: "HQ-106", name: "Jack Link's Jerky 5oz", brand: "Jack Link's", subcategory: "Jerky", packSize: "5oz", currentBasePrice: 8.99, cost: 6.2, recommendedBasePrice: 7.49, sensitivity: "H", hasAlert: true },
-  { ...baseItem, id: "HQ-107", name: "SkinnyPop Original 4.4oz", brand: "SkinnyPop", subcategory: "Popcorn", packSize: "4.4oz", category_type: "temporary_allowance", currentBasePrice: 3.29, cost: 1.9, recommendedBasePrice: 3.29, currentRetailPrice: 3.29, recommendedRetailPrice: 2.5, allowanceStartDate: "2026-06-24", allowanceEndDate: "2026-06-30" },
+  { ...baseItem, id: "HQ-107", name: "SkinnyPop Original 4.4oz", brand: "SkinnyPop", subcategory: "Popcorn", packSize: "4.4oz", category_type: "temporary_allowance", currentBasePrice: 3.29, cost: 1.9, recommendedBasePrice: 3.29, currentRetailPrice: 3.29, recommendedRetailPrice: 2.5, allowanceStartDate: "2026-07-13", allowanceEndDate: "2026-07-27" },
   { ...baseItem, id: "HQ-108", name: "Rold Gold Pretzels 16oz", brand: "Rold Gold", subcategory: "Pretzels", packSize: "16oz", currentBasePrice: 3.79, cost: 2.2, recommendedBasePrice: 3.89 },
   {
     ...baseItem,

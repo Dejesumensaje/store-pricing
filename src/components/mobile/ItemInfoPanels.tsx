@@ -23,20 +23,48 @@ const PANELS: { kind: PanelKind; pill: string; title: string; icon: typeof Packa
 // Reference info lives behind four pills (2-column grid) that expand into
 // full-screen panels — reading is a different job from editing, so it gets
 // the whole screen instead of cramming a disclosure above the keypad.
-// Motion carries the affordance: pills compress on press, the panel rises in.
+// Each pill carries a one-line LIVE status (the panel's headline fact) so
+// the calm posture answers the common question without a tap. Motion carries
+// the affordance: pills compress on press, the panel rises in.
 export function ItemInfoPills({
   item,
   liveRetail,
   familyItems,
+  draftBaseUnit,
 }: {
   item: PricingItem;
   liveRetail: number;
   familyItems: PricingItem[];
+  /** The in-progress base draft (per unit) — lights the Relationships pill
+      and drives the panel's ripple while a family price is being moved. */
+  draftBaseUnit: number | null;
 }) {
   const [open, setOpen] = useState<PanelKind | null>(null);
   // The tapped pill's center, in viewport coordinates — the panel's
   // transform-origin, so the container transform grows out of THAT pill.
   const [origin, setOrigin] = useState<string>("50% 50%");
+
+  const competitorCount = (item.competitors ?? []).length;
+  // Only LINE PRICING (family) propagates: editing the base price overwrites
+  // every member of the shared group. The other relationship types (size
+  // groups, good-better-best, private-label/national-brand) are comparison
+  // ladders — membership matters for validation, but an edit never rewrites
+  // them. So the headline leads with the line-pricing consequence when there
+  // is one, and otherwise just reports how many other groups the item sits in.
+  const otherGroups = relationshipsFor(item.id).filter((r) => r.type !== "family").length;
+  const hasFamily = !!item.familyId && familyItems.length > 0;
+  const status: Record<PanelKind, { text: string; live?: boolean }> = {
+    details: { text: item.upc ? `UPC ${item.upc}` : "—" },
+    competitors: { text: competitorCount > 0 ? `${competitorCount} tracked` : "None tracked" },
+    // Line pricing → how many connected items an edit would move. Else →
+    // membership in the comparison groups. Else → nothing.
+    relationships: hasFamily
+      ? { text: `${familyItems.length} items follow`, live: draftBaseUnit != null }
+      : otherGroups > 0
+        ? { text: `In ${otherGroups} related group${otherGroups > 1 ? "s" : ""}` }
+        : { text: "Priced alone" },
+    financials: { text: `Cost ${fmt(item.cost)}` },
+  };
 
   return (
     <>
@@ -52,10 +80,19 @@ export function ItemInfoPills({
               setOrigin(`${r.left + r.width / 2}px ${r.top + r.height / 2}px`);
               setOpen(kind);
             }}
-            className="flex min-h-12 select-none touch-manipulation items-center gap-2 rounded-xl bg-gray-100/70 px-3 py-2.5 text-left transition-transform duration-75 active:scale-[0.97] active:bg-gray-200 motion-reduce:transition-none"
+            className="flex min-h-14 select-none touch-manipulation flex-col items-start justify-center gap-0.5 rounded-xl bg-gray-100/70 px-3 py-2.5 text-left transition-transform duration-75 active:scale-[0.97] active:bg-gray-200 motion-reduce:transition-none"
           >
-            <Icon className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
-            <span className="min-w-0 truncate text-sm font-medium text-gray-600">{pill}</span>
+            <span className="flex w-full min-w-0 items-center gap-2">
+              <Icon className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
+              <span className="min-w-0 truncate text-sm font-medium text-gray-700">{pill}</span>
+            </span>
+            <span
+              className={`w-full min-w-0 truncate pl-6 text-xs ${
+                status[kind].live ? "font-medium text-brand" : "text-gray-400"
+              }`}
+            >
+              {status[kind].text}
+            </span>
           </button>
         ))}
       </div>
@@ -64,7 +101,9 @@ export function ItemInfoPills({
         <InfoPanel title={PANELS.find((p) => p.kind === open)!.title} origin={origin} onClose={() => setOpen(null)}>
           {open === "details" && <DetailsPanel item={item} />}
           {open === "competitors" && <CompetitorsPanel item={item} liveRetail={liveRetail} />}
-          {open === "relationships" && <RelationshipsPanel item={item} familyItems={familyItems} />}
+          {open === "relationships" && (
+            <RelationshipsPanel item={item} familyItems={familyItems} draftBaseUnit={draftBaseUnit} />
+          )}
           {open === "financials" && <FinancialsPanel item={item} />}
         </InfoPanel>
       )}
@@ -185,7 +224,15 @@ function CompetitorsPanel({ item, liveRetail }: { item: PricingItem; liveRetail:
   );
 }
 
-function RelationshipsPanel({ item, familyItems }: { item: PricingItem; familyItems: PricingItem[] }) {
+function RelationshipsPanel({
+  item,
+  familyItems,
+  draftBaseUnit,
+}: {
+  item: PricingItem;
+  familyItems: PricingItem[];
+  draftBaseUnit: number | null;
+}) {
   const items = usePricingStore((s) => s.items);
   // Ladders (size groups / good-better-best / brand pairs) come from the
   // relationship registry; the price family comes from item.familyId (the
@@ -196,6 +243,10 @@ function RelationshipsPanel({ item, familyItems }: { item: PricingItem; familyIt
     return <p className="mt-10 text-center text-sm text-gray-600">No product relationships for this item.</p>;
   }
   const priceOf = (i: PricingItem) => fmt(perUnit(i.newBasePrice ?? i.currentBasePrice, i.newBaseQty));
+  // The in-progress draft moving the shared price: the panel shows the move
+  // rippling through every member (read-only — propagation is automatic).
+  const sharedCurrent = perUnit(item.newBasePrice ?? item.currentBasePrice, item.newBaseQty);
+  const moved = hasFamily && draftBaseUnit != null && Math.abs(draftBaseUnit - sharedCurrent) > 0.001;
   return (
     <div className="flex flex-col gap-5">
       {hasFamily && (
@@ -203,13 +254,40 @@ function RelationshipsPanel({ item, familyItems }: { item: PricingItem; familyIt
           <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
             Line pricing{item.priceFamilyName ? ` · ${item.priceFamilyName}` : ""}
           </p>
-          <p className="mb-2 text-xs text-gray-500">One shared price — editing any member updates all of them.</p>
-          <dl>
-            <Row label={item.name} value={priceOf(item)} strong />
-            {familyItems.map((f) => (
-              <Row key={f.id} label={f.name} value={priceOf(f)} />
-            ))}
-          </dl>
+          {moved ? (
+            <>
+              <p className="mb-2 text-xs text-gray-600">
+                <span className="font-semibold text-gray-900">{familyItems.length + 1} items</span> share this price.
+                This change moves them {fmt(sharedCurrent)} →{" "}
+                <span className="font-semibold text-gray-900 tabular-nums">{fmt(draftBaseUnit)}</span>.
+              </p>
+              <dl>
+                {[item, ...familyItems].map((f, i) => (
+                  <div
+                    key={f.id}
+                    className="line-morph flex items-baseline justify-between gap-3 border-b border-gray-100 py-2.5 last:border-b-0"
+                    style={{ animationDelay: `${Math.min(i, 20) * 32}ms` }}
+                  >
+                    <dt className="min-w-0 truncate text-sm text-gray-500">{f.name}</dt>
+                    <dd className="flex shrink-0 items-baseline gap-1.5 text-sm tabular-nums">
+                      <span className="text-gray-400 line-through">{priceOf(f)}</span>
+                      <span className="font-semibold text-gray-900">{fmt(draftBaseUnit)}</span>
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          ) : (
+            <>
+              <p className="mb-2 text-xs text-gray-500">One shared price — editing any member updates all of them.</p>
+              <dl>
+                <Row label={item.name} value={priceOf(item)} strong />
+                {familyItems.map((f) => (
+                  <Row key={f.id} label={f.name} value={priceOf(f)} />
+                ))}
+              </dl>
+            </>
+          )}
         </div>
       )}
       {ladders.map((rel) => (

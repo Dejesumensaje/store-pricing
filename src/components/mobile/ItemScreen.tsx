@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { Button } from "@dejesumensaje/converge-ds-experimental";
-import { AlertCircle, Calendar, Check, ChevronDown, ChevronRight, Fuel, Link2, X } from "lucide-react";
+import { Calendar, ChevronDown, ChevronRight, Fuel, Link2, Loader2, Tag, X } from "lucide-react";
 import { usePricingStore, useEdlpException } from "@/store/pricing-store";
 import { useMobileSessionStore } from "@/store/mobile-session";
 import { buildItemsById, evaluateEdlpCeilingChange } from "@/lib/edlp-ceiling";
@@ -11,7 +11,7 @@ import { evaluateBaseChange, validPriceWindow } from "@/lib/relationship-validat
 import { fmt, fmtDateShort, fmtDateRange } from "@/lib/format";
 import { perUnit } from "@/lib/pricing-math";
 import { fmtSaveAmt } from "@/lib/hq-rec";
-import { isoToday, isoAddDays } from "@/lib/mobile";
+import { isoToday, isoAddDays, daysUntil } from "@/lib/mobile";
 import {
   REASON_META,
   HQ_BASE_REASON_OPTIONS,
@@ -102,17 +102,27 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const [fuelBaselineOnOpen] = useState<number | null>(item?.fuelSaver ?? null);
   const [sheet, setSheet] = useState<{ kind: "date" | "reason"; section: Section } | null>(null);
   const [familyOpen, setFamilyOpen] = useState(false);
-  const [overlayLines, setOverlayLines] = useState<string[] | null>(null);
+  const [overlay, setOverlay] = useState<{ lines: string[]; flyItems?: string[] } | null>(null);
   // Bumped on programmatic value sets (HQ accept, ladder fix) → decision-pop.
   const [pops, setPops] = useState({ retail: 0, base: 0 });
+  // "Add deal" on a promo-less item: seeds the retail row with the base price
+  // as a dimmed PLACEHOLDER (no draft, nothing commits) and summons the keypad.
+  const [dealSeeded, setDealSeeded] = useState(false);
+  // Blocked-CTA redirect: which section is being pulsed at, if any.
+  const [pulseSection, setPulseSection] = useState<Section | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // ── Retail derivations (ported from the old EditScreen) ────────────────
   const liveRetail = item ? item.currentRetailPrice ?? item.currentBasePrice : 0;
   const hasRetail = item ? item.category_type === "temporary_allowance" || item.newRetailPrice != null : false;
   const retailExistingTotal = item ? item.newRetailPrice ?? (hasRetail ? liveRetail * retailQty : 0) : 0;
   const retailDraftCents = retailDigits === "" ? null : parseInt(retailDigits, 10);
-  const retailDisplayCents = retailDraftCents ?? Math.round(retailExistingTotal * 100);
   const baseRef = item ? (item.newBasePrice != null ? perUnit(item.newBasePrice, item.newBaseQty) : item.currentBasePrice) : 0;
+  // Promo-less items show the base price as the seeded placeholder once "Add
+  // deal" is tapped — the first digit replaces it (same contract as every
+  // other field), so no phantom draft and no premature validation error.
+  const retailDisplayCents =
+    retailDraftCents ?? (hasRetail ? Math.round(retailExistingTotal * 100) : Math.round(baseRef * retailQty * 100));
 
   const retailError = useMemo(() => {
     if (retailDraftCents == null) return null;
@@ -273,8 +283,14 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const entry = walkEntries[itemId];
   const baseOverride = overrides.find((o) => o.id === `${itemId}:base` && o.status === "pending");
   const retailOverride = overrides.find((o) => o.id === `${itemId}:retail` && o.status === "pending");
-  const baseChanged = baseDraftCents != null || (!!baseOverride && (mode === "maint" || !!entry?.sections.base));
-  const retailChanged = retailDraftCents != null || (!!retailOverride && (mode === "maint" || !!entry?.sections.retail));
+  // A section counts as "changed" only from work done THIS visit: a draft
+  // typed now, or (in a walk) a section this session already touched. A
+  // pre-seeded pending override must NOT surface as a change at rest — that
+  // was making maintenance show the when&why chips (and hide the promo run
+  // window) the instant you opened an item, before touching anything. Walk
+  // and maintenance now read identically until you actually edit.
+  const baseChanged = baseDraftCents != null || (!!baseOverride && mode === "walk" && !!entry?.sections.base);
+  const retailChanged = retailDraftCents != null || (!!retailOverride && mode === "walk" && !!entry?.sections.retail);
   const fuelChangedNow = item ? (item.fuelSaver ?? null) !== fuelBaselineOnOpen : false;
   const fuelChanged =
     fuelChangedNow ||
@@ -327,6 +343,13 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     (mode === "walk" && entry != null);
 
   // ── Keypad routing — one keypad, four targets ───────────────────────────
+  // Leaving the retail field with nothing typed collapses a seeded "Add deal"
+  // back to its No-deal resting state — the placeholder never lingers as if
+  // it were a decision.
+  const setTarget = (t: Target) => {
+    if (activeTarget === "retail" && t !== "retail" && retailDigits === "") setDealSeeded(false);
+    setActiveTarget(t);
+  };
   const onDigit = (d: string) => {
     if (activeTarget === "retail") setRetailDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
     else if (activeTarget === "base") setBaseDigits((s) => (s.length >= MAX_PRICE_DIGITS ? s : s + d));
@@ -340,24 +363,61 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     else if (activeTarget === "weekly") setWeeklyDigits((s) => s.slice(0, -1));
   };
 
-  // Base and Inventory sit low in the scroll zone; focusing them summons the
-  // keypad, which shrinks it — keep the focused editor in view. `baseError`
-  // is a dep on purpose: a ladder/EDLP strip appearing mid-typing grows the
-  // row downward, and the strip (with its fix chip) must not hide behind the
-  // keypad — that's where the correction happens.
+  // Focusing any field summons the keypad, which shrinks the scroll zone —
+  // whichever row is active must stay in view (flow continuity: the lit
+  // number and the keypad are one moment). `baseError` is a dep on purpose:
+  // a ladder/EDLP strip appearing mid-typing grows the row downward, and the
+  // strip (with its fix chip) must not hide behind the keypad — that's where
+  // the correction happens.
+  const retailRowRef = useRef<HTMLDivElement>(null);
   const baseRowRef = useRef<HTMLDivElement>(null);
+  const fuelRowRef = useRef<HTMLDivElement>(null);
   const inventoryRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (activeTarget === "base") baseRowRef.current?.scrollIntoView({ block: "end" });
+    if (activeTarget === "retail") retailRowRef.current?.scrollIntoView({ block: "nearest" });
+    else if (activeTarget === "base") baseRowRef.current?.scrollIntoView({ block: "end" });
     else if (activeTarget === "onhand" || activeTarget === "weekly")
       inventoryRef.current?.scrollIntoView({ block: "nearest" });
   }, [activeTarget, baseError]);
+
+  // The blocked CTA is a pointer, not a wall: tapping it scrolls to the
+  // section that's gating the save and pulses it twice. Validation outranks
+  // a missing reason (you can't reason about a broken price).
+  const redirectToBlocker = () => {
+    const target: Section | null = retailError
+      ? "retail"
+      : baseError
+        ? "base"
+        : retailChanged && !reasonFor("retail")
+          ? "retail"
+          : baseChanged && !reasonFor("base")
+            ? "base"
+            : fuelChanged && !reasonFor("fuel")
+              ? "fuel"
+              : null;
+    if (!target) return;
+    const ref = target === "retail" ? retailRowRef : target === "base" ? baseRowRef : fuelRowRef;
+    ref.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    setPulseSection(target);
+  };
+  useEffect(() => {
+    if (pulseSection == null) return;
+    const t = setTimeout(() => setPulseSection(null), 1600);
+    return () => clearTimeout(t);
+  }, [pulseSection]);
 
   // ── Commit (Save AND the scan-while-editing autosave path) ─────────────
   const commitDrafts = () => {
     if (!item || !canSave) return;
     if (baseDraftCents != null) {
-      if (mode === "walk") touchSection(item.id, "base", fuelBaselineOnOpen);
+      if (mode === "walk") {
+        touchSection(item.id, "base", fuelBaselineOnOpen);
+        // Line pricing: the propagated members ride into the walk as their own
+        // rows. updateBasePrice already writes each a pending base override, so
+        // touching them here is all computeWalkRows needs to surface them —
+        // the connected edit lands in the row list, it isn't repriced silently.
+        for (const f of familyItems) touchSection(f.id, "base", f.fuelSaver ?? null);
+      }
       updateBasePrice(item.id, baseDraftCents / 100, baseQty > 1 ? baseQty : undefined);
     }
     if (retailDraftCents != null) {
@@ -380,23 +440,53 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [commitDrafts]);
 
+  // ── The CTA state machine — the screen's state lamp, legible at a squint:
+  // gray = nothing yet · solid Hy-Vee red = ready to save · outlined red =
+  // blocked (the action color with the fill withheld), naming the blocker.
+  // Precedence: validation > missing reason > ready > pristine.
+  const ctaState: "pristine" | "blockedValidation" | "blockedReason" | "ready" = !canSave
+    ? "blockedValidation"
+    : !hasChanges
+      ? "pristine"
+      : missingReason
+        ? "blockedReason"
+        : "ready";
+
   const handleSave = () => {
-    if (!item || !canSave || !hasChanges || missingReason) return;
-    commitDrafts();
-    if (mode === "maint") {
-      confirmItemOverrides(item.id);
-      onDone();
+    if (!item || saving) return;
+    if (ctaState === "blockedValidation" || ctaState === "blockedReason") {
+      redirectToBlocker();
       return;
     }
-    // The success overlay states each consequence as its own line — what
-    // changed, what it dragged along, and where the work went.
-    const priceWork = baseDraftCents != null || retailDraftCents != null || fuelChangedNow || entry != null;
-    const lines = ["Item updated"];
-    if (baseDraftCents != null && familyItems.length > 0) lines.push(`${familyItems.length} related items updated`);
-    if (inventoryChanged) lines.push("Inventory updated");
-    if (keptAny) lines.push("HQ decision recorded");
-    if (priceWork) lines.push("Added to Store Walk");
-    setOverlayLines(lines);
+    if (ctaState !== "ready") return;
+    setSaving(true);
+    // One beat of spinner in the pressed pill — enough to register the press
+    // landed; the overlay stays the real payoff.
+    setTimeout(() => {
+      commitDrafts();
+      if (mode === "maint") {
+        confirmItemOverrides(item.id);
+        onDone();
+        return;
+      }
+      // The success overlay is a receipt: the item, the deal it now carries,
+      // what it dragged along, and where the work went.
+      const priceWork = baseDraftCents != null || retailDraftCents != null || fuelChangedNow || entry != null;
+      const lines = [item.name];
+      if (retailDraftCents != null)
+        lines.push(
+          retailQty > 1 ? `${retailQty} for ${fmt(retailDraftCents / 100)}` : `${fmt(retailDraftCents / 100)} deal`
+        );
+      else if (priceWork || keptAny) lines.push("Prices updated");
+      const propagated = baseDraftCents != null && familyItems.length > 0;
+      if (propagated) lines.push(`${familyItems.length} related items updated`);
+      if (inventoryChanged) lines.push("Inventory updated");
+      if (keptAny) lines.push("HQ decision recorded");
+      if (priceWork) lines.push("Added to Store Walk");
+      // A representative sample of the family flies into the pending tray —
+      // the receipt line above carries the full count.
+      setOverlay({ lines, flyItems: propagated ? familyItems.slice(0, 3).map((f) => f.name) : undefined });
+    }, 180);
   };
 
   const handleCancel = () => {
@@ -418,8 +508,9 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // ── Small local pieces ──────────────────────────────────────────────────
 
   // Date + reason chips for one changed section — the "when & why" attached
-  // at the moment of cause. The reason chip is the screen's one amber
-  // obligation; dates show their honest defaults.
+  // at the moment of cause. They render ONLY under a changed section (their
+  // arrival is the information); the reason chip turns red until it's filled,
+  // the same hue family as the blocked CTA that points back at it.
   const metaChips = (section: Section, dateLabel: string) => {
     const reason = reasonFor(section);
     return (
@@ -427,7 +518,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         <button
           type="button"
           onClick={() => setSheet({ kind: "date", section })}
-          className="flex min-h-9 select-none touch-manipulation items-center gap-1 rounded-full bg-gray-100 px-2.5 text-xs font-medium text-gray-700 active:bg-gray-200"
+          className="flex min-h-9 select-none touch-manipulation items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 text-xs font-medium text-gray-700 active:bg-gray-50"
         >
           <Calendar className="size-3.5 text-gray-400" aria-hidden="true" />
           {dateLabel}
@@ -435,16 +526,12 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         <button
           type="button"
           onClick={() => setSheet({ kind: "reason", section })}
-          className={`flex min-h-9 select-none touch-manipulation items-center gap-1 rounded-full px-2.5 text-xs font-medium ${
-            reason ? "bg-gray-100 text-gray-700 active:bg-gray-200" : "bg-amber-100 text-amber-900 active:bg-amber-200"
+          className={`flex min-h-9 select-none touch-manipulation items-center gap-1.5 rounded-lg border bg-white px-2.5 text-xs font-medium ${
+            reason ? "border-gray-200 text-gray-700 active:bg-gray-50" : "border-red-300 text-red-600 active:bg-red-50"
           }`}
         >
-          {reason ? (
-            <Check className="size-3.5 text-emerald-600" aria-hidden="true" />
-          ) : (
-            <AlertCircle className="size-3.5" aria-hidden="true" />
-          )}
-          {reason ?? "Reason"}
+          <Tag className={`size-3.5 ${reason ? "text-gray-400" : "text-red-400"}`} aria-hidden="true" />
+          {reason ?? "Add reason"}
         </button>
       </div>
     );
@@ -457,9 +544,59 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const retailDateLabel = fmtDateRange(item.allowanceStartDate, item.allowanceEndDate) ?? defaultWeek;
   const fuelDateLabel = fmtDateRange(item.fuelSaverStartDate, item.fuelSaverEndDate) ?? defaultWeek;
 
+  // An active promo shows its run window at rest — read-only ground, no reason
+  // chip yet (that arrives only with a change). Walking the store, the director
+  // can spot a deal about to lapse and decide to extend or end it. The window
+  // yields the moment an edit begins: the editable when&why chips take over.
+  const retailEndsIn = daysUntil(item.allowanceEndDate);
+  const retailEndingSoon = retailEndsIn != null && retailEndsIn >= 0 && retailEndsIn <= 3;
+  const endsSoonLabel =
+    retailEndsIn === 0 ? "ends today" : retailEndsIn === 1 ? "ends tomorrow" : `ends in ${retailEndsIn} days`;
+  const retailWindow =
+    hasRetail && !retailChanged && item.allowanceEndDate ? (
+      <div
+        className={`flex items-center gap-1.5 text-xs ${
+          retailEndingSoon ? "font-medium text-amber-700" : "text-gray-500"
+        }`}
+      >
+        <Calendar
+          className={`size-3.5 ${retailEndingSoon ? "text-amber-500" : "text-gray-400"}`}
+          aria-hidden="true"
+        />
+        <span>
+          {fmtDateRange(item.allowanceStartDate, item.allowanceEndDate)}
+          {retailEndingSoon && ` · ${endsSoonLabel}`}
+        </span>
+      </div>
+    ) : null;
+
   const famCount = familyItems.length;
   const saveLabel =
-    mode === "maint" ? "Send to SAP" : baseDraftCents != null && famCount > 0 ? `Save · ${famCount + 1} items` : "Save";
+    mode === "maint" ? "Send to SAP" : baseDraftCents != null && famCount > 0 ? `Save · ${famCount + 1} items` : "Save & next";
+
+  // The retail HQ rec renders in the same slot whether the row is a live
+  // price or the No-deal resting state — fixed insertion points keep the
+  // saccade pattern stable item to item.
+  const retailRec =
+    retailRecActive && recRetailCents != null ? (
+      <HqRecBlock
+        status={retailRecStatus}
+        currentLabel={fmt(liveRetail)}
+        recLabel={fmt(recRetailCents / 100)}
+        down={recRetailCents / 100 < liveRetail}
+        saveNote={
+          liveRetail - recRetailCents / 100 > 0.005 ? `save ${fmtSaveAmt(liveRetail - recRetailCents / 100)}` : null
+        }
+        reasonLabel={item.hqRetailReason ? reasonLabelOf(item.hqRetailReason) : null}
+        onAccept={acceptRetailRec}
+        onKeep={() => {
+          setRetailDigits("");
+          setKept((k) => ({ ...k, retail: true }));
+        }}
+        onUndo={() => (retailRecStatus === "kept" ? setKept((k) => ({ ...k, retail: false })) : setRetailDigits(""))}
+      />
+    ) : null;
+  const showNoDeal = !hasRetail && retailDraftCents == null && !dealSeeded;
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -473,88 +610,78 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-7">
           <div className="min-w-0">
             <p className="truncate text-base font-semibold text-gray-900">{item.name}</p>
-            <p className="mt-0.5 truncate text-xs text-gray-500">
-              {item.size ?? item.packSize} · UPC {item.upc}
-            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">UPC {item.upc}</p>
           </div>
 
-          {/* ── The pricing card: Retail · Margin · Base · Fuel, one surface.
-                 Everything conditional (recs, errors, chips, family strip)
-                 attaches under the row that caused it. ── */}
-          <section className="divide-y divide-gray-100 rounded-xl border border-gray-300 bg-white">
-            <PriceRow
-              label="Retail"
-              hero
-              qty={retailQty}
-              onQtyChange={setRetailQty}
-              displayCents={retailDisplayCents}
-              active={activeTarget === "retail"}
-              hasDraft={retailDraftCents != null}
-              dimZero
-              wasLabel={retailDraftCents != null && hasRetail ? `was ${fmt(liveRetail)}` : null}
-              subLabel={hasRetail ? null : `no promo yet · base ${fmt(baseRef)}`}
-              error={retailError}
-              onFocus={() => setActiveTarget("retail")}
-              popToken={pops.retail}
-            >
-              {retailRecActive && recRetailCents != null && (
-                <HqRecBlock
-                  status={retailRecStatus}
-                  currentLabel={fmt(liveRetail)}
-                  recLabel={fmt(recRetailCents / 100)}
-                  down={recRetailCents / 100 < liveRetail}
-                  saveNote={
-                    liveRetail - recRetailCents / 100 > 0.005 ? `save ${fmtSaveAmt(liveRetail - recRetailCents / 100)}` : null
-                  }
-                  reasonLabel={item.hqRetailReason ? reasonLabelOf(item.hqRetailReason) : null}
-                  onAccept={acceptRetailRec}
-                  onKeep={() => {
-                    setRetailDigits("");
-                    setKept((k) => ({ ...k, retail: true }));
-                  }}
-                  onUndo={() =>
-                    retailRecStatus === "kept" ? setKept((k) => ({ ...k, retail: false })) : setRetailDigits("")
-                  }
-                />
+          {/* ── The pricing surface: Retail · Base · Fuel as one continuous
+                 field — hierarchy by weight and rhythm, not card chrome. Each
+                 section carries its own live margin as light ground, and
+                 everything conditional (recs, errors, chips, the line-pricing
+                 ripple) attaches under the row that caused it. ── */}
+          <section className="flex flex-col gap-6">
+            <div ref={retailRowRef} className={pulseSection === "retail" ? "pulse-attention" : undefined}>
+              {showNoDeal ? (
+                /* No-deal resting state — the truth stated quietly, with the
+                   one action that changes it. "Add deal" seeds the base price
+                   as a placeholder and summons the keypad; nothing commits
+                   until digits land. */
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-gray-400">Retail</span>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[34px] font-semibold leading-none text-gray-300">No deal</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDealSeeded(true);
+                        setTarget("retail");
+                      }}
+                      className="h-10 shrink-0 select-none touch-manipulation rounded-full bg-gray-900 px-4 text-sm font-semibold text-white active:opacity-80"
+                    >
+                      Add deal
+                    </button>
+                  </div>
+                  {retailRec}
+                </div>
+              ) : (
+                <PriceRow
+                  label="Retail"
+                  ariaField="retail"
+                  hero
+                  qty={retailQty}
+                  onQtyChange={setRetailQty}
+                  displayCents={retailDisplayCents}
+                  active={activeTarget === "retail"}
+                  hasDraft={retailDraftCents != null}
+                  wasLabel={retailDraftCents != null && hasRetail ? `was ${fmt(liveRetail)}` : null}
+                  marginPct={margins?.retail ?? null}
+                  error={retailError}
+                  onFocus={() => setTarget("retail")}
+                  popToken={pops.retail}
+                >
+                  {retailRec}
+                  {retailWindow}
+                  {retailChanged && metaChips("retail", retailDateLabel)}
+                </PriceRow>
               )}
-              {retailChanged && metaChips("retail", retailDateLabel)}
-            </PriceRow>
+            </div>
 
-            {/* Margins — one per price (retail vs. allowance cost, base vs.
-                unit cost), each recomputing live as its own price is typed. */}
-            {margins && margins.base != null && (
-              <div className="flex items-baseline gap-3 px-3 py-2">
-                <span className="w-14 shrink-0 text-xs font-semibold uppercase tracking-wide text-gray-700">Margin</span>
-                <span className="flex items-baseline gap-3 text-sm tabular-nums">
-                  {margins.retail != null && (
-                    <span>
-                      <span className="text-gray-500">Retail </span>
-                      <span className="font-semibold text-gray-900">{margins.retail.toFixed(1)}%</span>
-                    </span>
-                  )}
-                  <span>
-                    <span className="text-gray-500">Base </span>
-                    <span className="font-semibold text-gray-900">{margins.base.toFixed(1)}%</span>
-                  </span>
-                </span>
-              </div>
-            )}
-
-            <div ref={baseRowRef}>
+            <div ref={baseRowRef} className={pulseSection === "base" ? "pulse-attention" : undefined}>
               <PriceRow
-                label="Base"
+                label="Base price"
+                ariaField="base"
                 qty={baseQty}
                 onQtyChange={setBaseQty}
                 displayCents={baseDisplayCents}
                 active={activeTarget === "base"}
                 hasDraft={baseDraftCents != null}
                 wasLabel={baseDraftCents != null ? `was ${fmt(item.currentBasePrice)}` : null}
+                marginPct={margins?.base ?? null}
                 multiUnitOptIn
                 error={baseError}
-                onFocus={() => setActiveTarget("base")}
+                onFocus={() => setTarget("base")}
                 popToken={pops.base}
               >
                 {/* Ladder quick fix — correction at the point of error, keypad
@@ -597,10 +724,12 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                     onUndo={() => (baseRecStatus === "kept" ? setKept((k) => ({ ...k, base: false })) : setBaseDigits(""))}
                   />
                 )}
-                {/* Line pricing: the consequence preview, attached to its
-                    cause. One line collapsed; the names one tap away. */}
+                {/* Line pricing: the consequence, attached to its cause and
+                    made to ripple. A peek of the first members cascades in
+                    old→new so the shared move reads as ONE decision spreading
+                    outward; the rest are one tap away. */}
                 {baseDraftCents != null && famCount > 0 && (
-                  <div className="rise-in flex flex-col gap-1">
+                  <div className="rise-in flex flex-col gap-1.5">
                     <button
                       type="button"
                       onClick={() => setFamilyOpen((o) => !o)}
@@ -613,39 +742,56 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                         aria-hidden="true"
                       />
                     </button>
-                    {familyOpen && (
-                      <ul className="flex flex-col gap-1 pl-5">
-                        {familyItems.map((f) => (
-                          <li key={f.id} className="flex items-baseline justify-between gap-2 text-xs text-gray-600">
-                            <span className="min-w-0 truncate">{f.name}</span>
-                            <span className="shrink-0 font-semibold tabular-nums text-gray-900">
-                              {fmt(perUnit(baseDraftCents / 100, baseQty))}
+                    {/* Keyed by open/collapsed so expanding replays the cascade;
+                        the peek animates once on the first drafted digit, then
+                        values update in place (no per-keystroke jitter). */}
+                    <ul key={familyOpen ? "open" : "peek"} className="flex flex-col gap-1 pl-5">
+                      {(familyOpen ? familyItems : familyItems.slice(0, 3)).map((f, i) => (
+                        <li
+                          key={f.id}
+                          className="line-morph flex items-baseline justify-between gap-2 text-xs"
+                          style={{ animationDelay: `${Math.min(i, 20) * 32}ms` }}
+                        >
+                          <span className="min-w-0 truncate text-gray-600">{f.name}</span>
+                          <span className="flex shrink-0 items-baseline gap-1 tabular-nums">
+                            <span className="text-gray-400 line-through">
+                              {fmt(perUnit(f.newBasePrice ?? f.currentBasePrice, f.newBaseQty))}
                             </span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
+                            <ChevronRight className="size-3 self-center text-gray-300" aria-hidden="true" />
+                            <span className="font-semibold text-gray-900">{fmt(perUnit(baseDraftCents / 100, baseQty))}</span>
+                          </span>
+                        </li>
+                      ))}
+                      {!familyOpen && famCount > 3 && (
+                        <li className="pl-0.5 text-xs text-gray-400">+{famCount - 3} more move with it</li>
+                      )}
+                    </ul>
                   </div>
                 )}
                 {baseChanged && metaChips("base", baseDateLabel)}
               </PriceRow>
             </div>
 
-            {/* Fuel Saver — same row grammar; the sheet does the picking. */}
-            <div className="flex flex-col gap-2 px-3 py-2.5">
+            {/* Fuel Saver — the screen's ONE contained region, and it earns
+                it: a cents-off program, not a shelf price, so it sits on its
+                own inset ground between the shelf prices and inventory. */}
+            <div
+              ref={fuelRowRef}
+              className={`flex flex-col gap-2 rounded-xl bg-gray-50 p-3 ${
+                pulseSection === "fuel" ? "pulse-attention" : ""
+              }`}
+            >
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTarget(null);
+                  setTarget(null);
                   setFuelSheetOpen(true);
                 }}
-                className="flex min-h-9 w-full select-none touch-manipulation items-center gap-3 text-left"
+                className="flex min-h-9 w-full select-none touch-manipulation items-center gap-2 text-left"
               >
+                <Fuel className="size-4 shrink-0 text-gray-400" aria-hidden="true" />
                 {/* The program's name is "Fuel Saver" — never shorten it. */}
-                <span className="flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold uppercase tracking-wide text-gray-700">
-                  <Fuel className="size-3.5 text-gray-400" aria-hidden="true" />
-                  Fuel Saver
-                </span>
+                <span className="whitespace-nowrap text-sm font-medium text-gray-600">Fuel Saver</span>
                 <span className="flex flex-1 items-center justify-end gap-1 text-sm font-semibold tabular-nums text-gray-900">
                   {fuelAmountLabel(item.fuelSaver)}
                   <ChevronRight className="size-4 text-gray-400" aria-hidden="true" />
@@ -676,7 +822,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
             </div>
           </section>
 
-          <div ref={inventoryRef}>
+          <div ref={inventoryRef} className="border-t border-gray-100 pt-5">
             <InventoryCard
               onHand={onHandDisplay}
               onHandActive={activeTarget === "onhand"}
@@ -690,25 +836,43 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
             />
           </div>
 
-          <ItemInfoPills item={item} liveRetail={liveRetail} familyItems={familyItems} />
+          <ItemInfoPills item={item} liveRetail={liveRetail} familyItems={familyItems} draftBaseUnit={baseUnitDraft} />
         </div>
       </div>
 
       <div className="shrink-0 border-t border-gray-100 pb-[env(safe-area-inset-bottom)]">
         {activeTarget != null && (
           <div className="keypad-in">
-            <MobileKeypad onDigit={onDigit} onBackspace={onBackspace} onHide={() => setActiveTarget(null)} />
+            <MobileKeypad onDigit={onDigit} onBackspace={onBackspace} onHide={() => setTarget(null)} />
           </div>
         )}
         <div className="px-4 py-3">
-          {hasChanges && missingReason && (
-            <p className="pb-2 text-center text-xs font-medium text-amber-700">
-              {mode === "walk" ? "Add a change reason to save" : "Add a change reason to send"}
-            </p>
-          )}
-          <Button variant="primary" disabled={!canSave || !hasChanges || !!missingReason} onClick={handleSave} className="h-14 w-full">
-            {saveLabel}
-          </Button>
+          {/* The dock CTA — always tappable except pristine/loading. Blocked
+              states keep the action hue but withhold the fill and NAME the
+              blocker; tapping them scrolls to the cause. */}
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={ctaState === "pristine" || saving}
+            aria-label={saving ? "Saving" : undefined}
+            className={`flex h-14 w-full select-none touch-manipulation items-center justify-center rounded-full text-base font-semibold transition-colors ${
+              ctaState === "pristine"
+                ? "bg-gray-100 text-gray-400"
+                : ctaState === "ready"
+                  ? "bg-hyvee-red text-white active:brightness-90"
+                  : "border-2 border-hyvee-red bg-white text-hyvee-red active:bg-red-50"
+            }`}
+          >
+            {saving ? (
+              <Loader2 className="size-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : ctaState === "blockedValidation" ? (
+              "Resolve pricing issue"
+            ) : ctaState === "blockedReason" ? (
+              "Add reason codes"
+            ) : (
+              saveLabel
+            )}
+          </button>
         </div>
       </div>
 
@@ -775,7 +939,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         onClose={() => setSheet(null)}
       />
 
-      {overlayLines && <SaveOverlay lines={overlayLines} onDone={onDone} />}
+      {overlay && <SaveOverlay lines={overlay.lines} flyItems={overlay.flyItems} onDone={onDone} />}
     </div>
   );
 }

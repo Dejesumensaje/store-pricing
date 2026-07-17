@@ -240,6 +240,133 @@ label:has(> input:not(:disabled)) {
   animation: count-pop 300ms ease-out;
 }
 
+/* Line pricing ripple: when a base price is set on a family, each member's
+   new price cascades in (delay set inline per row, capped) so the shared move
+   reads as ONE decision rippling outward — not a static list. `backwards`
+   holds each row hidden until its turn. */
+@keyframes line-morph {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.line-morph {
+  animation: line-morph 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* Reactive margin: when a margin recomputes as its price is committed, the
+   signed delta springs in beside it and fades — the "why the walk exists"
+   (a multi-unit deal slipping under the funded cost) surfaces for a beat.
+   Absolutely positioned by the caller so it never shifts the row. */
+@keyframes margin-delta {
+  0%   { opacity: 0; transform: translateY(-3px) scale(0.8); }
+  18%  { opacity: 1; transform: translateY(0) scale(1); }
+  72%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+.margin-delta {
+  animation: margin-delta 1900ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/*
+ * ── Moment layer (unified item screen, ADR-0050) ──────────────────────────
+ * Four signature moments, each with its own motion language, on a strict
+ * attention budget: at most one signature animation plays at a time, and
+ * nothing on this screen loops forever.
+ */
+
+/* HQ pill on the mobile rec block: TWO gentle pulses on mount, then rest.
+   The infinite desktop pulse would tax attention on a screen used hundreds
+   of times a day — the block's red is enough once you've seen it breathe. */
+.hq-pulse-once {
+  animation: hq-pulse 2s ease-out 2;
+}
+
+/* A value LANDING in a price box (HQ accept, ladder fix): one green ring
+   radiates out and dies — "locked in". Green = resolution, deliberately the
+   opposite pole of the red HQ attention ring. */
+@keyframes accept-ring {
+  from { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
+  to   { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+}
+.accept-ring {
+  animation: accept-ring 500ms ease-out;
+}
+
+/* The reward signature: a checkmark that draws itself (SVG stroke). Used on
+   the save overlay's check and the "Accepted"/"restored" lines — earned
+   moments only, never ambient chrome. */
+@keyframes check-draw {
+  to { stroke-dashoffset: 0; }
+}
+.check-draw {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: check-draw 280ms ease-out forwards;
+}
+/* Lucide renders the tick as a child <path>, so the draw must run on the path
+   (className lands on the <svg>). A short lead-in lets the circle pop first,
+   then the check writes itself. */
+.check-draw path {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 24;
+  animation: check-draw 280ms ease-out 140ms backwards;
+}
+
+/* Repair resolution: the red ladder strip is REPLACED by a green "restored"
+   line that holds ~¾s and fades — the tension is released in front of the
+   user, not silently deleted. */
+@keyframes repair-flash {
+  0%       { opacity: 0; transform: translateY(2px); }
+  15%, 70% { opacity: 1; transform: translateY(0); }
+  100%     { opacity: 0; }
+}
+.repair-flash {
+  animation: repair-flash 950ms ease-out forwards;
+}
+
+/* Progressive attention: while one field owns the keypad, everything that
+   isn't part of that decision recedes to 40% — a focus transition, not a
+   layout change. Opacity only, so it also holds under reduced motion. */
+.recede {
+  opacity: 0.4;
+}
+.recede-t {
+  transition: opacity 200ms ease-out;
+}
+
+/* Line-pricing propagation (save overlay): representative family rows are
+   COLLECTED into the walk — they rise along a subtle trajectory toward the
+   pending tray, fading and shrinking slightly (96%), keeping their relative
+   spacing via a shared keyframe + small stagger. JS-gated for reduced motion
+   (an animation-none override would leave them stuck visible). */
+@keyframes fly-to-tray {
+  0%   { opacity: 0; transform: translate(0, 10px) scale(1); }
+  18%  { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(120px, -340px) scale(0.96); }
+}
+.fly-to-tray {
+  animation: fly-to-tray 650ms cubic-bezier(0.5, 0, 0.2, 1) both;
+}
+/* The tray acknowledges receipt with one soft pulse once the last row lands. */
+@keyframes tray-pulse {
+  0%, 100% { transform: scale(1); }
+  40%      { transform: scale(1.14); }
+}
+.tray-pulse {
+  animation: tray-pulse 340ms ease-out both;
+}
+
+/* Blocked-CTA redirect: tapping "Add reason codes" / "Resolve pricing issue"
+   scrolls to the offending section and pulses it twice — the gate points back
+   at its cause, then rests. Hy-Vee red, same hue family as the CTA. */
+@keyframes pulse-attention {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(226, 28, 17, 0); }
+  30%      { box-shadow: 0 0 0 6px rgba(226, 28, 17, 0.25); }
+}
+.pulse-attention {
+  animation: pulse-attention 700ms ease-out 2;
+  border-radius: 12px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .decision-pop,
   .review-dot,
@@ -254,8 +381,24 @@ label:has(> input:not(:disabled)) {
   .screen-in,
   .pop-in,
   .rise-in,
-  .count-pop {
+  .count-pop,
+  .hq-pulse-once,
+  .accept-ring,
+  .check-draw,
+  .check-draw path,
+  .repair-flash,
+  .line-morph,
+  .margin-delta,
+  .pulse-attention,
+  .fly-to-tray,
+  .tray-pulse {
     animation: none !important;
+  }
+  /* The check is stroke-dash hidden by default and revealed by its animation;
+     with the animation off it must still show, fully drawn. */
+  .check-draw,
+  .check-draw path {
+    stroke-dashoffset: 0 !important;
   }
 }
 

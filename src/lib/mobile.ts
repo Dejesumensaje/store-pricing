@@ -92,6 +92,16 @@ export function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Whole days from today to an ISO date — 0 = today, negative = already past.
+    Null for a falsy/garbage input (an item with no promo dates yet). */
+export function daysUntil(iso?: string | null): number | null {
+  if (!iso) return null;
+  const target = new Date(`${iso}T00:00:00`);
+  if (isNaN(target.getTime())) return null;
+  const today = new Date(`${isoToday()}T00:00:00`);
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
 export function isoAddDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`);
   // Defensive: an empty/garbage input (e.g. an item with no promo dates yet)

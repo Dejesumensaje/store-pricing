@@ -34,14 +34,20 @@ test.describe("unified item screen (TC57X viewport)", () => {
     // ONE surface: retail, margin and base all visible at once — no "1 / 2"
     // step indicator, no Base disclosure, no keypad until a field is tapped.
     await expect(shell.getByText("1 / 2")).toHaveCount(0);
-    // Margin is one calculation PER price: retail (vs allowance cost) and
-    // base (vs unit cost) shown side by side, not a blended number.
-    await expect(shell.getByText("Retail 34.7%")).toBeVisible();
-    await expect(shell.getByText("Base 33.6%")).toBeVisible();
-    await expect(shell.getByText(/^Base$/)).toBeVisible();
+    // Margin is one calculation PER price, now light ground beside each price
+    // (retail vs allowance cost, base vs unit cost) — not a blended number and
+    // not a boxed row. Two "GM" grounds, distinct percentages.
+    await expect(shell.getByText("34.7%")).toBeVisible();
+    await expect(shell.getByText("33.6%")).toBeVisible();
+    await expect(shell.getByText("GM")).toHaveCount(2);
+    await expect(shell.getByText(/^Base price$/)).toBeVisible();
     await expect(page.getByRole("group", { name: "Price keypad" })).not.toBeVisible();
     await expect(shell.locator(".caret-blink")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    // Pristine CTA: gray, disabled — the screen's state lamp at rest.
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
+    // Evidence pills carry live one-line status (headline fact, no tap).
+    await expect(shell.getByText(/\d+ tracked|None tracked/)).toBeVisible();
+    await expect(shell.getByText(/Cost \$\d/)).toBeVisible();
     await page.screenshot(SHOT("01-reading-posture"));
 
     // Editing posture: tap retail → keypad + caret; type 2-9-9 → $2.99 with
@@ -62,8 +68,10 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(shell.getByRole("button", { name: /Manager special/ })).toBeVisible();
 
     // Save — success overlay (auto-dismisses ~850ms) → scanner, tally bumped.
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByText("Item updated")).toBeVisible();
+    // The overlay is a receipt: the item, the deal it now carries.
+    await page.getByRole("button", { name: "Save & next" }).click();
+    await expect(page.getByRole("status").getByText(/Lay's Classic Potato Chips/)).toBeVisible();
+    await expect(page.getByText("$2.99 deal")).toBeVisible();
     await expect(page.getByText("Added to Store Walk")).toBeVisible();
     await page.screenshot(SHOT("03-save-overlay"));
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
@@ -88,7 +96,7 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(shell.getByText("$3.99", { exact: true })).toBeVisible();
     await expect(shell.getByText(/Accepted \$3\.99/)).toBeVisible();
     await expect(shell.getByRole("button", { name: /Competitor change/ })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeEnabled();
     await page.screenshot(SHOT("06-hq-accepted"));
 
     // Undo → pending again; Keep current → staged decline, still saveable.
@@ -96,7 +104,7 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(shell.getByText("recommends")).toBeVisible();
     await page.getByRole("button", { name: "Keep current" }).click();
     await expect(shell.getByText(/Keeping current — rec declined/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeEnabled();
     await page.screenshot(SHOT("07-hq-kept"));
 
     // Override = just type. The proposal stays one tap away ("Use").
@@ -109,8 +117,8 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(shell.getByText(/Accepted \$3\.99/)).toBeVisible();
 
     // Save the accepted rec: overlay reports the walk work.
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(page.getByText("Item updated")).toBeVisible();
+    await page.getByRole("button", { name: "Save & next" }).click();
+    await expect(page.getByText("Prices updated")).toBeVisible();
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
     await expect(page.getByRole("button", { name: "Session tray, 1 edited this walk" })).toBeVisible();
   });
@@ -128,16 +136,17 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(page.getByRole("button", { name: "Increase base quantity" })).not.toBeVisible();
     await shell.getByRole("button", { name: /Multi-unit price/ }).click();
     await expect(page.getByRole("button", { name: "Increase base quantity" })).toBeVisible();
-    await shell.getByRole("button", { name: "Single-unit price" }).click();
+    await shell.getByRole("button", { name: "Use single price" }).click();
     await expect(page.getByRole("button", { name: "Increase base quantity" })).not.toBeVisible();
     await expect(shell.getByRole("button", { name: /Multi-unit price/ })).toBeVisible();
     // $1.00 base on the national brand lands below its private label — a
-    // hard ladder break, explained inline with a one-tap fix.
+    // hard ladder break, explained inline with a one-tap fix, and the CTA
+    // flips to the red-outlined blocked state that NAMES the blocker.
     for (const d of ["1", "0", "0"]) await page.getByRole("button", { name: d, exact: true }).click();
     await expect(shell.getByText(/Breaks the .* ladder — needs at least/)).toBeVisible();
     const fixChip = shell.getByRole("button", { name: /^Use \$/ });
     await expect(fixChip).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Save/ })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Resolve pricing issue" })).toBeVisible();
     await page.screenshot(SHOT("09-ladder-break"));
 
     await fixChip.click();
@@ -147,6 +156,10 @@ test.describe("unified item screen (TC57X viewport)", () => {
     // stated again on the Save button itself.
     const famStrip = shell.getByRole("button", { name: /Also updates \d+ related item/ });
     await expect(famStrip).toBeVisible();
+    const famN = parseInt((await famStrip.innerText()).match(/\d+/)![0], 10);
+    expect(famN).toBeGreaterThan(0);
+    // The Relationships pill lights up while the draft moves the family.
+    await expect(shell.getByText(/\d+ items follow/)).toBeVisible();
     await famStrip.click();
     await page.screenshot(SHOT("10-family-preview"));
     const saveBtn = page.getByRole("button", { name: /^Save · \d+ items$/ });
@@ -160,11 +173,21 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await page.screenshot(SHOT("11-ready-to-save"));
 
     await saveBtn.click();
-    await expect(page.getByText("Item updated")).toBeVisible();
+    await expect(page.getByRole("status").getByText(/Doritos Nacho Cheese/)).toBeVisible();
     await expect(page.getByText(/\d+ related items updated/)).toBeVisible();
     await expect(page.getByText("Added to Store Walk")).toBeVisible();
     await page.screenshot(SHOT("12-family-overlay"));
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
+
+    // The family doesn't just preview — every connected member LANDS in the
+    // walk. The edited item + its N relations all count, and the tray groups
+    // them under one caption (discarded as one, since they share the price).
+    await expect(
+      page.getByRole("button", { name: new RegExp(`Session tray, ${famN + 1} edited this walk`) })
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Session tray, \d+ edited this walk/ }).click();
+    await expect(shell.getByText(new RegExp(`· ${famN + 1} items`))).toBeVisible();
+    await page.screenshot(SHOT("16-family-in-tray"));
   });
 
   test("inventory: weekly delta, save without reason, no walk-tray noise", async ({ page }) => {
@@ -181,7 +204,7 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await page.screenshot(SHOT("13-weekly-delta"));
 
     // Inventory-only change: no reason needed, saves clean.
-    const saveBtn = page.getByRole("button", { name: "Save", exact: true });
+    const saveBtn = page.getByRole("button", { name: "Save & next" });
     await expect(saveBtn).toBeEnabled();
     await saveBtn.click();
     await expect(page.getByText("Inventory updated")).toBeVisible();
@@ -189,6 +212,43 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(page.getByText("Waiting for barcode…")).toBeVisible();
     // Not price work → the walk tally stays untouched.
     await expect(page.getByRole("button", { name: "Session tray, 0 edited this walk" })).toBeVisible();
+  });
+
+  test("no deal → add deal seeds a placeholder; blocked-reason CTA points at the cause", async ({ page }) => {
+    await page.goto("/#m/walk");
+    await page.getByRole("button", { name: "Simulate scan" }).click();
+    await page.getByRole("button", { name: /EDLP-5/ }).click();
+
+    const shell = page.getByTestId("mobile-shell");
+    // Promo-less item: the retail row rests as "No deal" — not a fake $0.00.
+    await expect(shell.getByText("No deal")).toBeVisible();
+    await shell.getByRole("button", { name: "Add deal" }).click();
+    // Seeds the base price as a dimmed placeholder + summons the keypad;
+    // nothing committed, so the CTA stays pristine.
+    await expect(page.getByRole("group", { name: "Price keypad" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
+    // Dismiss with nothing typed → the row collapses back to No deal.
+    await page.getByRole("button", { name: "Hide keypad" }).click();
+    await expect(shell.getByText("No deal")).toBeVisible();
+    await page.screenshot(SHOT("17-no-deal"));
+
+    // Type a real deal → chips arrive with a red "Add reason"; the blocked
+    // CTA names it and, tapped, pulses the offending section instead of saving.
+    await shell.getByRole("button", { name: "Add deal" }).click();
+    for (const d of ["1", "0", "0"]) await page.getByRole("button", { name: d, exact: true }).click();
+    await expect(shell.getByText("$1.00", { exact: true })).toBeVisible();
+    const blocked = page.getByRole("button", { name: "Add reason codes" });
+    await expect(blocked).toBeVisible();
+    await blocked.click();
+    await expect(shell.locator(".pulse-attention")).toHaveCount(1);
+    await expect(page.getByText("Waiting for barcode…")).toHaveCount(0); // no save happened
+    await page.screenshot(SHOT("18-blocked-reason"));
+
+    await shell.getByRole("button", { name: "Add reason", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Manager special", exact: true }).click();
+    await page.getByRole("button", { name: "Save & next" }).click();
+    await expect(page.getByText("$1.00 deal")).toBeVisible();
+    await expect(page.getByText("Waiting for barcode…")).toBeVisible();
   });
 
   test("cancelled fuel change never inflates the pill (regression)", async ({ page }) => {
@@ -210,10 +270,10 @@ test.describe("unified item screen (TC57X viewport)", () => {
     const shell = page.getByTestId("mobile-shell");
     const picked = await pickFuelDifferentFromCurrent(page);
     await expect(shell.getByRole("button", { name: /^Fuel/ })).toContainText(picked);
-    // Reason is REQUIRED before anything reaches SAP.
-    await expect(page.getByRole("button", { name: "Send to SAP" })).toBeDisabled();
-    await expect(shell.getByText("Add a change reason to send")).toBeVisible();
-    await shell.getByRole("button", { name: "Reason", exact: true }).click();
+    // Reason is REQUIRED before anything reaches SAP — the CTA itself names
+    // the blocker (red outline), and the chip under the change is red too.
+    await expect(page.getByRole("button", { name: "Add reason codes" })).toBeVisible();
+    await shell.getByRole("button", { name: "Add reason", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Displays", exact: true }).click();
     await expect(page.getByRole("button", { name: "Send to SAP" })).toBeEnabled();
     await page.screenshot(SHOT("14-maint-ready"));

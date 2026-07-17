@@ -14,32 +14,43 @@ type FieldProps = {
 // so "tap a value, type on the keypad" is a single skill across the screen.
 function IntField({ label, value, active, hasDraft, delta, onFocus }: FieldProps) {
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1">
-      <span className={`text-xs font-semibold uppercase tracking-wide ${active ? "text-brand" : "text-gray-700"}`}>{label}</span>
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+      <span className={`text-xs font-medium ${active ? "text-brand" : "text-gray-400"}`}>{label}</span>
+      {/* Same affordance convention as the price rows: bare bold numeral,
+          chrome only while active. One register BELOW base price — inventory
+          is context, not a decision; it must not read as a third price. */}
       <button
         type="button"
         onClick={onFocus}
         aria-label={`Edit ${label.toLowerCase()}`}
-        className={`flex items-baseline gap-1.5 rounded-lg border-2 px-3 py-1.5 text-left transition-colors ${
-          active ? "border-brand bg-brand/10" : "border-gray-300 bg-gray-50"
-        }`}
+        className="select-none touch-manipulation py-0.5 text-left"
       >
-        <span className={`text-xl font-bold tabular-nums ${active && !hasDraft ? "text-gray-400" : "text-gray-900"}`}>
-          {value}
-          {active && (
-            <span
-              aria-hidden="true"
-              className="caret-blink ml-0.5 inline-block h-[0.85em] w-[2px] translate-y-[0.1em] rounded-full bg-brand"
-            />
+        <span
+          className={`inline-flex items-baseline gap-1.5 rounded-[18px] ${
+            active ? "-my-1 bg-brand/10 py-1 pl-3 pr-4" : ""
+          }`}
+        >
+          <span
+            className={`w-fit text-[22px] font-semibold leading-none tabular-nums ${
+              active && !hasDraft ? "text-gray-300" : "text-gray-900"
+            } ${active ? "" : "border-b border-dashed border-gray-300 pb-1"}`}
+          >
+            {value}
+            {active && (
+              <span
+                aria-hidden="true"
+                className="caret-blink ml-0.5 inline-block h-[0.85em] w-[2px] translate-y-[0.1em] rounded-full bg-brand"
+              />
+            )}
+          </span>
+          {/* The delta is the meaning — visually secondary, immediately read. */}
+          {delta != null && delta !== 0 && (
+            <span className="text-sm font-medium tabular-nums text-gray-400">
+              ({delta > 0 ? "+" : "−"}
+              {Math.abs(delta)})
+            </span>
           )}
         </span>
-        {/* The delta is the meaning — visually secondary, immediately read. */}
-        {delta != null && delta !== 0 && (
-          <span className="text-sm font-medium tabular-nums text-gray-500">
-            ({delta > 0 ? "+" : "−"}
-            {Math.abs(delta)})
-          </span>
-        )}
       </button>
     </div>
   );
@@ -72,7 +83,7 @@ export function InventoryCard({
   onFocusWeekly,
 }: Props) {
   return (
-    <section className="flex gap-3 rounded-xl border border-gray-300 bg-white p-3">
+    <section className="flex gap-6">
       <IntField label="On hand" value={onHand} active={onHandActive} hasDraft={onHandHasDraft} onFocus={onFocusOnHand} />
       <IntField
         label="Weekly units"
