@@ -59,14 +59,19 @@ test.describe("unified item screen (TC57X viewport)", () => {
     for (const d of ["2", "9", "9"]) await page.getByRole("button", { name: d, exact: true }).click();
     await expect(shell.getByText("$2.99", { exact: true })).toBeVisible();
     await expect(shell.getByText(/was \$3\.99/)).toBeVisible();
-    // Seeded store reason rides in pre-filled — the chip shows it, editable.
-    await expect(shell.getByRole("button", { name: /Local deal/ })).toBeVisible();
+    // Every fresh change owns its justification: the prior reason does NOT ride
+    // in. The chip reads "Add reason" and the CTA names the blocker.
+    await expect(shell.getByRole("button", { name: "Add reason", exact: true })).toBeVisible();
+    await expect(shell.getByRole("button", { name: /Local deal/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add reason codes" })).toBeVisible();
     await page.screenshot(SHOT("02-editing-posture"));
 
-    // Re-pick the reason from the chip's sheet.
-    await shell.getByRole("button", { name: /Local deal/ }).click();
+    // Pick the reason from the chip's sheet — it opens unselected, so even the
+    // same reason must be chosen deliberately. Then the save unblocks.
+    await shell.getByRole("button", { name: "Add reason", exact: true }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Manager special", exact: true }).click();
     await expect(shell.getByRole("button", { name: /Manager special/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeEnabled();
 
     // Save — success overlay (auto-dismisses ~850ms) → scanner, tally bumped.
     // The overlay is a receipt: the item, the deal it now carries.
@@ -166,8 +171,13 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await famStrip.click();
     await page.screenshot(SHOT("10-family-preview"));
 
-    // Doritos seeds a store-chosen base reason — the chip rides in filled, so
-    // nothing else gates; the save is ready.
+    // A fresh base price edit owns its justification — the seeded reason does
+    // NOT ride in. The chip reads "Add reason" and the CTA names the blocker.
+    await expect(shell.getByRole("button", { name: "Add reason", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add reason codes" })).toBeVisible();
+    // Pick the base reason → nothing else gates; the save is ready.
+    await shell.getByRole("button", { name: "Add reason", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Cost change", exact: true }).click();
     await expect(shell.getByRole("button", { name: /Cost change/ })).toBeVisible();
     const saveBtn = page.getByRole("button", { name: /^Save · \d+ items$/ });
     await expect(saveBtn).toBeEnabled();
@@ -199,14 +209,22 @@ test.describe("unified item screen (TC57X viewport)", () => {
     await expect(page.getByRole("button", { name: "Save & next" })).toBeDisabled();
 
     // Tap the window → the promo-window sheet; extend to two weeks (no price
-    // touched). The read-only window yields to the editable when&why chips and
-    // the change is saveable on its own.
+    // touched). The read-only window yields to the editable when&why chips.
     await runWindow.click();
     await expect(page.getByText(/Promo window/i)).toBeVisible();
     await page.getByRole("button", { name: "2 weeks" }).click();
-    await expect(page.getByRole("button", { name: "Save & next" })).toBeEnabled();
+    // A date-only edit is still a change: it needs a fresh reason. The prior
+    // reason does NOT carry over, so the CTA names the blocker and the chip is empty.
+    await expect(page.getByRole("button", { name: "Add reason codes" })).toBeVisible();
+    await expect(shell.getByRole("button", { name: "Add reason", exact: true })).toBeVisible();
     await expect(shell.getByRole("button", { name: /^Undo$/ })).toBeVisible();
     await page.screenshot(SHOT("17-dates-only-change"));
+
+    // Justify it — even re-picking the same reason is a deliberate act → saveable.
+    await shell.getByRole("button", { name: "Add reason", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Manager special", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save & next" })).toBeEnabled();
+    await page.screenshot(SHOT("18-dates-only-justified"));
   });
 
   test("competitors panel: the desktop comparison table, reworked for mobile", async ({ page }) => {

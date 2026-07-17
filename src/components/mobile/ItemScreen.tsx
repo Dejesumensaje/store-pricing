@@ -374,11 +374,28 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     if (s === "retail") return !!item.hqRetailReason && !item.retailReviewed;
     return !!item.hqFuelReason && !item.fuelReviewed;
   };
+  // A fresh STORE edit made THIS visit — a price/amount typed now, or an offer
+  // window moved now. Every such change owns its justification: it must NOT
+  // inherit the reason committed for a PRIOR decision, so the director re-picks
+  // (even the same reason) and the change is explicitly justified (product
+  // 2026-07-17 — "todo cambio lo necesito justificar, así la razón siga siendo
+  // la misma"). An HQ-originated section is exempt: reviewing a push isn't a
+  // store-originated change, so it still rides in on HQ's reason (recOriginated).
+  const freshEdit = (s: Section): boolean => {
+    if (s === "base") return baseDraftCents != null;
+    if (s === "retail") return retailDraftCents != null || retailDatesDraft !== undefined;
+    return fuelChangedNow || fuelDatesDraft !== undefined;
+  };
   const reasonFor = (s: Section): string | null => {
     if (!item) return null;
     const draft = s === "base" ? baseReasonDraft : s === "retail" ? retailReasonDraft : fuelReasonDraft;
-    const chosen = draft ?? (s === "base" ? item.chosenBaseReason : s === "retail" ? item.chosenRetailReason : item.chosenFuelReason);
-    if (chosen) return reasonLabelOf(chosen);
+    if (draft) return reasonLabelOf(draft);
+    // A fresh store edit needs its reason picked THIS visit — skip the committed
+    // fallback so the "why" reads empty (and the save blocks) until re-justified.
+    if (!freshEdit(s)) {
+      const chosen = s === "base" ? item.chosenBaseReason : s === "retail" ? item.chosenRetailReason : item.chosenFuelReason;
+      if (chosen) return reasonLabelOf(chosen);
+    }
     if (recOriginated(s)) {
       const hq = s === "base" ? item.hqBaseReason : s === "retail" ? item.hqRetailReason : item.hqFuelReason;
       return hq ? reasonLabelOf(hq) : null;
@@ -1192,10 +1209,10 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         }
         value={
           sheet?.section === "base"
-            ? baseReasonDraft ?? item.chosenBaseReason
+            ? baseReasonDraft ?? (freshEdit("base") ? undefined : item.chosenBaseReason)
             : sheet?.section === "fuel"
-              ? fuelReasonDraft ?? item.chosenFuelReason
-              : retailReasonDraft ?? item.chosenRetailReason
+              ? fuelReasonDraft ?? (freshEdit("fuel") ? undefined : item.chosenFuelReason)
+              : retailReasonDraft ?? (freshEdit("retail") ? undefined : item.chosenRetailReason)
         }
         onSelect={(v) => {
           if (sheet?.section === "base") setBaseReasonDraft(v as StoreBaseReason | HqBaseReason);
