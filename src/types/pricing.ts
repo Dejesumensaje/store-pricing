@@ -58,6 +58,22 @@ export type Sensitivity = "H" | "M" | "L";
 export type ImpactLevel = "High" | "Medium" | "Low";
 export type OverrideStatus = "pending" | "confirmed";
 
+/**
+ * One prior price change on an item — the unit of the mobile "History" panel.
+ * History is kept per CHANGE, not per day: changes are sparse and irregular, so
+ * the panel shows the most recent N regardless of age (never a fixed time
+ * window). `from`/`to` are per-unit dollars for base/retail, and the cents-off
+ * amount for fuel. `reason` reuses the same catalog as live decisions
+ * (`PriceChangeReason`, spelled out here to avoid a types↔lib import cycle).
+ */
+export type PriceHistoryEntry = {
+  date: string; // ISO yyyy-mm-dd
+  type: "base" | "retail" | "fuel";
+  from: number;
+  to: number;
+  reason: HqBaseReason | HqPromoReason | StoreBaseReason | StorePromoReason;
+};
+
 export type PricingItem = {
   id: string;
   image?: string;
@@ -95,6 +111,9 @@ export type PricingItem = {
   isKvi?: boolean;
   /** Display name of the price family this item belongs to (e.g. "Reg Chips 11.5 oz"). */
   priceFamilyName?: string;
+  /** Recent price-change log (mobile "History" panel) — newest-first is not
+      assumed; the panel sorts. Sparse/optional; absent = no history to show. */
+  priceHistory?: PriceHistoryEntry[];
   // Base price fields
   currentBasePrice: number;
   cost: number;

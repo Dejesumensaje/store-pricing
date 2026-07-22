@@ -6,11 +6,11 @@
 //      backend must return; Override is what the store sends on each edit
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason } from "@/types/pricing";
+import { PricingItem, Override, CompetitorPrice, ItemRole, Sensitivity, HqBaseReason, HqPromoReason, PriceHistoryEntry } from "@/types/pricing";
 import { registerRelationships, type ProductRelationship } from "@/lib/product-relationships";
 import { STORES, DEFAULT_STORE_ID } from "@/lib/store-config";
 import { round2 } from "@/lib/pricing-math";
-import { upcFromId, departmentForCategory } from "@/lib/mobile";
+import { upcFromId, departmentForCategory, isoAddDays } from "@/lib/mobile";
 
 // Deterministic (no Math.random — hydration must be stable) char-code sum,
 // used below to decide which competitors have an active TPR on a given item.
@@ -33,6 +33,57 @@ const FAMILY_NAMES: Record<string, string> = {
   "fl-tortilla": "Reg Tortilla Chips 9–11 oz",
   "fl-lays-snacks": "Lay's snacks 4.75–7.75 oz",
 };
+
+// Deterministic, item-specific price-change log for the mobile "History" panel.
+// No Math.random / Date.now (hydration must stay stable) — everything derives
+// from the item's id-char-code sum and its own base price. Changes are SPARSE
+// and irregular (week-plus gaps, mixed price types), so the panel's "last N,
+// regardless of age" framing has realistic data. Every date falls before the
+// ~2026-07-16 "today" anchor, i.e. genuinely in the past. Entries come out
+// newest-first (index 0 is closest to the anchor).
+const HISTORY_ANCHOR = "2026-07-14";
+const HISTORY_BASE_REASONS: HqBaseReason[] = ["cost_change", "competitor_change", "hq_pricing_review"];
+const HISTORY_PROMO_REASONS: HqPromoReason[] = ["allowance", "displays", "wow_buy"];
+const HISTORY_TYPES: PriceHistoryEntry["type"][] = ["base", "retail", "base", "fuel", "retail", "base"];
+function synthPriceHistory(item: PricingItem, idSum: number): PriceHistoryEntry[] {
+  const n = 4 + (idSum % 7); // 4..10 changes
+  const center = item.currentBasePrice;
+  const entries: PriceHistoryEntry[] = [];
+  let offset = 0;
+  for (let i = 0; i < n; i++) {
+    offset += 5 + ((idSum + i * 7) % 40); // 5..44-day irregular gaps, walking back
+    const date = isoAddDays(HISTORY_ANCHOR, -offset);
+    const type = HISTORY_TYPES[(idSum + i) % HISTORY_TYPES.length];
+    const dir = (idSum + i) % 2 === 0 ? 1 : -1; // a prior raise or cut
+    if (type === "fuel") {
+      const steps = 1 + ((idSum + i) % 5); // 1..5 → $0.10..$0.50
+      let fromSteps = Math.min(5, Math.max(1, steps + dir));
+      if (fromSteps === steps) fromSteps = steps - dir; // guarantee a real move
+      entries.push({
+        date,
+        type,
+        from: round2(0.1 * fromSteps),
+        to: round2(0.1 * steps),
+        reason: HISTORY_PROMO_REASONS[(idSum + i) % HISTORY_PROMO_REASONS.length],
+      });
+    } else {
+      const anchor = type === "retail" ? center * 0.88 : center;
+      const to = round2(anchor * (1 + (((idSum + i * 11) % 9) - 4) / 100)); // ±4% around anchor
+      const pct = 2 + ((idSum + i * 3) % 7); // a 2..8% prior move
+      entries.push({
+        date,
+        type,
+        from: round2(to * (1 + (dir * pct) / 100)),
+        to,
+        reason:
+          type === "retail"
+            ? HISTORY_PROMO_REASONS[(idSum + i) % HISTORY_PROMO_REASONS.length]
+            : HISTORY_BASE_REASONS[(idSum + i) % HISTORY_BASE_REASONS.length],
+      });
+    }
+  }
+  return entries;
+}
 
 // Synthesize believable competitor prices + temp-allowance fields for every
 // item, so the drawer always has context and ANY item can be switched to a
@@ -83,6 +134,7 @@ function enrichItemContext(item: PricingItem): PricingItem {
     // High-sensitivity SKUs are the prices shoppers watch — flag them KVI.
     isKvi: item.isKvi ?? item.sensitivity === "H",
     priceFamilyName: item.priceFamilyName ?? (familyId ? FAMILY_NAMES[familyId] : undefined),
+    priceHistory: item.priceHistory ?? synthPriceHistory(item, idSum),
     // Mobile-only context (Zebra TC57X scan flows + Details disclosure) —
     // synthesized deterministically since the mock catalog has no real UPC.
     upc: item.upc ?? upcFromId(item.id),

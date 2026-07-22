@@ -35,9 +35,11 @@ test.describe("unified item screen (TC57X viewport)", () => {
     // step indicator, no Base disclosure, no keypad until a field is tapped.
     await expect(shell.getByText("1 / 2")).toHaveCount(0);
     // Margin is one calculation PER price, now light ground beside each price
-    // (retail vs allowance cost, base vs unit cost) — not a blended number and
-    // not a boxed row. Two "GM" grounds, distinct percentages.
-    await expect(shell.getByText("34.7%")).toBeVisible();
+    // (retail vs allowance cost LESS the Fuel Saver giveback, base vs unit cost)
+    // — not a blended number and not a boxed row. Two "GM" grounds, distinct
+    // percentages. Lay's carries a $0.10 Fuel Saver, so the retail GM runs
+    // 3.49 − allowanceCost − 0.10 → 31.8% (was 34.7% before fuel counted).
+    await expect(shell.getByText("31.8%")).toBeVisible();
     await expect(shell.getByText("33.6%")).toBeVisible();
     await expect(shell.getByText("GM")).toHaveCount(2);
     await expect(shell.getByText(/^Base price$/)).toBeVisible();

@@ -26,6 +26,10 @@ type Props = {
   /** This price's live gross margin (percent), inline ground beside the
       price — information, never a control. Null hides the slot. */
   marginPct?: number | null;
+  /** The per-unit cost behind this price, surfaced only while the row is
+      being edited — the merchant sees the floor the margin runs against as
+      they type. Null hides it. */
+  unitCost?: number | null;
   /** Multi-unit ("N for $X") behind a conscious opt-in: a quiet header-row
       link, shown only while the row is active (or already multi-unit).
       Rows carrying a multi-unit deal open with the stepper visible. */
@@ -39,37 +43,6 @@ type Props = {
       directly under the row that caused them, in one fixed slot order. */
   children?: React.ReactNode;
 };
-
-// The reactive-margin delta: the NET margin change across one edit, flashed
-// once the value settles (the field is released) — not per keystroke, which
-// would spike on half-typed prices like $0.02. This is why the walk exists: a
-// multi-unit deal can push the unit price under the funded cost, and the
-// merchant sees exactly how far the margin moved.
-function useMarginDelta(marginPct: number | null | undefined, active: boolean) {
-  const startRef = useRef<number | null>(null); // margin when the edit began
-  const wasActive = useRef(active);
-  const token = useRef(0);
-  const [delta, setDelta] = useState<{ v: number; token: number } | null>(null);
-  useEffect(() => {
-    const prevActive = wasActive.current;
-    wasActive.current = active;
-    if (active && !prevActive) {
-      startRef.current = marginPct ?? null; // began editing — remember the start
-      return;
-    }
-    if (!active && prevActive) {
-      const start = startRef.current;
-      startRef.current = null;
-      if (start == null || marginPct == null || Math.abs(marginPct - start) <= 0.05) return;
-      token.current += 1;
-      const t = token.current;
-      setDelta({ v: marginPct - start, token: t });
-      const clear = setTimeout(() => setDelta((d) => (d?.token === t ? null : d)), 1900);
-      return () => clearTimeout(clear);
-    }
-  }, [active, marginPct]);
-  return delta;
-}
 
 // Live margins go absurd on half-typed prices ($0.02 → −11900%); the number is
 // only meaningful once enough is typed. Below the floor we show that it's under
@@ -147,6 +120,7 @@ export function PriceRow({
   hasDraft,
   wasLabel,
   marginPct,
+  unitCost,
   multiUnitOptIn,
   error,
   onFocus,
@@ -155,7 +129,23 @@ export function PriceRow({
 }: Props) {
   const { shownCents, shownMargin } = useCountingCents(displayCents, popToken, marginPct);
   const total = shownCents / 100;
-  const delta = useMarginDelta(marginPct, active);
+  // The NET margin change a draft introduces, shown PERMANENTLY beside the GM
+  // (was a 1.9s flash). Baselined on the RESTING margin — the committed price's
+  // margin, captured while there's no draft ("store info from a previous render"
+  // pattern, not an effect) and frozen once a draft appears. Suppressed while the
+  // GM is in the half-typed "under cost" noise (≤ −100%) or the price is invalid,
+  // so it never spikes on an incomplete number.
+  const [restingMargin, setRestingMargin] = useState<number | null>(marginPct ?? null);
+  if (!hasDraft && (marginPct ?? null) !== restingMargin) setRestingMargin(marginPct ?? null);
+  const marginDelta =
+    hasDraft &&
+    !error &&
+    restingMargin != null &&
+    marginPct != null &&
+    marginPct > -100 &&
+    Math.abs(marginPct - restingMargin) > 0.05
+      ? marginPct - restingMargin
+      : null;
   const dimmed = active && !hasDraft;
   const showStepper = multiUnitOptIn ? qty > 1 : active || qty > 1;
   const showOptIn = multiUnitOptIn && (active || qty > 1);
@@ -227,26 +217,34 @@ export function PriceRow({
             </span>
           </span>
         </button>
-        {/* Margin is light inline ground — never a surface. The net delta
-            springs in above it, positioned so it never reflows the layout. */}
+        {/* Margin is light inline ground — never a surface. */}
         {shownMargin != null && (
-          <span className="relative shrink-0 whitespace-nowrap text-xs text-gray-400">
+          <span className="shrink-0 whitespace-nowrap text-xs text-gray-400">
             GM{" "}
             <span className={`text-sm font-semibold tabular-nums ${shownMargin < 0 ? "text-red-500" : "text-gray-500"}`}>
               {marginLabel(shownMargin)}
             </span>
-            {delta && (
-              <span
-                key={delta.token}
-                aria-hidden="true"
-                className={`margin-delta pointer-events-none absolute -top-3.5 right-0 text-[11px] font-bold tabular-nums ${
-                  delta.v < 0 ? "text-red-500" : "text-emerald-600"
-                }`}
-              >
-                {delta.v > 0 ? "+" : "−"}
-                {Math.abs(delta.v).toFixed(1)}
-              </span>
-            )}
+          </span>
+        )}
+        {/* The net margin change this draft introduces — permanent, to the right
+            of the GM, so the merchant always sees how far the margin moved (not a
+            flash that fades). Green up, red down. */}
+        {marginDelta != null && (
+          <span
+            className={`shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums ${
+              marginDelta < 0 ? "text-red-500" : "text-emerald-600"
+            }`}
+          >
+            {marginDelta > 0 ? "+" : "−"}
+            {Math.abs(marginDelta).toFixed(1)}
+          </span>
+        )}
+        {/* The cost floor the margin runs against — surfaced only while the row
+            is being edited, so the merchant sees exactly how close the price is
+            getting to cost as they type. Quiet caption ground, never a control. */}
+        {active && unitCost != null && (
+          <span className="shrink-0 whitespace-nowrap text-xs text-gray-400">
+            Cost <span className="text-sm font-semibold tabular-nums text-gray-500">{fmt(unitCost)}</span>
           </span>
         )}
       </div>

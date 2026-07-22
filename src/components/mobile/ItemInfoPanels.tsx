@@ -1,11 +1,12 @@
 "use client";
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, Link2, Package, Store } from "lucide-react";
-import type { PricingItem } from "@/types/pricing";
+import { ChevronDown, ChevronLeft, History, Link2, Package, Store } from "lucide-react";
+import type { PricingItem, PriceHistoryEntry } from "@/types/pricing";
 import { usePricingStore } from "@/store/pricing-store";
 import { orderCompetitors, effectivePrice, competitorIndex, priceDiffLabel, priceDiffClass } from "@/lib/competitors";
-import { fmt } from "@/lib/format";
+import { fmt, fmtDateShort } from "@/lib/format";
+import { REASON_META, type PriceChangeReason } from "@/lib/price-change-reason";
 import { perUnit, round2 } from "@/lib/pricing-math";
 import {
   relationshipsFor,
@@ -15,18 +16,19 @@ import {
   type ProductRelationship,
 } from "@/lib/product-relationships";
 
-type PanelKind = "details" | "competitors" | "relationships";
+type PanelKind = "details" | "competitors" | "relationships" | "history";
 
 // Short labels on the cards; the full name goes on the opened panel's title.
-// Three equal cards in one row (evidence tiles) — a balanced, glanceable set
-// rather than a mixed grid. Each is a vertical tile: icon, label, one-line
-// status (the panel's headline fact).
+// Four equal cards in a 2×2 grid (evidence tiles) — a balanced, glanceable set.
+// Each is a vertical tile: icon, label, one-line status (the panel's headline
+// fact).
 const PANELS: { kind: PanelKind; pill: string; title: string; icon: typeof Package }[] = [
   { kind: "details", pill: "Details", title: "Product details", icon: Package },
   { kind: "competitors", pill: "Competitors", title: "Competitor prices", icon: Store },
   // Card label is "Groups" (fits the narrow column); the panel keeps the full
   // "Product relationships" title.
   { kind: "relationships", pill: "Groups", title: "Product relationships", icon: Link2 },
+  { kind: "history", pill: "History", title: "Price history", icon: History },
 ];
 
 // Reference info lives behind four pills (2-column grid) that expand into
@@ -52,6 +54,7 @@ export function ItemInfoPills({
   const [origin, setOrigin] = useState<string>("50% 50%");
 
   const competitorCount = (item.competitors ?? []).length;
+  const historyCount = (item.priceHistory ?? []).length;
   // Only LINE PRICING (family) propagates: editing the base price overwrites
   // every member of the shared group. The other relationship types (size
   // groups, good-better-best, private-label/national-brand) are comparison
@@ -74,6 +77,7 @@ export function ItemInfoPills({
       : otherGroups > 0
         ? { text: `${otherGroups} related` }
         : { text: "Priced alone" },
+    history: { text: historyCount > 0 ? `${historyCount} change${historyCount === 1 ? "" : "s"}` : "No history" },
   };
 
   const openPanel = (kind: PanelKind, el: HTMLElement) => {
@@ -86,7 +90,7 @@ export function ItemInfoPills({
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {PANELS.map(({ kind, pill, icon: Icon }) => (
           <Pill key={kind} pill={pill} Icon={Icon} status={status[kind]} onOpen={(el) => openPanel(kind, el)} />
         ))}
@@ -97,6 +101,7 @@ export function ItemInfoPills({
           {open === "details" && <DetailsPanel item={item} />}
           {open === "competitors" && <CompetitorsPanel item={item} />}
           {open === "relationships" && <RelationshipsPanel item={item} />}
+          {open === "history" && <HistoryPanel item={item} />}
         </InfoPanel>
       )}
     </>
@@ -215,6 +220,8 @@ function DetailsPanel({ item }: { item: PricingItem }) {
 }
 
 const COMP_FIELD_LABEL = "text-[10px] font-semibold uppercase tracking-wide text-gray-400";
+// A quiet brand tag marking the price type the director moved on this item.
+const COMP_CHANGED_TAG = "mt-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand";
 
 // The desktop competitor table (CompetitorPrices.tsx), reworked for the mobile
 // panel: same columns and data — Our-price anchor doubling as the column header
@@ -231,6 +238,11 @@ function CompetitorsPanel({ item }: { item: PricingItem }) {
       : item.category_type === "temporary_allowance"
         ? item.currentRetailPrice ?? null
         : null;
+  // Which price type the director has moved on this item — surfaced against the
+  // competitive set so the reader knows whether an index shift reflects a base
+  // or a deal decision (or both). Mirrors the pending-aware ourBase/ourRetail.
+  const baseChanged = item.newBasePrice != null;
+  const retailChanged = item.newRetailPrice != null;
   const competitors = orderCompetitors(item.competitors ?? []);
   if (competitors.length === 0) {
     return <p className="mt-10 text-center text-sm text-gray-600">No competitor prices for this item.</p>;
@@ -249,11 +261,13 @@ function CompetitorsPanel({ item }: { item: PricingItem }) {
         <span className="flex flex-col items-end tabular-nums">
           <span className={COMP_FIELD_LABEL}>Base</span>
           <span className="text-sm font-semibold text-gray-900">{fmt(ourBase)}</span>
+          {baseChanged && <span className={COMP_CHANGED_TAG}>changed</span>}
         </span>
         {showRetail && (
           <span className="flex flex-col items-end tabular-nums">
             <span className={COMP_FIELD_LABEL}>Retail</span>
             <span className="text-sm font-semibold text-gray-900">{ourRetail != null ? fmt(ourRetail) : "—"}</span>
+            {retailChanged && <span className={COMP_CHANGED_TAG}>changed</span>}
           </span>
         )}
         <span className="flex flex-col items-end tabular-nums">
@@ -318,6 +332,51 @@ function CompetitorsPanel({ item }: { item: PricingItem }) {
   );
 }
 
+const HISTORY_TYPE_LABEL: Record<PriceHistoryEntry["type"], string> = {
+  base: "Base price",
+  retail: "Retail",
+  fuel: "Fuel Saver",
+};
+
+// Price history — the item's recent price changes, most-recent first. Kept per
+// CHANGE, not per day: changes are sparse and irregular, so we show the last 10
+// regardless of age (never a fixed time window). Each row states what moved
+// (base / retail / fuel), the old → new value struck through, when, and the
+// reason code — the same catalog the live decision flow uses.
+function HistoryPanel({ item }: { item: PricingItem }) {
+  const history = [...(item.priceHistory ?? [])].sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 10);
+  if (history.length === 0) {
+    return <p className="mt-10 text-center text-sm text-gray-600">No recorded price changes for this item.</p>;
+  }
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+      {history.map((h, i) => (
+        <div
+          key={`${h.date}-${h.type}-${i}`}
+          className="flex items-start justify-between gap-3 border-b border-gray-100 px-3 py-2.5 last:border-0"
+        >
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-baseline gap-x-1.5">
+              <span className="text-sm font-medium text-gray-800">{HISTORY_TYPE_LABEL[h.type]}</span>
+              <span className="text-xs tabular-nums text-gray-400">{fmtDateShort(h.date)}</span>
+            </div>
+            <div className="truncate text-xs text-gray-500">
+              {REASON_META[h.reason as PriceChangeReason]?.label ?? h.reason}
+            </div>
+          </div>
+          <div className="shrink-0 whitespace-nowrap text-sm tabular-nums">
+            <span className="text-gray-400 line-through">{fmt(h.from)}</span>
+            <span aria-hidden="true" className="mx-1 text-gray-300">
+              →
+            </span>
+            <span className="font-semibold text-gray-900">{fmt(h.to)}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const REL_LABEL = "text-[10px] font-semibold uppercase tracking-wide text-gray-400";
 
 // Effective per-unit base price (pending override wins over the live price) —
@@ -338,25 +397,32 @@ function BasePriceCell({ m, current }: { m: PricingItem; current: boolean }) {
   );
 }
 
-// A short, always-visible statement of how a group's price bands are spaced —
-// the ordering rule plus the minimum gap that makes a step "narrow" (the amber
-// marker). It sits under the section title so every gap on screen has a stated
-// reference, no tap required.
-function ruleCaption(rel: ProductRelationship): { text: string; gap: string | null } {
+// A group's spacing rules, split by how strictly each is enforced — the
+// distinction the store team asked to see plainly. `hard` is a REQUIRED
+// ordering constraint: breaking it blocks the save (a hard ladder break). `soft`
+// is a GUIDELINE: the minimum step below which a gap reads as "narrow" (the amber
+// marker in the table) — a warning, never a block. Rendered as two tagged lines
+// under the section title, so every gap on screen has a stated reference and its
+// weight is unambiguous, no tap required.
+function ruleCaption(rel: ProductRelationship): { hard: string; soft: string | null } {
   const min = minGapFor(rel);
   switch (rel.type) {
     case "family":
-      return { text: "All members share one base price", gap: null };
+      return { hard: "All members share one base price", soft: null };
     case "size_parity":
-      return { text: "Larger sizes price above smaller", gap: `steps ≥${min}%` };
+      return { hard: "Larger sizes price above smaller", soft: `steps ≥${min}%` };
     case "good_better_best":
-      return { text: "Higher tiers price above lower", gap: `steps ≥${min}%` };
+      return { hard: "Higher tiers price above lower", soft: `steps ≥${min}%` };
     case "brand_pair":
-      return { text: "National brand above private label", gap: `gap ≥${min}%` };
+      return { hard: "National brand above private label", soft: `gap ≥${min}%` };
     default:
-      return { text: "", gap: null };
+      return { hard: "", soft: null };
   }
 }
+
+// The two rule weights, tagged. Hard = neutral/strong (it's enforced); soft =
+// amber, tying the guideline to the amber "narrow" gap marker in the table.
+const RULE_TAG = "shrink-0 text-[10px] font-semibold uppercase tracking-wide";
 
 // Collapsible relationship section. The gap rule rides as an always-visible
 // caption under the title (mobile has no hover, and this info is worth showing
@@ -369,7 +435,7 @@ function RelSection({
   children,
 }: {
   title: React.ReactNode;
-  caption: { text: string; gap: string | null };
+  caption: { hard: string; soft: string | null };
   count: number;
   defaultOpen?: boolean;
   children: React.ReactNode;
@@ -387,15 +453,19 @@ function RelSection({
           <span className="block text-sm font-semibold text-gray-700">
             {title} <span className="font-normal text-gray-400">({count})</span>
           </span>
-          <span className="mt-0.5 block text-xs text-gray-400">
-            {caption.text}
-            {caption.gap && (
-              <>
-                {" · "}
-                <span className="font-medium text-gray-500">{caption.gap}</span>
-              </>
-            )}
-          </span>
+          {/* Two weights, plainly tagged: what's ENFORCED vs what's a guideline. */}
+          {caption.hard && (
+            <span className="mt-1 flex items-baseline gap-1.5 text-xs text-gray-500">
+              <span className={`${RULE_TAG} text-gray-500`}>Required</span>
+              <span className="min-w-0">{caption.hard}</span>
+            </span>
+          )}
+          {caption.soft && (
+            <span className="mt-0.5 flex items-baseline gap-1.5 text-xs text-gray-400">
+              <span className={`${RULE_TAG} text-amber-600`}>Guideline</span>
+              <span className="min-w-0 tabular-nums">{caption.soft}</span>
+            </span>
+          )}
         </span>
         <ChevronDown
           aria-hidden="true"
@@ -441,11 +511,7 @@ function RelationshipsPanel({ item }: { item: PricingItem }) {
             defaultOpen
             count={members.length}
             caption={ruleCaption(rel)}
-            title={
-              <>
-                {meta.label} <span className="font-normal text-gray-400">· {rel.name}</span>
-              </>
-            }
+            title={meta.label}
           >
             <div className="-mx-4 -my-3">
               <div className={`${grid} bg-gray-50 px-4 py-2`}>

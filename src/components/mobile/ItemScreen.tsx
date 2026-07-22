@@ -133,6 +133,10 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const [fuelDatesDraft, setFuelDatesDraft] = useState<{ start: string | null; end: string | null } | undefined>(undefined);
   // The one sanctioned dialog: discarding meaningful unsaved work on exit.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // "Back to base" — the deliberate way to drop every edit made this visit and
+  // return the item to selling at its base price, without leaving the screen.
+  // Destructive, so it's gated by its own confirmation.
+  const [confirmBackToBase, setConfirmBackToBase] = useState(false);
   // Hard ladder-break resolution: the director chose "Fix related items" — keep
   // this price and move the neighbors on Save (the repair plan is recomputed at
   // commit from the current draft). Until chosen, the break blocks the save.
@@ -228,6 +232,9 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   // One calculation PER price, not a blended number: the promo margin runs
   // the retail price against the vendor-funded allowance cost, the base
   // margin runs base against unit cost (same math as desktop Financials).
+  // A FuelSaver rides on the shelf price as a per-unit giveback, so it's a
+  // cost against the RETAIL margin (denominator stays the shelf price): a
+  // deepened Fuel Saver visibly trims the deal's margin the moment it's set.
   // Each recomputes live as its own price is typed.
   const margins = useMemo(() => {
     if (!item) return null;
@@ -241,11 +248,14 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
             : null;
     const baseUnit = baseUnitDraft ?? baseRef;
     const retailCost = item.allowanceCost ?? item.cost;
+    // Draft-aware FuelSaver per unit (mirrors effFuel, declared below): the
+    // director's in-progress amount wins, else the committed value; 0 when none.
+    const fuelPerUnit = (fuelDraft !== undefined ? fuelDraft : item.fuelSaver) ?? 0;
     return {
-      retail: retailUnit != null && retailUnit > 0 ? ((retailUnit - retailCost) / retailUnit) * 100 : null,
+      retail: retailUnit != null && retailUnit > 0 ? ((retailUnit - retailCost - fuelPerUnit) / retailUnit) * 100 : null,
       base: baseUnit > 0 ? ((baseUnit - item.cost) / baseUnit) * 100 : null,
     };
-  }, [item, retailDraftCents, retailQty, baseUnitDraft, baseRef, hasRetail]);
+  }, [item, retailDraftCents, retailQty, baseUnitDraft, baseRef, hasRetail, fuelDraft]);
 
   // ── HQ recommendations, per section (absent for most items) ────────────
   const recBaseCents = item ? Math.round(item.recommendedBasePrice * 100) : 0;
@@ -334,6 +344,16 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     setKept((k) => ({ ...k, fuel: false }));
     setFuelReasonDraft(undefined);
     setFuelDatesDraft(undefined);
+  };
+  // "Back to base": every section's one-tap reversal at once — the item drops
+  // back to how it was found this visit (base price untouched, no drafted deal,
+  // fuel, reasons or dates). Pure local reset, like the per-section undos; we
+  // stay on the item (no onCancel), so it's a reset, not an exit.
+  const resetAll = () => {
+    undoRetail();
+    undoBase();
+    undoFuel();
+    setActiveTarget(null);
   };
 
   // ── Which sections carry a change (drafted now, or committed earlier this
@@ -457,6 +477,24 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     if (lo === baseline && hi === baseline) return null;
     return { lo, hi };
   }, [item, baseDraftCents, retailDraftCents, retailQty, baseUnitDraft, hasRetail, weeklyDisplay, retailError, baseError]);
+
+  // ── Anti-flicker: keep the projection annotation stable while typing ───────
+  // The estimate span mounts/unmounts with the projection, and the memo returns
+  // null the instant a half-typed price is invalid — which made the emerald
+  // range appear, then blink off (and re-animate) mid-edit. So we HOLD the last
+  // valid projection while a price draft is active but only TRANSIENTLY invalid.
+  // A genuinely removed draft — or a valid price that doesn't move the shelf —
+  // still clears it (the documented "no move → no estimate" behavior stands).
+  // Neutral "no change" state for the weekly-units estimate: a price IS drafted
+  // and it's valid, but it doesn't move the shelf (a sub-threshold change, or a
+  // base edit under an active deal) so the projection is null. We show "≈ no
+  // change" rather than letting the estimate vanish mid-edit. An INVALID price
+  // stays blank here on purpose — the error strip owns the row (documented:
+  // "a forecast is only meaningful for a price that can actually ship").
+  const hasPriceDraft = baseDraftCents != null || retailDraftCents != null;
+  const drivingPriceInvalid =
+    retailDraftCents != null ? retailError != null : baseDraftCents != null ? baseError != null : false;
+  const weeklyFlat = hasPriceDraft && !drivingPriceInvalid && weeklyProjection == null;
 
   const canSave = retailError == null && baseError == null;
   const keptAny = kept.base || kept.retail || kept.fuel;
@@ -930,6 +968,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                   hasDraft={retailDraftCents != null}
                   wasLabel={retailDraftCents != null && hasRetail ? `was ${fmt(liveRetail)}` : null}
                   marginPct={margins?.retail ?? null}
+                  unitCost={item.allowanceCost ?? item.cost}
                   error={retailError}
                   onFocus={() => setTarget("retail")}
                   popToken={pops.retail}
@@ -952,6 +991,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                 hasDraft={baseDraftCents != null}
                 wasLabel={baseDraftCents != null ? `was ${fmt(item.currentBasePrice)}` : null}
                 marginPct={margins?.base ?? null}
+                unitCost={item.cost}
                 multiUnitOptIn
                 error={baseError}
                 onFocus={() => setTarget("base")}
@@ -1111,6 +1151,15 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                   <ChevronRight className="size-4 text-gray-400" aria-hidden="true" />
                 </span>
               </button>
+              {/* Stacking guard — a Fuel Saver and a shelf deal can both be live,
+                  but signage can only advertise one offer at a time. A quiet,
+                  non-blocking amber note (matches the soft-notice grammar) when
+                  both are active this visit. */}
+              {(effFuel ?? 0) > 0 && (hasRetail || retailDraftCents != null) && (
+                <span className="text-xs font-medium text-amber-700">
+                  Signage shows one offer — this Fuel Saver stacks on an active deal.
+                </span>
+              )}
               {fuelRecActive && (
                 <HqRecBlock
                   status={fuelRecStatus}
@@ -1138,7 +1187,12 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
           </section>
 
           <div className="border-t border-gray-100 pt-5">
-            <ItemStats onHand={onHandDisplay} weekly={weeklyDisplay} weeklyProjection={weeklyProjection} />
+            <ItemStats
+              onHand={onHandDisplay}
+              weekly={weeklyDisplay}
+              weeklyProjection={weeklyProjection}
+              weeklyFlat={weeklyFlat}
+            />
           </div>
 
           <ItemInfoPills item={item} familyItems={familyItems} draftBaseUnit={baseUnitDraft} />
@@ -1151,7 +1205,19 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
             <MobileKeypad onDigit={onDigit} onBackspace={onBackspace} onHide={() => setTarget(null)} />
           </div>
         )}
-        <div className="px-4 py-3">
+        <div className="flex items-center gap-3 px-4 py-3">
+          {/* "Back to base" — the deliberate discard-all, beside Done and only
+              once there's unsaved work to discard. A quiet secondary next to the
+              primary CTA; the confirmation carries the warning. */}
+          {hasUnsavedDrafts && !saving && (
+            <button
+              type="button"
+              onClick={() => setConfirmBackToBase(true)}
+              className="h-14 shrink-0 select-none touch-manipulation rounded-full px-5 text-base font-semibold text-gray-500 active:bg-gray-100"
+            >
+              Back to base
+            </button>
+          )}
           {/* The dock CTA — always tappable except pristine/loading. Blocked
               states keep the action hue but withhold the fill and NAME the
               blocker; tapping them scrolls to the cause. */}
@@ -1160,7 +1226,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
             onClick={handleSave}
             disabled={ctaState === "pristine" || saving}
             aria-label={saving ? "Saving" : undefined}
-            className={`flex h-14 w-full select-none touch-manipulation items-center justify-center rounded-full text-base font-semibold transition-colors ${
+            className={`flex h-14 flex-1 select-none touch-manipulation items-center justify-center rounded-full text-base font-semibold transition-colors ${
               ctaState === "pristine"
                 ? "bg-gray-100 text-gray-400"
                 : ctaState === "ready"
@@ -1265,6 +1331,32 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
           <Button variant="primary" className="h-12 w-full" onClick={() => setConfirmDiscard(false)}>
             Keep editing
           </Button>
+        </div>
+      </BottomSheet>
+
+      {/* "Back to base" confirmation — destructive discard-all, so it asks once.
+          Copy mirrors the approved mockup; "Yes, discard them" resets every
+          draft and stays on the item. */}
+      <BottomSheet open={confirmBackToBase} onClose={() => setConfirmBackToBase(false)} title="Back to base?">
+        <div className="flex flex-col gap-4 p-2">
+          <p className="px-1 text-sm text-gray-600">
+            We&rsquo;ll keep the base price as it is today. Any edits you made won&rsquo;t be saved.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" className="h-12 flex-1" onClick={() => setConfirmBackToBase(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="h-12 flex-1"
+              onClick={() => {
+                setConfirmBackToBase(false);
+                resetAll();
+              }}
+            >
+              Yes, discard them
+            </Button>
+          </div>
         </div>
       </BottomSheet>
 
