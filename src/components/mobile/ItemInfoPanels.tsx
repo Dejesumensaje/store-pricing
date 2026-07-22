@@ -529,6 +529,13 @@ function RelationshipsPanel({ item }: { item: PricingItem }) {
                 const prevUnit = i > 0 ? relBaseUnit(members[i - 1]) : 0;
                 const gap = prevUnit > 0 ? (relBaseUnit(m) / prevUnit - 1) * 100 : 0;
                 const narrow = minGap > 0 && gap < minGap - 0.05;
+                // The meta line carries only what a director doesn't already
+                // know at a glance: the "This item" marker and the ladder-rung
+                // chip (Good/Better/Best). Brand pairing is already stated by
+                // the section title, and the internal SKU id is never read on a
+                // walk — both dropped. The line disappears when nothing remains.
+                const metaChip = !isSize && rel.type !== "brand_pair" ? chip : null;
+                const hasMeta = current || !!metaChip;
                 return (
                   <Fragment key={m.id}>
                     {/* Separator between members. For ranked ladders it carries
@@ -558,16 +565,13 @@ function RelationshipsPanel({ item }: { item: PricingItem }) {
                         <p className={`truncate text-sm ${current ? "font-semibold text-gray-900" : "text-gray-700"}`}>
                           {m.name}
                         </p>
-                        <p className="truncate text-xs text-gray-400">
-                          {current && <span className="font-semibold text-brand">This item</span>}
-                          {current && " · "}
-                          {!isSize && chip && (
-                            <>
-                              <span className="font-medium uppercase tracking-wide">{chip}</span> ·{" "}
-                            </>
-                          )}
-                          {m.id}
-                        </p>
+                        {hasMeta && (
+                          <p className="truncate text-xs text-gray-400">
+                            {current && <span className="font-semibold text-brand">This item</span>}
+                            {current && metaChip && " · "}
+                            {metaChip && <span className="font-medium uppercase tracking-wide">{metaChip}</span>}
+                          </p>
+                        )}
                       </div>
                       {isSize && <span className="text-xs text-gray-500">{size}</span>}
                       <BasePriceCell m={m} current={current} />
