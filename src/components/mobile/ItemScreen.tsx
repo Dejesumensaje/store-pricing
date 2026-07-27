@@ -133,8 +133,8 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
   const [fuelDatesDraft, setFuelDatesDraft] = useState<{ start: string | null; end: string | null } | undefined>(undefined);
   // The one sanctioned dialog: discarding meaningful unsaved work on exit.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  // "Back to base" — the deliberate way to drop every edit made this visit and
-  // return the item to selling at its base price, without leaving the screen.
+  // "Revert changes" — the deliberate way to drop every edit made this visit and
+  // return the item to selling at today's prices, without leaving the screen.
   // Destructive, so it's gated by its own confirmation.
   const [confirmBackToBase, setConfirmBackToBase] = useState(false);
   // Hard ladder-break resolution: the director chose "Fix related items" — keep
@@ -345,7 +345,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
     setFuelReasonDraft(undefined);
     setFuelDatesDraft(undefined);
   };
-  // "Back to base": every section's one-tap reversal at once — the item drops
+  // "Revert changes": every section's one-tap reversal at once — the item drops
   // back to how it was found this visit (base price untouched, no drafted deal,
   // fuel, reasons or dates). Pure local reset, like the per-section undos; we
   // stay on the item (no onCancel), so it's a reset, not an exit.
@@ -1206,7 +1206,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
           </div>
         )}
         <div className="flex items-center gap-3 px-4 py-3">
-          {/* "Back to base" — the deliberate discard-all, beside Done and only
+          {/* "Revert changes" — the deliberate discard-all, beside Done and only
               once there's unsaved work to discard. A quiet secondary next to the
               primary CTA; the confirmation carries the warning. */}
           {hasUnsavedDrafts && !saving && (
@@ -1215,7 +1215,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
               onClick={() => setConfirmBackToBase(true)}
               className="h-14 shrink-0 select-none touch-manipulation rounded-full px-5 text-base font-semibold text-gray-500 active:bg-gray-100"
             >
-              Back to base
+              Revert changes
             </button>
           )}
           {/* The dock CTA — always tappable except pristine/loading. Blocked
@@ -1334,13 +1334,13 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
         </div>
       </BottomSheet>
 
-      {/* "Back to base" confirmation — destructive discard-all, so it asks once.
-          Copy mirrors the approved mockup; "Yes, discard them" resets every
+      {/* "Revert changes" confirmation — destructive discard-all, so it asks once.
+          Copy mirrors the approved mockup; "Yes, revert them" resets every
           draft and stays on the item. */}
-      <BottomSheet open={confirmBackToBase} onClose={() => setConfirmBackToBase(false)} title="Back to base?">
+      <BottomSheet open={confirmBackToBase} onClose={() => setConfirmBackToBase(false)} title="Revert changes?">
         <div className="flex flex-col gap-4 p-2">
           <p className="px-1 text-sm text-gray-600">
-            We&rsquo;ll keep the base price as it is today. Any edits you made won&rsquo;t be saved.
+            We&rsquo;ll keep the prices as they&rsquo;re today. Any edits you made won&rsquo;t be saved.
           </p>
           <div className="flex gap-2">
             <Button variant="secondary" className="h-12 flex-1" onClick={() => setConfirmBackToBase(false)}>
@@ -1354,7 +1354,7 @@ export function ItemScreen({ itemId, mode, autoSaveRef, onDone, onCancel }: Prop
                 resetAll();
               }}
             >
-              Yes, discard them
+              Yes, revert them
             </Button>
           </div>
         </div>
